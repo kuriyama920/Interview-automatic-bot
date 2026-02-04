@@ -14,9 +14,9 @@
     "url": "https://github.com/yourusername/interview-automatic-bot.git"
   },
   "scripts": {
-    "dev": "unset ELECTRON_RUN_AS_NODE && electron-vite dev",
-    "build": "unset ELECTRON_RUN_AS_NODE && electron-vite build",
-    "preview": "unset ELECTRON_RUN_AS_NODE && electron-vite preview",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
     "build:win": "npm run build && electron-builder --win --x64",
     "build:portable": "npm run build && electron-builder --win portable",
     "lint": "eslint src --ext .ts,.tsx",
@@ -36,7 +36,7 @@
     "pdf-parse": "^1.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "uuid": "^13.0.0",
+    "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },
   "devDependencies": {
@@ -48,10 +48,10 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "^6.18.0",
     "@typescript-eslint/parser": "^6.18.0",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^1.1.0",
     "autoprefixer": "^10.4.16",
     "daisyui": "^4.6.0",

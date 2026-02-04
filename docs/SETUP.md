@@ -10,20 +10,22 @@
 
 以下をインストールしてください：
 
-1. **Node.js v18.x LTS**（厳密なバージョン管理推奨）
+1. **Node.js v18.x LTS**
    - 推奨: v18.19.0以上
    - インストール確認: `node --version`
 
-2. **Git**
+2. **pnpm**（推奨パッケージマネージャー）
+   - インストール: `npm install -g pnpm`
+   - インストール確認: `pnpm --version`
+
+3. **Git**
    - ダウンロード: https://git-scm.com/
    - インストール確認: `git --version`
 
-3. **Visual Studio Code（推奨）**
+4. **Visual Studio Code**（推奨）
    - ダウンロード: https://code.visualstudio.com/
 
-### Node.js バージョン管理（チーム共有推奨）
-
-チームで同じNode.jsバージョンを使用するため、以下のいずれかを設定します：
+### Node.js バージョン管理
 
 #### 方法A: nvm + .nvmrc（推奨）
 
@@ -36,7 +38,6 @@
 nvm install 18.19.0
 nvm use 18.19.0
 
-# .nvmrcファイルで固定（既にリポジトリに含まれています）
 # チームメンバーは以下を実行するだけでOK
 nvm use
 ```
@@ -50,19 +51,9 @@ nvm use
 # プロジェクトでバージョン固定
 volta pin node@18.19.0
 volta pin pnpm@8.15.0
-
-# Voltaユーザーは自動的に正しいバージョンが使われる
 ```
 
-#### 方法C: 直接インストール
-
-Node.js公式サイトからLTS版をダウンロード:
-- ダウンロード: https://nodejs.org/
-
 ### 推奨VSCode拡張機能
-
-プロジェクトをVSCodeで開くと、推奨拡張機能のインストールが促されます。
-手動でインストールする場合は以下:
 
 - ESLint
 - Prettier - Code formatter
@@ -72,74 +63,32 @@ Node.js公式サイトからLTS版をダウンロード:
 
 ---
 
-## ステップ1: プロジェクト初期化
-
-### 1.1 リポジトリクローン（既存の場合）
+## ステップ1: リポジトリクローン
 
 ```bash
-git clone https://github.com/yourusername/interview-automatic-bot.git
-cd interview-automatic-bot
-```
-
-### 1.2 新規プロジェクト作成（まだ作成していない場合）
-
-```bash
-# Electron Vite公式テンプレート使用
-npm create @quick-start/electron@latest interview-automatic-bot
-
-# 以下を選択:
-# ✔ Project name: interview-automatic-bot
-# ✔ Select a framework: react
-# ✔ Add TypeScript? Yes
-# ✔ Add Electron updater plugin? No
-# ✔ Enable Electron download mirror proxy? No
-
-cd interview-automatic-bot
+git clone https://github.com/yourusername/Interview-automatic-bot.git
+cd Interview-automatic-bot
 ```
 
 ---
 
 ## ステップ2: 依存関係インストール
 
-### 2.1 パッケージマネージャー選択
-
-**npm使用の場合:**
 ```bash
-npm install
-```
-
-**pnpm使用の場合（推奨・高速）:**
-```bash
-# pnpmインストール（まだの場合）
-npm install -g pnpm
-
-# 依存関係インストール
 pnpm install
 ```
 
-### 2.2 主要ライブラリ追加
+### インストールされる主要ライブラリ
 
-```bash
-# 音声認識・AI関連
-pnpm add @deepgram/sdk openai
-
-# ストレージ・ユーティリティ
-pnpm add electron-store winston ws
-
-# UI関連
-pnpm add @reduxjs/toolkit react-redux
-pnpm add tailwindcss daisyui postcss autoprefixer
-pnpm add react-markdown
-
-# RAG関連
-pnpm add langchain pdf-parse mammoth
-
-# 開発依存
-pnpm add -D @types/ws @types/pdf-parse
-pnpm add -D eslint prettier eslint-config-prettier
-pnpm add -D electron-builder
-pnpm add -D vitest @vitest/ui @testing-library/react
-```
+| カテゴリ | ライブラリ | 用途 |
+|---------|-----------|------|
+| 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
+| AI | openai | GPT-4o回答生成、Embeddings |
+| PDF解析 | pdf-parse | 履歴書PDFテキスト抽出 |
+| DOCX解析 | mammoth | Word文書テキスト抽出 |
+| テキスト分割 | langchain | RecursiveCharacterTextSplitter |
+| ログ | winston | 構造化ログ出力 |
+| UI | tailwindcss, daisyui | スタイリング |
 
 ---
 
@@ -148,7 +97,6 @@ pnpm add -D vitest @vitest/ui @testing-library/react
 ### 3.1 .envファイル作成
 
 ```bash
-# .env.exampleをコピー
 cp .env.example .env
 ```
 
@@ -162,6 +110,8 @@ cp .env.example .env
 4. 左メニュー「API Keys」→「Create a New API Key」
 5. キーをコピー
 
+**料金**: $0.0043/分（無料枠で約46,000分）
+
 #### OpenAI API
 
 1. https://platform.openai.com/ にアクセス
@@ -170,18 +120,22 @@ cp .env.example .env
 4. 「API Keys」→「Create new secret key」
 5. キーをコピー（一度しか表示されないので注意！）
 
+**料金（GPT-4o）**:
+- 入力: $0.005/1k tokens
+- 出力: $0.015/1k tokens
+
 ### 3.3 .envファイル編集
 
 `.env`ファイルを開いて以下のように編集:
 
 ```env
 # Deepgram API
-DEEPGRAM_API_KEY=abcdef1234567890abcdef1234567890
+DEEPGRAM_API_KEY=your_deepgram_api_key_here
 
 # OpenAI API
-OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890
+OPENAI_API_KEY=your_openai_api_key_here
 
-# ログレベル
+# ログレベル（オプション）
 LOG_LEVEL=info
 ```
 
@@ -189,78 +143,7 @@ LOG_LEVEL=info
 
 ---
 
-## ステップ4: Tailwind CSS設定
-
-### 4.1 設定ファイル作成
-
-```bash
-npx tailwindcss init -p
-```
-
-### 4.2 tailwind.config.js編集
-
-`tailwind.config.js`を以下の内容に置き換え:
-
-```javascript
-/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./src/renderer/index.html",
-    "./src/renderer/src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [require("daisyui")],
-  daisyui: {
-    themes: ["dark", "light"],
-  },
-}
-```
-
-### 4.3 CSSインポート
-
-`src/renderer/src/index.css`を作成（または編集）:
-
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-```
-
----
-
-## ステップ5: TypeScript設定
-
-### 5.1 tsconfig.json確認
-
-プロジェクトルートの`tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "lib": ["ES2020", "DOM"],
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "jsx": "react-jsx",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}
-```
-
----
-
-## ステップ6: 開発サーバー起動
-
-### 6.1 初回起動
+## ステップ4: 開発サーバー起動
 
 ```bash
 pnpm dev
@@ -279,38 +162,69 @@ pnpm dev
 
 Electronウィンドウが自動的に開きます。
 
-### 6.2 Hot Reload確認
+### Hot Reload確認
 
-`src/renderer/src/App.tsx`を編集してみてください:
-
-```tsx
-export default function App() {
-  return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold">Interview Bot - Test</h1>
-      <p>Hot Reload is working! 🚀</p>
-    </div>
-  );
-}
-```
-
-保存すると、自動的にアプリがリロードされます。
+`src/renderer/src/App.tsx`を編集すると、自動的にアプリがリロードされます。
 
 ---
 
-## ステップ7: ビルド確認（オプション）
+## ステップ5: 動作確認
+
+### 基本機能の確認
+
+1. **音声認識**: 「録音開始」ボタンをクリック
+2. **AI回答生成**: 質問を入力して「AI回答生成」ボタンをクリック
+3. **ドキュメントアップロード**: PDFまたはDOCXファイルをアップロード
+
+### WSL2環境での動作確認
+
+WSL2環境ではマイクが使用できないため、「音声ファイルでテスト」ボタンで動作確認できます。
+
+1. X11サーバー（VcXsrv等）を起動
+2. `export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0`
+3. `pnpm dev`
+4. 「音声ファイルでテスト」ボタンで.wav/.mp3ファイルを選択
+
+---
+
+## ステップ6: ビルド（オプション）
 
 開発が進んだら、Windows .exeをビルドできます:
 
 ```bash
 # ビルド（.exe生成）
-pnpm run build:win
+pnpm build:win
 
 # ポータブル版生成
-pnpm run build:portable
+pnpm build:portable
 ```
 
 生成物は`dist-electron/`フォルダに保存されます。
+
+---
+
+## 開発コマンド一覧
+
+```bash
+# 開発
+pnpm dev              # 開発サーバー起動
+
+# ビルド
+pnpm build            # プロダクションビルド
+pnpm build:win        # Windows用インストーラー作成
+pnpm build:portable   # ポータブル版作成
+
+# テスト
+pnpm test             # テスト実行（watchモード）
+pnpm test --run       # テスト実行（1回）
+pnpm test:ui          # テストUI表示
+pnpm test:coverage    # カバレッジレポート
+
+# コード品質
+pnpm lint             # ESLint実行
+pnpm lint:fix         # ESLint自動修正
+pnpm format           # Prettier実行
+```
 
 ---
 
@@ -340,8 +254,6 @@ node --version  # v18.x以上であることを確認
 **解決策**:
 ```bash
 pnpm install
-# または
-npm install
 ```
 
 ### 問題4: Windows Defenderがブロックする
@@ -365,6 +277,16 @@ Error: Unauthorized (401)
 2. APIキーが正しくコピーされているか確認
 3. 余分なスペースや改行がないか確認
 
+### 問題6: WSL2で画面が表示されない
+
+**解決策**:
+1. VcXsrvをインストール・起動
+2. DISPLAY環境変数を設定:
+   ```bash
+   export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0
+   ```
+3. VcXsrvの設定で「Disable access control」にチェック
+
 ---
 
 ## 次のステップ
@@ -382,6 +304,8 @@ Error: Unauthorized (401)
 問題が解決しない場合:
 
 - GitHub Issues: https://github.com/yourusername/interview-automatic-bot/issues
-- ドキュメント: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
+- ドキュメント: このリポジトリの各種.mdファイル
 
-Happy Coding! 🚀
+---
+
+**最終更新**: 2026-02-04

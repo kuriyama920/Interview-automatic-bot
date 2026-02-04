@@ -2,17 +2,32 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSTT } from './hooks/useSTT'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
+import { useSettings } from './hooks/useSettings'
+import { useAuth } from './hooks/useAuth'
+import { ToastProvider, useToast } from './hooks/useToast'
 import DocumentUploadPanel from './components/DocumentUploadPanel'
+import { SettingsModal } from './components/SettingsModal'
+import { AIResponseSkeleton } from './components/Skeleton'
+import { LoginPage } from './components/LoginPage'
 
-function App() {
+function AppContent() {
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true)
   const [appError, setAppError] = useState<string | null>(null)
   const [isTestMode, setIsTestMode] = useState(false)
-  const [autoGenerateAI, setAutoGenerateAI] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastProcessedIndex = useRef<number>(-1)
+
+  // 認証管理
+  const { user, logout } = useAuth()
+
+  // 設定管理
+  const { settings, saveSettings, resetSettings } = useSettings()
+
+  // トースト通知
+  const toast = useToast()
 
   const {
     isConnected,
@@ -56,7 +71,7 @@ function App() {
 
   // 新しい確定文字起こしがあったらAI回答を自動生成
   useEffect(() => {
-    if (!autoGenerateAI || isGenerating) return
+    if (!settings.autoGenerateAI || isGenerating) return
 
     const newTranscripts = transcripts.slice(lastProcessedIndex.current + 1)
     if (newTranscripts.length === 0) return
@@ -67,11 +82,11 @@ function App() {
       lastProcessedIndex.current = transcripts.length - 1
       generateStreamResponse(latestText)
     }
-  }, [transcripts, autoGenerateAI, isGenerating, generateStreamResponse])
+  }, [transcripts, settings.autoGenerateAI, isGenerating, generateStreamResponse])
 
   const handleStart = async () => {
     if (!apiKey) {
-      setAppError('.envファイルにDEEPGRAM_API_KEYを設定してください')
+      toast.error('.envファイルにDEEPGRAM_API_KEYを設定してください')
       return
     }
 
@@ -83,9 +98,10 @@ function App() {
     try {
       await connect()
       await startCapture()
+      toast.success('録音を開始しました')
     } catch (err) {
       const message = err instanceof Error ? err.message : '予期しないエラーが発生しました'
-      setAppError(message)
+      toast.error(message)
       await stopCapture()
       await disconnect()
     } finally {
@@ -100,9 +116,10 @@ function App() {
     try {
       await stopCapture()
       await disconnect()
+      toast.info('録音を停止しました')
     } catch (err) {
       const message = err instanceof Error ? err.message : '停止中にエラーが発生しました'
-      setAppError(message)
+      toast.error(message)
     } finally {
       setIsLoading(false)
     }
@@ -118,6 +135,8 @@ function App() {
     setIsTestMode(true)
     lastProcessedIndex.current = -1
     clearResponse()
+
+    toast.info(`テストファイルを処理中: ${file.name}`)
 
     try {
       await connect()
@@ -136,9 +155,10 @@ function App() {
       // 処理完了を待つ
       await new Promise((resolve) => setTimeout(resolve, 2000))
       await disconnect()
+      toast.success('テストファイルの処理が完了しました')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'テスト中にエラーが発生しました'
-      setAppError(message)
+      toast.error(message)
       await disconnect()
     } finally {
       setIsLoading(false)
@@ -161,6 +181,25 @@ function App() {
     clearTranscripts()
     clearResponse()
     lastProcessedIndex.current = -1
+    toast.info('クリアしました')
+  }
+
+  // 設定保存のラッパー（トースト通知付き）
+  const handleSaveSettings = async (newSettings: Parameters<typeof saveSettings>[0]) => {
+    const result = await saveSettings(newSettings)
+    if (result) {
+      toast.success('設定を保存しました')
+    }
+    return result
+  }
+
+  // 設定リセットのラッパー（トースト通知付き）
+  const handleResetSettings = async () => {
+    const result = await resetSettings()
+    if (result) {
+      toast.info('設定をリセットしました')
+    }
+    return result
   }
 
   const error = appError || sttError || captureError || aiError
@@ -169,23 +208,98 @@ function App() {
   if (isLoadingApiKey) {
     return (
       <div className="min-h-screen bg-base-200 flex items-center justify-center" data-theme="dark">
-        <span className="loading loading-spinner loading-lg"></span>
+        <div className="text-center space-y-4">
+          <span className="loading loading-spinner loading-lg text-primary"></span>
+          <p className="text-base-content/70">アプリケーションを初期化中...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-base-200 p-4" data-theme="dark">
+    <div className="min-h-screen bg-base-200 p-4" data-theme={settings.theme}>
       <div className="max-w-6xl mx-auto space-y-4">
         {/* ヘッダー */}
         <div className="card bg-base-100 shadow-xl">
           <div className="card-body py-4">
             <div className="flex items-center justify-between">
               <h1 className="card-title text-xl">Interview Bot</h1>
-              <div className="flex gap-2">
-                <div className="badge badge-success">Phase 1: 音声認識</div>
-                <div className="badge badge-primary">Phase 2: AI回答</div>
-                <div className="badge badge-accent">Phase 3: コンテキスト</div>
+              <div className="flex items-center gap-2">
+                <div className="badge badge-success badge-sm">Phase 5: SaaS</div>
+                {/* 設定ボタン */}
+                <button
+                  className="btn btn-ghost btn-circle btn-sm"
+                  onClick={() => setShowSettings(true)}
+                  title="設定"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                  </svg>
+                </button>
+                {/* ユーザーメニュー */}
+                <div className="dropdown dropdown-end">
+                  <label tabIndex={0} className="btn btn-ghost btn-circle avatar btn-sm">
+                    <div className="w-8 rounded-full">
+                      {user?.picture ? (
+                        <img src={user.picture} alt={user.name || 'User'} />
+                      ) : (
+                        <div className="bg-primary text-primary-content w-full h-full flex items-center justify-center text-sm">
+                          {user?.name?.[0] || user?.email?.[0] || '?'}
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                  <ul
+                    tabIndex={0}
+                    className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52"
+                  >
+                    <li className="menu-title">
+                      <span className="text-xs">{user?.email}</span>
+                    </li>
+                    <li>
+                      <span className="text-xs text-base-content/60">
+                        プラン: {user?.subscriptionTier === 'free' ? 'Free' : user?.subscriptionTier === 'pro' ? 'Pro' : 'Enterprise'}
+                      </span>
+                    </li>
+                    <li className="divider my-1"></li>
+                    <li>
+                      <button onClick={logout} className="text-error">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                          />
+                        </svg>
+                        ログアウト
+                      </button>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>
@@ -275,8 +389,8 @@ function App() {
                 <input
                   type="checkbox"
                   className="toggle toggle-primary toggle-sm"
-                  checked={autoGenerateAI}
-                  onChange={(e) => setAutoGenerateAI(e.target.checked)}
+                  checked={settings.autoGenerateAI}
+                  onChange={(e) => saveSettings({ autoGenerateAI: e.target.checked })}
                 />
                 <span className="label-text">文字起こし後に自動でAI回答を生成</span>
               </label>
@@ -377,7 +491,10 @@ function App() {
                 )}
               </h2>
               <div className="min-h-[300px] max-h-[500px] overflow-y-auto space-y-4">
-                {!aiResponse && !streamingText ? (
+                {/* AI生成中でストリーミングがまだの場合はスケルトン表示 */}
+                {isGenerating && !streamingText ? (
+                  <AIResponseSkeleton />
+                ) : !aiResponse && !streamingText ? (
                   <p className="text-base-content/50 text-center py-8">
                     面接官の質問に対するAI推奨回答がここに表示されます
                   </p>
@@ -415,8 +532,58 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* 設定モーダル */}
+        <SettingsModal
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          settings={settings}
+          onSave={handleSaveSettings}
+          onReset={handleResetSettings}
+        />
       </div>
     </div>
+  )
+}
+
+// 認証状態を管理するコンテナ
+function AuthContainer() {
+  const {
+    isAuthenticated,
+    isLoading: isAuthLoading,
+    error: authError,
+    loginWithGoogle,
+  } = useAuth()
+
+  // 認証状態読み込み中
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-base-200 flex items-center justify-center" data-theme="dark">
+        <div className="text-center space-y-4">
+          <span className="loading loading-spinner loading-lg text-primary"></span>
+          <p className="text-base-content/70">認証状態を確認中...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 未認証
+  if (!isAuthenticated) {
+    return (
+      <LoginPage onLogin={loginWithGoogle} isLoading={isAuthLoading} error={authError} />
+    )
+  }
+
+  // 認証済み
+  return <AppContent />
+}
+
+// ToastProviderでラップしたApp
+function App() {
+  return (
+    <ToastProvider>
+      <AuthContainer />
+    </ToastProvider>
   )
 }
 

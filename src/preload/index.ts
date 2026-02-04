@@ -23,6 +23,59 @@ export interface DocumentInfo {
   chunkCount: number
 }
 
+export interface AppSettings {
+  deepgramApiKey: string
+  openaiApiKey: string
+  theme: 'dark' | 'light'
+  autoGenerateAI: boolean
+  aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
+  aiTemperature: number
+  aiMaxTokens: number
+  contextMinSimilarity: number
+  contextTopK: number
+  lastUpdated: number
+  version: string
+}
+
+// 認証関連の型
+export type SubscriptionTier = 'free' | 'pro' | 'enterprise'
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
+
+export interface User {
+  id: string
+  email: string
+  name: string | null
+  picture: string | null
+  subscriptionTier: SubscriptionTier
+  subscriptionStatus: SubscriptionStatus
+  subscriptionPeriodEnd: string | null
+  usage: {
+    sttMinutes: number
+    aiTokens: number
+    storageBytes: number
+  }
+}
+
+export interface UserSettings {
+  theme: 'dark' | 'light'
+  autoGenerateAI: boolean
+  aiModel: string
+  aiTemperature: number
+  aiMaxTokens: number
+  contextMinSimilarity: number
+  contextTopK: number
+  hasCustomDeepgramKey: boolean
+  hasCustomOpenaiKey: boolean
+}
+
+export interface AuthState {
+  isAuthenticated: boolean
+  isLoading: boolean
+  user: User | null
+  settings: UserSettings | null
+  error: string | null
+}
+
 // 許可されたIPCチャンネルのホワイトリスト（セキュリティ向上）
 const ALLOWED_SEND_CHANNELS = ['stt:audio'] as const
 const ALLOWED_INVOKE_CHANNELS = [
@@ -38,8 +91,25 @@ const ALLOWED_INVOKE_CHANNELS = [
   'document:upload',
   'document:list',
   'document:remove',
+  'settings:get',
+  'settings:save',
+  'settings:reset',
+  'settings:getEffectiveApiKey',
+  // 認証関連
+  'auth:getState',
+  'auth:loginWithGoogle',
+  'auth:validate',
+  'auth:logout',
+  'auth:getToken',
 ] as const
-const ALLOWED_ON_CHANNELS = ['stt:transcript', 'ai:chunk', 'ai:complete', 'ai:error'] as const
+const ALLOWED_ON_CHANNELS = [
+  'stt:transcript',
+  'ai:chunk',
+  'ai:complete',
+  'ai:error',
+  // 認証関連
+  'auth:stateChanged',
+] as const
 
 type AllowedSendChannel = (typeof ALLOWED_SEND_CHANNELS)[number]
 type AllowedInvokeChannel = (typeof ALLOWED_INVOKE_CHANNELS)[number]
@@ -48,6 +118,26 @@ type AllowedOnChannel = (typeof ALLOWED_ON_CHANNELS)[number]
 let audioSendCount = 0
 
 const electronAPI = {
+  // 認証API
+  auth: {
+    getState: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
+      ipcRenderer.invoke('auth:getState'),
+    loginWithGoogle: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('auth:loginWithGoogle'),
+    validate: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
+      ipcRenderer.invoke('auth:validate'),
+    logout: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
+      ipcRenderer.invoke('auth:logout'),
+    getToken: (): Promise<{ success: boolean; token?: string | null; error?: string }> =>
+      ipcRenderer.invoke('auth:getToken'),
+    onStateChanged: (callback: (state: AuthState) => void) => {
+      ipcRenderer.on('auth:stateChanged', (_event, state) => callback(state))
+    },
+    removeStateChangedListener: () => {
+      ipcRenderer.removeAllListeners('auth:stateChanged')
+    },
+  },
+
   // 設定API
   config: {
     getApiKey: (keyName: string): Promise<string | null> =>
@@ -116,6 +206,22 @@ const electronAPI = {
       ipcRenderer.invoke('document:list'),
     remove: (id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('document:remove', id),
+  },
+
+  // Settings API
+  settings: {
+    get: (): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
+      ipcRenderer.invoke('settings:get'),
+    save: (
+      settings: Partial<AppSettings>
+    ): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
+      ipcRenderer.invoke('settings:save', settings),
+    reset: (): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
+      ipcRenderer.invoke('settings:reset'),
+    getEffectiveApiKey: (
+      keyType: 'deepgram' | 'openai'
+    ): Promise<{ success: boolean; key?: string | null }> =>
+      ipcRenderer.invoke('settings:getEffectiveApiKey', keyType),
   },
 
   // 汎用IPC（ホワイトリスト制限付き - セキュリティ向上）

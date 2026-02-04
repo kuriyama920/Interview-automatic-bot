@@ -1,21 +1,20 @@
 # 開発ガイド - Interview Automatic Bot
 
-このドキュメントでは、プロジェクトの詳細な開発ワークフローを説明します。
+このドキュメントでは、プロジェクトの詳細な開発ワークフローと実装パターンを説明します。
 
 ---
 
-## 📋 目次
+## 目次
 
 1. [開発環境構築](#開発環境構築)
-2. [Phase 0: プロジェクト初期化](#phase-0-プロジェクト初期化)
+2. [開発フェーズ概要](#開発フェーズ概要)
 3. [Phase 1: 音声認識実装](#phase-1-音声認識実装)
-4. [Phase 2: LLM統合](#phase-2-llm統合)
-5. [Phase 3: ステルスUI実装](#phase-3-ステルスui実装)
-6. [Phase 4: RAG実装](#phase-4-rag実装)
-7. [Phase 5: 設定・保存機能](#phase-5-設定保存機能)
-8. [Phase 6: ビルド・配布](#phase-6-ビルド配布)
-9. [テスト戦略](#テスト戦略)
-10. [デバッグ手法](#デバッグ手法)
+4. [Phase 2: AI回答生成](#phase-2-ai回答生成)
+5. [Phase 3: コンテキスト管理](#phase-3-コンテキスト  管理)
+6. [Phase 4: UI/UX改善](#phase-4-uiux改善)
+7. [実装パターン](#実装パターン)
+8. [テスト戦略](#テスト戦略)
+9. [デバッグ手法](#デバッグ手法)
 
 ---
 
@@ -27,9 +26,7 @@
 # Node.js (v18.x LTS)
 node --version  # v18.19.0 以上
 
-# npm または pnpm
-npm --version   # 10.x 以上
-# または
+# pnpm（推奨）
 pnpm --version  # 8.x 以上
 
 # Git
@@ -42,7 +39,6 @@ git --version   # 2.x 以上
 
 - ESLint
 - Prettier
-- TypeScript Vue Plugin (Volar)
 - Tailwind CSS IntelliSense
 - Error Lens
 - GitLens
@@ -65,747 +61,413 @@ git --version   # 2.x 以上
 3. Billingで支払い方法登録（$5最低チャージ）
 4. API Keysページでキー発行
 
-**料金（GPT-4 Turbo）**:
-- 入力: $0.01/1k tokens
-- 出力: $0.03/1k tokens
+**料金（GPT-4o）**:
+- 入力: $0.005/1k tokens
+- 出力: $0.015/1k tokens
 
 ---
 
-## Phase 0: プロジェクト初期化
+## 開発フェーズ概要
 
-**期間**: 1-2日
-**目標**: 開発環境完成、空のElectronアプリ起動
-
-### タスクリスト
-
-- [ ] リポジトリ初期化
-- [ ] Electron Viteプロジェクト作成
-- [ ] TypeScript設定
-- [ ] ESLint + Prettier設定
-- [ ] フォルダ構成作成
-- [ ] 基本的なウィンドウ表示確認
-
-### 実装手順
-
-#### 1. プロジェクト作成
-
-```bash
-# Electron Vite公式テンプレート使用
-npm create @quick-start/electron@latest interview-automatic-bot
-
-# 選択肢
-✔ Project name: interview-automatic-bot
-✔ Select a framework: react
-✔ Add TypeScript? Yes
-✔ Add Electron updater plugin? No
-✔ Enable Electron download mirror proxy? No
-
-cd interview-automatic-bot
-```
-
-#### 2. 依存関係追加
-
-```bash
-# 主要ライブラリインストール
-pnpm add @deepgram/sdk openai electron-store ws
-pnpm add @reduxjs/toolkit react-redux
-pnpm add tailwindcss daisyui postcss autoprefixer
-pnpm add langchain pdf-parse mammoth
-pnpm add winston
-
-# 開発依存
-pnpm add -D @types/ws @types/pdf-parse
-pnpm add -D eslint prettier eslint-config-prettier
-pnpm add -D electron-builder
-```
-
-#### 3. Tailwind CSS設定
-
-```bash
-npx tailwindcss init -p
-```
-
-`tailwind.config.js`:
-```javascript
-/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./src/renderer/index.html",
-    "./src/renderer/src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [require("daisyui")],
-}
-```
-
-`src/renderer/src/index.css`:
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-```
-
-#### 4. 環境変数設定
-
-`.env.example`:
-```env
-# Deepgram API
-DEEPGRAM_API_KEY=your_deepgram_api_key
-
-# OpenAI API
-OPENAI_API_KEY=your_openai_api_key
-
-# オプション
-ANTHROPIC_API_KEY=your_anthropic_api_key
-LOG_LEVEL=info
-```
-
-#### 5. 起動確認
-
-```bash
-pnpm dev
-```
-
-→ 空のElectronウィンドウが表示されればOK ✅
+| Phase | 内容 | ステータス | 主要ファイル |
+|-------|------|-----------|-------------|
+| Phase 1 | 音声認識（Deepgram STT） | ✅ 完了 | stt.service.ts, useSTT.ts |
+| Phase 2 | AI回答生成（OpenAI GPT-4o） | ✅ 完了 | ai.service.ts, useAIResponse.ts |
+| Phase 3 | コンテキスト管理（RAG） | ✅ 完了 | document.service.ts, context.service.ts |
+| Phase 4 | UI/UX改善 | 🔜 次 | App.tsx, components/ |
 
 ---
 
 ## Phase 1: 音声認識実装
 
-**期間**: 3-4日
-**目標**: マイク音声 → Deepgram → リアルタイム文字起こし表示
+### 概要
 
-### タスクリスト
+Deepgram WebSocketを使用したリアルタイム音声認識。
 
-- [ ] システム音声キャプチャ実装（メインプロセス）
-- [ ] Deepgram WebSocket接続
-- [ ] リアルタイム文字起こし表示UI
-- [ ] 発話終了検出
-- [ ] エラーハンドリング
+### 主要ファイル
 
-### 1.1 システム音声キャプチャ
+- `src/services/stt.service.ts` - Deepgram統合
+- `src/renderer/src/hooks/useSTT.ts` - React Hook
+- `src/renderer/src/hooks/useAudioCapture.ts` - AudioContext管理
+- `src/main/ipc.ts` - IPCハンドラー
 
-`src/main/audio/capture.ts`:
-```typescript
-import { desktopCapturer } from 'electron';
+### データフロー
 
-export class AudioCapture {
-  private mediaStream: MediaStream | null = null;
-
-  async startCapture(): Promise<MediaStream> {
-    // システム音声ソース取得
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: 0, height: 0 }
-    });
-
-    // 制約設定
-    const constraints: MediaStreamConstraints = {
-      audio: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sources[0].id
-        }
-      } as any,
-      video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sources[0].id,
-          maxWidth: 1920,
-          maxHeight: 1080
-        }
-      } as any
-    };
-
-    // メディアストリーム取得
-    this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-    return this.mediaStream;
-  }
-
-  stopCapture(): void {
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
-    }
-  }
-}
+```
+AudioContext (Renderer)
+     │
+     ├── ScriptProcessor (PCM 16kHz)
+     │
+     ▼
+IPC: stt:audio(buffer)
+     │
+     ▼
+STTService (Main Process)
+     │
+     ├── Deepgram WebSocket
+     │
+     ▼
+IPC: stt:transcript
+     │
+     ▼
+useSTT Hook (React State)
 ```
 
-### 1.2 Deepgram統合サービス
+### 実装パターン
 
-`src/services/stt.service.ts`:
 ```typescript
-import { createClient, LiveTranscriptionEvents, LiveClient } from '@deepgram/sdk';
-import { EventEmitter } from 'events';
+// src/services/stt.service.ts
+export class STTService {
+  private connection: LiveClient | null = null
 
-export interface TranscriptResult {
-  text: string;
-  isFinal: boolean;
-  timestamp: number;
-}
-
-export class STTService extends EventEmitter {
-  private deepgram;
-  private connection: LiveClient | null = null;
-
-  constructor(apiKey: string) {
-    super();
-    this.deepgram = createClient(apiKey);
-  }
-
-  async startLiveTranscription(language: 'ja' | 'en' = 'ja') {
-    this.connection = this.deepgram.listen.live({
+  async connect(apiKey: string): Promise<void> {
+    const deepgram = createClient(apiKey)
+    this.connection = deepgram.listen.live({
       model: 'nova-2',
-      language,
+      language: 'ja',
       smart_format: true,
       interim_results: true,
-      utterance_end_ms: 1000,
-      vad_events: true,
-    });
-
-    // イベントリスナー設定
-    this.connection.on(LiveTranscriptionEvents.Open, () => {
-      console.log('Deepgram connection opened');
-      this.emit('ready');
-    });
-
-    this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-      const transcript = data.channel.alternatives[0].transcript;
-      const isFinal = data.is_final;
-
-      if (transcript && transcript.length > 0) {
-        const result: TranscriptResult = {
-          text: transcript,
-          isFinal,
-          timestamp: Date.now(),
-        };
-        this.emit('transcript', result);
-      }
-    });
-
-    this.connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
-      this.emit('utteranceEnd');
-    });
-
-    this.connection.on(LiveTranscriptionEvents.Error, (error) => {
-      console.error('Deepgram error:', error);
-      this.emit('error', error);
-    });
-
-    this.connection.on(LiveTranscriptionEvents.Close, () => {
-      console.log('Deepgram connection closed');
-      this.emit('close');
-    });
-
-    return this.connection;
+    })
   }
 
-  sendAudio(audioData: ArrayBuffer) {
-    if (this.connection) {
-      this.connection.send(audioData);
-    }
-  }
-
-  stop() {
-    if (this.connection) {
-      this.connection.finish();
-      this.connection = null;
-    }
+  send(audioData: ArrayBuffer): void {
+    this.connection?.send(audioData)
   }
 }
-```
-
-### 1.3 UI実装（React）
-
-`src/renderer/src/components/TranscriptionView.tsx`:
-```typescript
-import React, { useEffect, useState } from 'react';
-import { useAppSelector, useAppDispatch } from '../store/hooks';
-import { addTranscript } from '../store/transcriptSlice';
-
-interface Transcript {
-  id: string;
-  text: string;
-  isFinal: boolean;
-  timestamp: number;
-}
-
-export const TranscriptionView: React.FC = () => {
-  const transcripts = useAppSelector((state) => state.transcript.items);
-  const dispatch = useAppDispatch();
-
-  useEffect(() => {
-    // IPCリスナー設定
-    window.electron.ipcRenderer.on('transcript', (result) => {
-      dispatch(addTranscript(result));
-    });
-
-    return () => {
-      window.electron.ipcRenderer.removeAllListeners('transcript');
-    };
-  }, [dispatch]);
-
-  return (
-    <div className="h-full overflow-y-auto p-4 bg-base-200">
-      <h2 className="text-lg font-bold mb-2">文字起こし</h2>
-      <div className="space-y-2">
-        {transcripts.map((item) => (
-          <div
-            key={item.id}
-            className={`p-2 rounded ${
-              item.isFinal ? 'bg-base-100' : 'bg-base-300 opacity-70'
-            }`}
-          >
-            <p className="text-sm">{item.text}</p>
-            <span className="text-xs opacity-50">
-              {new Date(item.timestamp).toLocaleTimeString()}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-```
-
-### 1.4 Redux状態管理
-
-`src/renderer/src/store/transcriptSlice.ts`:
-```typescript
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-interface TranscriptItem {
-  id: string;
-  text: string;
-  isFinal: boolean;
-  timestamp: number;
-}
-
-interface TranscriptState {
-  items: TranscriptItem[];
-  isRecording: boolean;
-}
-
-const initialState: TranscriptState = {
-  items: [],
-  isRecording: false,
-};
-
-export const transcriptSlice = createSlice({
-  name: 'transcript',
-  initialState,
-  reducers: {
-    addTranscript: (state, action: PayloadAction<Omit<TranscriptItem, 'id'>>) => {
-      const id = `${Date.now()}-${Math.random()}`;
-      state.items.push({ id, ...action.payload });
-    },
-    clearTranscripts: (state) => {
-      state.items = [];
-    },
-    setRecording: (state, action: PayloadAction<boolean>) => {
-      state.isRecording = action.payload;
-    },
-  },
-});
-
-export const { addTranscript, clearTranscripts, setRecording } = transcriptSlice.actions;
-export default transcriptSlice.reducer;
-```
-
-### 成果物確認
-
-```bash
-✅ マイク音声がリアルタイムでテキスト化
-✅ 遅延<300ms
-✅ 日本語認識精度90%以上
-✅ 発話終了時に自動区切り
 ```
 
 ---
 
-## Phase 2: LLM統合
+## Phase 2: AI回答生成
 
-**期間**: 3-4日
-**目標**: 質問検出 → GPT-4で回答生成 → ストリーミング表示
+### 概要
 
-### タスクリスト
+OpenAI GPT-4oを使用したストリーミング回答生成。
 
-- [ ] OpenAI API統合
-- [ ] 質問検出ロジック実装
-- [ ] ストリーミング回答生成
-- [ ] 回答表示UI
-- [ ] プロンプトエンジニアリング
+### 主要ファイル
 
-### 2.1 質問検出ロジック
+- `src/services/ai.service.ts` - OpenAI統合
+- `src/renderer/src/hooks/useAIResponse.ts` - React Hook
+- `src/main/ipc.ts` - IPCハンドラー
 
-`src/services/question-detector.ts`:
-```typescript
-export class QuestionDetector {
-  private questionPatterns = [
-    /(?:どう|何|いつ|どこ|誰|なぜ|どのように).*[?？]/,
-    /.*(?:ですか|ますか|ましたか)[?？]?$/,
-    /.*について(?:教えて|話して|説明して)/,
-    /.*経験.*ありますか/,
-    /.*どう思いますか/,
-  ];
+### データフロー
 
-  isQuestion(text: string): boolean {
-    return this.questionPatterns.some(pattern => pattern.test(text));
-  }
-
-  extractQuestions(transcripts: string[]): string[] {
-    return transcripts.filter(text => this.isQuestion(text));
-  }
-}
+```
+質問テキスト
+     │
+     ▼
+IPC: ai:generateStream(question)
+     │
+     ▼
+AIService.generateStreamResponse()
+     │
+     ├── OpenAI Chat Completions (stream: true)
+     │
+     ▼
+IPC: ai:chunk / ai:complete / ai:error
+     │
+     ▼
+useAIResponse Hook (streamingText, response)
 ```
 
-### 2.2 LLMサービス
+### 実装パターン
 
-`src/services/llm.service.ts`:
 ```typescript
-import OpenAI from 'openai';
-import { EventEmitter } from 'events';
-
-export interface LLMConfig {
-  model: 'gpt-4-turbo-preview' | 'gpt-3.5-turbo';
-  temperature: number;
-  maxTokens: number;
-}
-
-export class LLMService extends EventEmitter {
-  private openai: OpenAI;
-  private config: LLMConfig;
-
-  constructor(apiKey: string, config: Partial<LLMConfig> = {}) {
-    super();
-    this.openai = new OpenAI({ apiKey });
-    this.config = {
-      model: 'gpt-4-turbo-preview',
-      temperature: 0.7,
-      maxTokens: 500,
-      ...config,
-    };
-  }
-
-  async generateAnswer(question: string, context?: string): Promise<AsyncGenerator<string>> {
-    const systemPrompt = `あなたは面接の回答アシスタントです。
-以下のガイドラインに従って回答を生成してください：
-
-1. 簡潔で具体的な回答（200-300文字程度）
-2. STAR法（状況、タスク、行動、結果）を意識
-3. 前向きで誠実な表現
-4. 専門用語は適度に使用
-${context ? `\n5. 以下のコンテキスト情報を参考にする：\n${context}` : ''}`;
-
-    const stream = await this.openai.chat.completions.create({
-      model: this.config.model,
+// src/services/ai.service.ts
+export class AIService {
+  async *generateStreamResponse(
+    question: string,
+    context?: string
+  ): AsyncGenerator<string> {
+    const stream = await this.client.chat.completions.create({
+      model: 'gpt-4o',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: this.systemPrompt },
         { role: 'user', content: question },
       ],
-      temperature: this.config.temperature,
-      max_tokens: this.config.maxTokens,
       stream: true,
-    });
+    })
 
-    return this.streamResponse(stream);
-  }
-
-  private async *streamResponse(stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
     for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || '';
-      if (content) {
-        yield content;
+      const content = chunk.choices[0]?.delta?.content || ''
+      if (content) yield content
+    }
+  }
+}
+```
+
+---
+
+## Phase 3: コンテキスト管理
+
+### 概要
+
+履歴書・求人票のアップロード・解析・RAGベース回答生成。
+
+### 主要ファイル
+
+- `src/types/document.ts` - 型定義
+- `src/services/document.service.ts` - PDF/DOCX解析
+- `src/services/context.service.ts` - Embeddings + 類似検索
+- `src/renderer/src/hooks/useDocuments.ts` - React Hook
+- `src/renderer/src/components/DocumentUploadPanel.tsx` - UI
+
+### アーキテクチャ決定
+
+| 決定事項 | 選択 | 理由 |
+|---------|------|------|
+| ベクトルストア | JSONファイル + インメモリ | ChromaDBはネイティブ依存で複雑 |
+| Embeddings | OpenAI text-embedding-3-small | 高精度、低コスト |
+| 類似検索 | cosine similarity | シンプル、効果的 |
+| ストレージ | userData/context-data.json | Electron標準パス |
+
+### データフロー
+
+```
+PDF/DOCX ファイル
+     │
+     ▼
+IPC: document:upload(type)
+     │
+     ├── electron.dialog.showOpenDialog()
+     │
+     ▼
+DocumentService.parseFile()
+     │
+     ├── pdf-parse / mammoth
+     │
+     ▼
+DocumentService.chunkText()
+     │
+     ├── LangChain RecursiveCharacterTextSplitter (500文字)
+     │
+     ▼
+ContextService.addDocument()
+     │
+     ├── OpenAI Embeddings (batch: 20)
+     │
+     ▼
+context-data.json (永続化)
+```
+
+### AI生成時のコンテキスト統合
+
+```
+質問テキスト
+     │
+     ▼
+ContextService.getRelevantContext(question)
+     │
+     ├── OpenAI Embeddings (クエリ)
+     ├── cosine similarity (top-3, MIN_SIMILARITY=0.7)
+     │
+     ▼
+コンテキスト付きプロンプト
+     │
+     ▼
+AIService.generateStreamResponse()
+```
+
+### 実装パターン
+
+```typescript
+// src/services/context.service.ts
+export class ContextService {
+  private writeLock: Promise<void> = Promise.resolve()
+
+  async addDocument(
+    metadata: DocumentMetadata,
+    chunks: Omit<DocumentChunk, 'embedding'>[]
+  ): Promise<void> {
+    const operation = async () => {
+      // Embeddings生成
+      // JSONファイルに保存
+    }
+
+    // Write lock で競合防止
+    this.writeLock = this.writeLock.then(operation)
+    await this.writeLock
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    // ゼロベクトル対策
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB)
+    if (denominator === 0) return 0
+    return dotProduct / denominator
+  }
+}
+```
+
+---
+
+## Phase 4: UI/UX改善
+
+### 検討項目
+
+1. **レスポンシブデザイン強化**
+   - モバイル/タブレット対応
+   - ウィンドウサイズに応じたレイアウト
+
+2. **アクセシビリティ**
+   - キーボードナビゲーション
+   - スクリーンリーダー対応
+
+3. **ユーザー体験向上**
+   - ローディング状態の改善
+   - トースト通知
+   - エラーメッセージの改善
+
+4. **設定画面**
+   - APIキー設定UI
+   - テーマ切り替え
+
+5. **履歴・ログ機能**
+   - 過去のセッション履歴
+   - エクスポート機能
+
+---
+
+## 実装パターン
+
+### サービス層パターン
+
+```typescript
+// シングルトンパターン
+export class XxxService {
+  private client: OpenAI | null = null
+  private initialized = false
+
+  async initialize(apiKey: string): Promise<void> {
+    this.client = new OpenAI({ apiKey })
+    this.initialized = true
+    log.info('Service initialized')
+  }
+
+  isInitialized(): boolean {
+    return this.initialized
+  }
+}
+
+export const xxxService = new XxxService()
+```
+
+### React Hook パターン
+
+```typescript
+// src/renderer/src/hooks/useXxx.ts
+export function useXxx() {
+  const [data, setData] = useState<T | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const doAction = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const result = await window.electron.xxx.action()
+      if (result.success) {
+        setData(result.data)
+      } else {
+        setError(result.error || 'Unknown error')
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setIsLoading(false)
     }
-  }
-}
-```
+  }, [])
 
-### 2.3 回答表示UI
-
-`src/renderer/src/components/AnswerView.tsx`:
-```typescript
-import React, { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-
-export const AnswerView: React.FC = () => {
-  const [answer, setAnswer] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-
+  // クリーンアップ
   useEffect(() => {
-    window.electron.ipcRenderer.on('answer-chunk', (chunk: string) => {
-      setAnswer((prev) => prev + chunk);
-    });
-
-    window.electron.ipcRenderer.on('answer-start', () => {
-      setAnswer('');
-      setIsGenerating(true);
-    });
-
-    window.electron.ipcRenderer.on('answer-end', () => {
-      setIsGenerating(false);
-    });
-
     return () => {
-      window.electron.ipcRenderer.removeAllListeners('answer-chunk');
-      window.electron.ipcRenderer.removeAllListeners('answer-start');
-      window.electron.ipcRenderer.removeAllListeners('answer-end');
-    };
-  }, []);
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(answer);
-  };
-
-  return (
-    <div className="h-full p-4 bg-base-100">
-      <div className="flex justify-between items-center mb-2">
-        <h2 className="text-lg font-bold">AI回答</h2>
-        <button
-          className="btn btn-sm btn-ghost"
-          onClick={copyToClipboard}
-          disabled={!answer}
-        >
-          📋 コピー
-        </button>
-      </div>
-
-      <div className="prose prose-sm max-w-none">
-        {isGenerating && !answer && (
-          <div className="flex items-center gap-2">
-            <span className="loading loading-spinner loading-sm"></span>
-            <span>生成中...</span>
-          </div>
-        )}
-        {answer && <ReactMarkdown>{answer}</ReactMarkdown>}
-      </div>
-    </div>
-  );
-};
-```
-
-### 成果物確認
-
-```bash
-✅ 質問を自動検出（精度80%以上）
-✅ 2秒以内に回答開始
-✅ ストリーミング表示で体感速度向上
-✅ マークダウン対応
-```
-
----
-
-## Phase 3: ステルスUI実装
-
-**期間**: 2-3日
-**目標**: 透明オーバーレイ + ホットキー + 画面共有非表示
-
-### タスクリスト
-
-- [ ] 透明ウィンドウ実装
-- [ ] クリック透過
-- [ ] グローバルホットキー
-- [ ] タスクバー非表示
-- [ ] 画面共有テスト
-
-### 3.1 メインウィンドウ設定
-
-`src/main/window.ts`:
-```typescript
-import { BrowserWindow, screen, globalShortcut } from 'electron';
-import path from 'path';
-
-export class MainWindow {
-  private window: BrowserWindow | null = null;
-  private isVisible: boolean = false;
-
-  create() {
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-
-    this.window = new BrowserWindow({
-      width: 400,
-      height: 600,
-      x: width - 420,
-      y: 20,
-      transparent: true,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      show: false, // 初期非表示
-      webPreferences: {
-        preload: path.join(__dirname, '../preload/index.js'),
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
-    });
-
-    // クリック透過（初期状態）
-    this.window.setIgnoreMouseEvents(true, { forward: true });
-
-    // 開発時のみDevTools
-    if (process.env.NODE_ENV === 'development') {
-      this.window.webContents.openDevTools({ mode: 'detach' });
+      window.electron.xxx.removeListeners()
     }
+  }, [])
 
-    this.window.loadFile(path.join(__dirname, '../renderer/index.html'));
-
-    return this.window;
-  }
-
-  toggle() {
-    if (!this.window) return;
-
-    this.isVisible = !this.isVisible;
-
-    if (this.isVisible) {
-      this.window.show();
-      this.window.setIgnoreMouseEvents(false);
-      this.window.webContents.send('visibility-changed', true);
-    } else {
-      this.window.setIgnoreMouseEvents(true, { forward: true });
-      this.window.webContents.send('visibility-changed', false);
-      // 完全に非表示にはせず、透明度を上げる
-    }
-  }
-
-  registerHotkey(key: string = 'CommandOrControl+Shift+A') {
-    globalShortcut.register(key, () => {
-      this.toggle();
-    });
-  }
-
-  destroy() {
-    globalShortcut.unregisterAll();
-    this.window?.destroy();
-    this.window = null;
-  }
+  return { data, isLoading, error, doAction }
 }
 ```
 
-### 3.2 透明UIスタイル
+### IPC通信パターン
 
-`src/renderer/src/App.tsx`:
 ```typescript
-import React, { useState, useEffect } from 'react';
-import { TranscriptionView } from './components/TranscriptionView';
-import { AnswerView } from './components/AnswerView';
+// src/main/ipc.ts
+ipcMain.handle('xxx:action', async (_event, param: string) => {
+  try {
+    const result = await xxxService.action(param)
+    return { success: true, data: result }
+  } catch (error) {
+    log.error('Action failed', { error: String(error) })
+    return { success: false, error: String(error) }
+  }
+})
 
-export default function App() {
-  const [isVisible, setIsVisible] = useState(false);
+// src/preload/index.ts
+const ALLOWED_INVOKE_CHANNELS = ['xxx:action']
 
-  useEffect(() => {
-    window.electron.ipcRenderer.on('visibility-changed', (visible: boolean) => {
-      setIsVisible(visible);
-    });
-  }, []);
-
-  return (
-    <div
-      className={`h-screen transition-opacity duration-300 ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        backdropFilter: 'blur(10px)',
-      }}
-    >
-      <div className="h-full flex flex-col text-white">
-        {/* ヘッダー */}
-        <div className="p-2 bg-primary text-primary-content flex justify-between items-center">
-          <span className="font-bold">Interview Bot</span>
-          <div className="flex gap-2">
-            <button className="btn btn-xs btn-ghost">⚙️</button>
-            <button className="btn btn-xs btn-ghost">📋</button>
-          </div>
-        </div>
-
-        {/* コンテンツエリア */}
-        <div className="flex-1 grid grid-rows-2 gap-2 p-2">
-          <TranscriptionView />
-          <AnswerView />
-        </div>
-
-        {/* フッター */}
-        <div className="p-2 text-xs text-center opacity-50">
-          Ctrl+Shift+Aで表示/非表示
-        </div>
-      </div>
-    </div>
-  );
+xxx: {
+  action: (param: string) => ipcRenderer.invoke('xxx:action', param),
 }
 ```
 
-### 成果物確認
+### イミュータブル更新パターン
 
-```bash
-✅ Ctrl+Shift+Aで即座に表示/非表示
-✅ Zoom/Teams画面共有でウィンドウが映らない
-✅ タスクバーに表示されない
-✅ 非表示時はクリック透過
+```typescript
+// 悪い例: ミューテーション
+this.data.items.push(newItem)
+
+// 良い例: イミュータブル
+this.data = {
+  ...this.data,
+  items: [...this.data.items, newItem],
+}
 ```
-
----
-
-## Phase 4-6の詳細
-
-（続きは長くなるため、実装時に詳細を展開します）
-
-### Phase 4: RAG実装
-- LangChain統合
-- Chroma/FAISSベクトルDB
-- 履歴書PDF解析
-- コンテキスト検索
-
-### Phase 5: 設定・保存
-- electron-store統合
-- 設定画面UI
-- 会話履歴保存
-- JSONエクスポート
-
-### Phase 6: ビルド
-- electron-builder設定
-- Windows .exe生成
-- NSISインストーラー
-- 署名（オプション）
 
 ---
 
 ## テスト戦略
 
-### 単体テスト
+### テストカバレッジ目標: 80%
+
+### ユニットテスト
 
 ```bash
-pnpm add -D vitest @testing-library/react @testing-library/jest-dom
+pnpm test
 ```
 
-`tests/unit/question-detector.test.ts`:
+**対象**:
+- services/*.ts
+- hooks/*.ts
+- utils/*.ts
+
+**例**:
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { QuestionDetector } from '../../src/services/question-detector';
-
-describe('QuestionDetector', () => {
-  const detector = new QuestionDetector();
-
-  it('should detect Japanese questions', () => {
-    expect(detector.isQuestion('あなたの強みは何ですか？')).toBe(true);
-    expect(detector.isQuestion('これまでの経験について教えてください')).toBe(true);
-  });
-
-  it('should not detect non-questions', () => {
-    expect(detector.isQuestion('私はエンジニアです')).toBe(false);
-  });
-});
+// tests/unit/services/context.service.test.ts
+describe('ContextService', () => {
+  describe('cosineSimilarity', () => {
+    it('should return 0 for zero vectors', () => {
+      const result = contextService['cosineSimilarity']([0, 0], [1, 1])
+      expect(result).toBe(0)
+    })
+  })
+})
 ```
+
+### 統合テスト
+
+**対象**:
+- IPC通信フロー
+- サービス間連携
 
 ### E2Eテスト
 
 ```bash
-pnpm add -D playwright @playwright/test
+pnpm exec playwright test
 ```
+
+**対象**:
+- 重要なユーザーフロー
+- ドキュメントアップロード → AI生成
 
 ---
 
@@ -821,43 +483,40 @@ pnpm dev --inspect
 ### レンダラープロセス
 
 - F12キーでDevTools起動
-- Reactコンポーネントは React DevTools使用
+- React DevTools拡張機能
 
-### ログ出力
+### ログ確認
 
-`src/services/logger.service.ts`:
 ```typescript
-import winston from 'winston';
-import path from 'path';
-import { app } from 'electron';
+// メインプロセス
+import { createLogger } from './services/logger.service'
+const log = createLogger('module-name')
+log.info('Message', { key: 'value' })
 
-export const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({
-      filename: path.join(app.getPath('userData'), 'logs', 'error.log'),
-      level: 'error',
-    }),
-    new winston.transports.File({
-      filename: path.join(app.getPath('userData'), 'logs', 'combined.log'),
-    }),
-    new winston.transports.Console({
-      format: winston.format.simple(),
-    }),
-  ],
-});
+// ログファイル: userData/logs/
 ```
+
+### よくある問題
+
+| 問題 | 原因 | 解決策 |
+|------|------|--------|
+| IPC通信エラー | チャンネル名の不一致 | ALLOWED_INVOKE_CHANNELSを確認 |
+| 型エラー | env.d.ts未更新 | Window.electron型を更新 |
+| ビルドエラー | node_modules不整合 | `rm -rf node_modules && pnpm install` |
 
 ---
 
 ## 次のステップ
 
-1. **Phase 0を開始**: `npm create @quick-start/electron`でプロジェクト作成
-2. **APIキー取得**: Deepgram + OpenAI
-3. **Phase 1実装**: 音声認識から開始
+Phase 4 (UI/UX改善) の実装候補:
 
-詳細な実装時は本ドキュメントを参照しながら進めてください。
+1. 設定画面UI
+2. トースト通知システム
+3. セッション履歴保存
+4. テーマ切り替え
+
+詳細は [docs/FUTURE_FEATURES.md](./docs/FUTURE_FEATURES.md) を参照。
+
+---
+
+**最終更新**: 2026-02-04

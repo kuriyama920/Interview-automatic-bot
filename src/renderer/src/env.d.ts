@@ -23,6 +23,20 @@ interface DocumentInfo {
   chunkCount: number
 }
 
+interface AppSettings {
+  deepgramApiKey: string
+  openaiApiKey: string
+  theme: 'dark' | 'light'
+  autoGenerateAI: boolean
+  aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
+  aiTemperature: number
+  aiMaxTokens: number
+  contextMinSimilarity: number
+  contextTopK: number
+  lastUpdated: number
+  version: string
+}
+
 interface Window {
   electron: {
     config: {
@@ -61,6 +75,16 @@ interface Window {
       }>
       list: () => Promise<{ success: boolean; documents: DocumentInfo[] }>
       remove: (id: string) => Promise<{ success: boolean; error?: string }>
+    }
+    settings: {
+      get: () => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
+      save: (
+        settings: Partial<AppSettings>
+      ) => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
+      reset: () => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
+      getEffectiveApiKey: (
+        keyType: 'deepgram' | 'openai'
+      ) => Promise<{ success: boolean; key?: string | null }>
     }
     send: (channel: string, data: unknown) => void
     on: (channel: string, callback: (...args: unknown[]) => void) => void

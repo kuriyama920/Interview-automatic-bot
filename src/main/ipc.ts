@@ -5,8 +5,11 @@ import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse } from '../services/ai.service'
 import { documentService } from '../services/document.service'
 import { contextService } from '../services/context.service'
+import { settingsService } from '../services/settings.service'
+import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
 import type { DocumentType } from '../types/document'
+import type { AppSettings } from '../types/settings'
 
 const log = createLogger('IPC')
 
@@ -15,11 +18,129 @@ let sttService: STTService | null = null
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
 
+  // 設定サービスを初期化
+  settingsService.initialize()
+
+  // ============================================
+  // 認証関連のIPCハンドラー
+  // ============================================
+
+  // 認証状態を取得
+  ipcMain.handle('auth:getState', () => {
+    log.debug('auth:getState called')
+    try {
+      const state = authService.getAuthState()
+      return { success: true, state }
+    } catch (error) {
+      log.error('Failed to get auth state', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // Google OAuthログインを開始
+  ipcMain.handle('auth:loginWithGoogle', async () => {
+    log.info('auth:loginWithGoogle called')
+    try {
+      await authService.startGoogleLogin()
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to start Google login', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 認証状態を検証（起動時など）
+  ipcMain.handle('auth:validate', async () => {
+    log.info('auth:validate called')
+    try {
+      const state = await authService.validateAndRefresh()
+      return { success: true, state }
+    } catch (error) {
+      log.error('Failed to validate auth', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ログアウト
+  ipcMain.handle('auth:logout', () => {
+    log.info('auth:logout called')
+    try {
+      const state = authService.logout()
+      return { success: true, state }
+    } catch (error) {
+      log.error('Failed to logout', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // アクセストークンを取得
+  ipcMain.handle('auth:getToken', () => {
+    try {
+      const token = authService.getAccessToken()
+      return { success: true, token }
+    } catch (error) {
+      log.error('Failed to get token', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 認証状態変更をRendererに通知
+  authService.addAuthStateListener((state) => {
+    log.debug('Auth state changed, notifying renderer')
+    mainWindow.webContents.send('auth:stateChanged', state)
+  })
+
+  // ============================================
+  // 環境変数・設定関連のIPCハンドラー
+  // ============================================
+
   // 環境変数からAPIキーを取得
   ipcMain.handle('config:getApiKey', (_event: unknown, keyName: string) => {
     const value = process.env[keyName]
     log.debug(`config:getApiKey called for ${keyName}, found: ${!!value}`)
     return value || null
+  })
+
+  // 設定取得
+  ipcMain.handle('settings:get', () => {
+    log.debug('settings:get called')
+    try {
+      const settings = settingsService.getSettings()
+      return { success: true, settings }
+    } catch (error) {
+      log.error('Failed to get settings', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 設定保存
+  ipcMain.handle('settings:save', (_event: unknown, settings: Partial<AppSettings>) => {
+    log.info('settings:save called', { keys: Object.keys(settings) })
+    try {
+      const newSettings = settingsService.saveSettings(settings)
+      return { success: true, settings: newSettings }
+    } catch (error) {
+      log.error('Failed to save settings', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 設定リセット
+  ipcMain.handle('settings:reset', () => {
+    log.info('settings:reset called')
+    try {
+      const settings = settingsService.resetSettings()
+      return { success: true, settings }
+    } catch (error) {
+      log.error('Failed to reset settings', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 有効なAPIキーを取得（設定優先、なければ環境変数）
+  ipcMain.handle('settings:getEffectiveApiKey', (_event: unknown, keyType: 'deepgram' | 'openai') => {
+    const key = settingsService.getEffectiveApiKey(keyType)
+    return { success: true, key }
   })
 
   // 音声認識開始（APIキーは環境変数から直接取得 - セキュリティ向上）

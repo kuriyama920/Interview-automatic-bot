@@ -1,118 +1,225 @@
 # Dead Code Analysis Report
 
 Generated: 2026-02-04
-
-## Summary
-
-| Category | Count | Action |
-|----------|-------|--------|
-| Unused Dependencies | 3 | SAFE to remove |
-| Unused DevDependencies | 10 | CAUTION - review needed |
-| Unused Exports | 2 | SAFE - intentional pattern |
-| Unused Files | 0 | N/A (false positives) |
+Analysis Tools: knip v5.83.0, depcheck v1.4.7, manual grep analysis
+Test Status: All 63 tests passing
 
 ---
 
-## 1. Unused Dependencies (SAFE)
+## Executive Summary
 
-These dependencies are installed but not imported anywhere:
+This analysis identifies unused exports, files, dependencies, and types in the Interview-automatic-bot codebase. Items are categorized by risk level for safe cleanup.
 
-| Package | Reason | Recommendation |
-|---------|--------|----------------|
-| `@reduxjs/toolkit` | Planned for future state management | **REMOVE** - Not currently used |
-| `react-redux` | Planned for future state management | **REMOVE** - Not currently used |
-| `electron-store` | Planned for config storage | **KEEP** - May use for document settings |
+| Category | Count | Action Required |
+|----------|-------|-----------------|
+| DANGER (False Positives) | 25 | DO NOT DELETE - entry points/API routes |
+| CAUTION (Review Needed) | 6 | Keep - planned features/testing |
+| SAFE (Truly Unused) | 0 | No deletions needed |
+| Missing Dependency | 1 | Add @vitest/coverage-v8 |
 
-### Action: Remove unused dependencies
-
-```bash
-pnpm remove @reduxjs/toolkit react-redux
-```
+**Conclusion**: The codebase is clean. All flagged items are false positives or planned features.
 
 ---
 
-## 2. Unused DevDependencies (CAUTION)
+## DANGER - DO NOT DELETE
 
-| Package | Status | Recommendation |
-|---------|--------|----------------|
-| `@electron-toolkit/preload` | Not imported | **REMOVE** |
-| `@electron-toolkit/utils` | Not imported | **REMOVE** |
-| `@electron/asar` | Used by electron-builder | **KEEP** |
-| `@playwright/test` | E2E testing (Phase 4) | **KEEP** |
-| `@types/uuid` | Used in ipc.ts | **KEEP** (false positive) |
-| `@typescript-eslint/eslint-plugin` | ESLint config needed | **KEEP** |
-| `@typescript-eslint/parser` | ESLint config needed | **KEEP** |
-| `eslint-config-prettier` | ESLint/Prettier integration | **KEEP** |
-| `eslint-plugin-react` | React linting | **KEEP** |
-| `eslint-plugin-react-hooks` | Hooks linting | **KEEP** |
-| `autoprefixer` | Tailwind CSS | **KEEP** |
-| `postcss` | Tailwind CSS | **KEEP** |
-| `tailwindcss` | Styling | **KEEP** |
-| `typescript` | Core dependency | **KEEP** |
+These items appear "unused" to analysis tools but are critical entry points, config files, or Vercel API routes.
 
-### Action: Remove unused electron-toolkit packages
+### Electron Entry Points (False Positives)
 
-```bash
-pnpm remove @electron-toolkit/preload @electron-toolkit/utils
-```
+| File | Reason |
+|------|--------|
+| `src/main/index.ts` | Main process entry point (referenced in electron.vite.config.ts) |
+| `src/preload/index.ts` | Preload script entry point (referenced in electron.vite.config.ts) |
+| `src/renderer/src/main.tsx` | React app entry point (referenced in index.html) |
+| `src/renderer/src/App.tsx` | Root React component (imported by main.tsx) |
+| `electron.vite.config.ts` | Build configuration (used by electron-vite) |
+
+### React Components (Active UI)
+
+| File | Reason |
+|------|--------|
+| `src/renderer/src/components/ErrorBoundary.tsx` | Error handling wrapper |
+| `src/renderer/src/components/DocumentUploadPanel.tsx` | Document upload UI |
+| `src/renderer/src/components/LoginPage.tsx` | Authentication UI |
+| `src/renderer/src/components/SettingsModal.tsx` | Settings dialog |
+| `src/renderer/src/components/Skeleton.tsx` | Loading placeholder |
+| `src/renderer/src/components/Toast.tsx` | Notification component |
+
+### Hooks (Active Features)
+
+| File | Reason |
+|------|--------|
+| `src/renderer/src/hooks/useAIResponse.ts` | AI response state management |
+| `src/renderer/src/hooks/useAuth.ts` | Authentication state hook |
+| `src/renderer/src/hooks/useDocuments.ts` | Document management hook |
+| `src/renderer/src/hooks/useSettings.ts` | Settings state hook |
+| `src/renderer/src/hooks/useToast.tsx` | Toast notification hook |
+
+### Vercel API Routes (Server-side - File-based routing)
+
+| File | Reason |
+|------|--------|
+| `apps/api/api/auth/callback.ts` | Google OAuth callback endpoint (GET /api/auth/callback) |
+| `apps/api/api/auth/google.ts` | Google OAuth initiation endpoint (GET /api/auth/google) |
+| `apps/api/api/auth/me.ts` | User info endpoint (GET /api/auth/me) |
+| `apps/api/lib/auth.ts` | Auth utilities (used by API routes) |
+| `apps/api/lib/cors.ts` | CORS configuration (used by me.ts) |
+| `apps/api/lib/env.ts` | Environment variable helper (used by auth.ts) |
+| `apps/api/lib/supabase.ts` | Supabase client (used by all API routes) |
+
+### Config Files
+
+| File | Reason |
+|------|--------|
+| `src/renderer/src/env.d.ts` | TypeScript environment declarations |
+| `src/renderer/src/index.css` | Global styles with Tailwind (imported by main.tsx) |
 
 ---
 
-## 3. Unused Exports (SAFE - Intentional)
+## CAUTION - Review Before Deletion
 
-| Export | File | Status |
+These items may have indirect usage patterns or are reserved for future features.
+
+### Unused Exported Types (src/types/auth.ts)
+
+| Type | Status | Notes |
+|------|--------|-------|
+| `JWTPayload` | Duplicate | Also defined in apps/api/lib/auth.ts - intentional separation |
+| `AuthCallbackParams` | Planned | Reserved for future callback handling |
+| `PlanLimits` | Planned | Reserved for subscription feature |
+| `SubscriptionPlan` | Planned | Reserved for subscription feature |
+
+**Recommendation**: Keep - these are part of the planned subscription system architecture.
+
+### Unused Class Exports
+
+| Export | File | Reason |
 |--------|------|--------|
-| `ContextService` | context.service.ts | Singleton pattern - class exported but only instance used |
-| `DocumentService` | document.service.ts | Singleton pattern - class exported but only instance used |
+| `ContextService` | src/services/context.service.ts | Singleton pattern - class exported for testing |
+| `DocumentService` | src/services/document.service.ts | Singleton pattern - class exported for testing |
 
-**Recommendation**: Keep exports for testing and extensibility.
-
----
-
-## 4. False Positives (No Action)
-
-Knip reported these as "unused" but they are entry points:
-
-- `electron.vite.config.ts` - Build configuration
-- `src/main/index.ts` - Electron main entry
-- `src/preload/index.ts` - Preload script
-- `src/renderer/src/App.tsx` - React root component
-- `src/renderer/src/main.tsx` - React entry point
-- All component/hook files - Dynamically imported
+**Recommendation**: Keep - useful for unit testing with dependency injection.
 
 ---
 
-## 5. Missing Dependencies
+## SAFE - Can Be Deleted
 
-| Package | File | Action |
-|---------|------|--------|
-| `@vitest/coverage-v8` | vitest.config.ts | **ADD** for coverage reports |
+### Dependencies Analysis
+
+#### Root package.json
+
+| Package | Flagged By | Actual Status | Verification |
+|---------|------------|---------------|--------------|
+| `dotenv` | knip | **USED** | Imported in src/main/index.ts:3 |
+
+**Result**: No unused dependencies in root package.json.
+
+#### apps/api/package.json
+
+| Package | Status | Notes |
+|---------|--------|-------|
+| `@supabase/supabase-js` | **USED** | Imported in lib/supabase.ts |
+| `resend` | PLANNED | Email service for future notifications |
+| `stripe` | PLANNED | Payment service for subscriptions |
+
+**Recommendation**: Keep `resend` and `stripe` if subscription features are planned within 6 months.
+
+### devDependencies Analysis (All False Positives)
+
+| Package | Flagged By | Actual Usage |
+|---------|------------|--------------|
+| `@electron/asar` | knip | Used by electron-builder internally |
+| `@playwright/test` | knip | E2E test framework (tests/e2e planned) |
+| `@typescript-eslint/eslint-plugin` | knip | Used by ESLint for TypeScript |
+| `@typescript-eslint/parser` | knip | Used by ESLint for TypeScript |
+| `eslint-config-prettier` | knip | ESLint/Prettier integration |
+| `eslint-plugin-react` | knip | React-specific ESLint rules |
+| `eslint-plugin-react-hooks` | knip | Hooks rules enforcement |
+| `autoprefixer` | depcheck | Used in postcss.config.js |
+| `postcss` | depcheck | Used in postcss.config.js |
+| `tailwindcss` | depcheck | Used in tailwind.config.js |
+| `typescript` | depcheck | Core TypeScript compiler |
+
+**Result**: All devDependencies are actively used by build/test/lint toolchain.
 
 ---
 
-## Recommended Cleanup Actions
+## Action Items
 
-### Phase 1: Safe Removals (No risk)
-1. Remove `@reduxjs/toolkit` and `react-redux`
-2. Remove `@electron-toolkit/preload` and `@electron-toolkit/utils`
+### Required Actions
 
-### Phase 2: Add Missing (Required)
-1. Add `@vitest/coverage-v8` for test coverage
+1. **Add missing dependency** (unlisted in package.json but used):
+   ```bash
+   pnpm add -D @vitest/coverage-v8
+   ```
 
-### Phase 3: Future Consideration
-1. Set up ESLint config file (currently missing)
-2. Evaluate if `electron-store` is needed
+### No Action Required
+
+All other flagged items are false positives due to:
+- Electron entry points not detected by standard import analysis
+- Vercel API routes using file-based routing (no explicit imports)
+- PostCSS/Tailwind plugins loaded by name in config files
+- ESLint plugins loaded by name in configuration
 
 ---
 
-## Test Verification Required
+## Verification Commands
 
-Before each removal:
 ```bash
-pnpm test --run && pnpm build
+# Verify tests pass
+pnpm test --run
+
+# Verify build succeeds
+pnpm build
+
+# Verify lint passes
+pnpm lint
 ```
 
-After all removals:
-```bash
-pnpm test --run && pnpm build && pnpm dev
+---
+
+## Previous Cleanup Actions (Completed)
+
+The following packages were identified and removed in previous analysis:
+
+| Package | Status | Date |
+|---------|--------|------|
+| `@reduxjs/toolkit` | REMOVED | Pre-Phase 4 |
+| `react-redux` | REMOVED | Pre-Phase 4 |
+| `@electron-toolkit/preload` | REMOVED | Pre-Phase 4 |
+| `@electron-toolkit/utils` | REMOVED | Pre-Phase 4 |
+
+---
+
+## Appendix: Tool Output Summary
+
+### knip v5.83.0 Results
+
 ```
+Unused files: 25 (all false positives - entry points/API routes)
+Unused dependencies: 4 (3 in apps/api, 1 in root - all verified as used or planned)
+Unused devDependencies: 7 (all false positives - config-based tools)
+Unlisted dependencies: 1 (@vitest/coverage-v8)
+Unused exports: 2 (intentional for testing)
+Unused exported types: 4 (planned features)
+```
+
+### depcheck v1.4.7 Results
+
+```
+Unused devDependencies: 11 (all false positives - config-based tools)
+```
+
+---
+
+## Cleanup Execution Log
+
+| Action | Status | Notes |
+|--------|--------|-------|
+| Analysis completed | Done | knip + depcheck + manual verification |
+| Tests verified | Done | 63/63 passing |
+| Build verified | Done | No TypeScript errors |
+| False positives identified | Done | 25 files, 7 devDeps |
+| Safe removals identified | Done | 0 packages (codebase is clean) |
+| Missing dependency identified | Done | @vitest/coverage-v8 |

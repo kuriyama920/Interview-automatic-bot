@@ -1,29 +1,26 @@
 # プロジェクト概要 - Interview Automatic Bot
 
-このドキュメントは、プロジェクト全体の概要と作成済みドキュメントの一覧です。
+このドキュメントは、プロジェクト全体の概要と現在の実装状況をまとめています。
 
 ---
 
-## 📚 作成済みドキュメント一覧
+## 📚 ドキュメント一覧
 
-以下のドキュメントが作成されました：
-
-### 1. メインドキュメント
+### メインドキュメント
 
 | ファイル | 内容 | 読むべきタイミング |
 |---------|------|-------------------|
 | **[README.md](./README.md)** | プロジェクト概要、機能説明、セットアップ手順 | 最初に読む |
-| **[DEVELOPMENT.md](./DEVELOPMENT.md)** | 詳細な開発ワークフロー、Phase別実装ガイド | 実装開始時 |
-| **[ARCHITECTURE.md](./ARCHITECTURE.md)** | システムアーキテクチャ、データフロー、技術設計 | 実装前の設計確認時 |
-| **[DISCUSSION.md](./DISCUSSION.md)** | 技術的な決定事項、未解決の疑問点、壁打ち用 | **今すぐ読む！** |
+| **[DEVELOPMENT.md](./DEVELOPMENT.md)** | 詳細な開発ワークフロー、Phase別実装ガイド | 実装時 |
+| **[ARCHITECTURE.md](./ARCHITECTURE.md)** | システムアーキテクチャ、データフロー、技術設計 | 設計確認時 |
+| **[CLAUDE.md](./CLAUDE.md)** | Claude Code用ガイダンス | AI開発支援時 |
 
-### 2. セットアップ関連
+### セットアップ関連
 
 | ファイル | 内容 |
 |---------|------|
 | **[docs/SETUP.md](./docs/SETUP.md)** | 開発環境構築の詳細手順 |
 | **[.env.example](./.env.example)** | 環境変数テンプレート |
-| **[.gitignore](./.gitignore)** | Git除外設定 |
 | **[package.json](./package.json)** | 依存関係・スクリプト定義 |
 
 ---
@@ -35,7 +32,7 @@
 **Windows向けデスクトップアプリケーション**で、以下を実現します：
 
 ```
-オンライン面接中の音声 → リアルタイム認識 → AI回答生成 → 透明表示
+オンライン面接中の音声 → リアルタイム認識 → AI回答生成 → 画面表示
 ```
 
 ### なぜデスクトップアプリなのか？
@@ -50,97 +47,103 @@ Webブラウザでは以下が**技術的に不可能**です：
 ```yaml
 フレームワーク: Electron 28.x
 言語: TypeScript 5.3
-UI: React + Tailwind CSS + DaisyUI
-音声認識: Deepgram API（100-300ms遅延）
-LLM: OpenAI GPT-4 Turbo
-RAG: LangChain + Chroma（ローカルベクトルDB）
+UI: React 18 + Tailwind CSS + DaisyUI
+状態管理: React Hooks（カスタムフック）
+音声認識: Deepgram API（WebSocket、100-300ms遅延）
+LLM: OpenAI GPT-4o（ストリーミング対応）
+RAG: OpenAI Embeddings + JSON永続化（インメモリ検索）
+ドキュメント解析: pdf-parse, mammoth, LangChain
 ```
 
 ---
 
-## 📊 参考プロジェクト・サービス
+## 📊 実装状況
 
-### オープンソースプロジェクト
+### Phase別進捗
 
-| プロジェクト | 技術 | 参考部分 |
-|------------|------|---------|
-| [Interview-Assistant](https://github.com/nohairblingbling/Interview-Assistant) | Electron + TypeScript | 透明オーバーレイ実装 |
-| [AI-powererd-interview-Assistant](https://github.com/Vijaysingh1621/AI-powererd-interview-Assistant) | Next.js + Deepgram | RAG実装（Pinecone） |
-| [interviewcopilot](https://github.com/hariiprasad/interviewcopilot) | Next.js + Azure Speech | UI設計 |
-| [Ai-Interview-Assistant-Python](https://github.com/pixelpump/Ai-Interview-Assistant-Python) | Python + Eel | 音声キャプチャロジック |
-| [ai-interview-assistant](https://github.com/Guna1610/ai-interview-assistant) | React + Express | 履歴書パーシング |
-| [llm-interview-assistant](https://github.com/dmytrovoytko/llm-interview-assistant) | Python + Streamlit | RAG設計（Elasticsearch） |
+| Phase | 内容 | ステータス | 主要ファイル |
+|-------|------|-----------|-------------|
+| Phase 1 | 音声認識（Deepgram STT） | ✅ 完了 | stt.service.ts, useSTT.ts |
+| Phase 2 | AI回答生成（OpenAI GPT-4o） | ✅ 完了 | ai.service.ts, useAIResponse.ts |
+| Phase 3 | コンテキスト管理（RAG） | ✅ 完了 | document.service.ts, context.service.ts |
+| Phase 4 | UI/UX改善 | 🔜 次 | App.tsx, components/ |
 
-### 商用サービス（参考資料）
+### 実装済み機能
 
-| サービス | 特徴 | 参考にした点 |
-|---------|------|------------|
-| [Cluely](https://cluely.ai/) | 米国、a16z出資、透明オーバーレイ | セキュリティ設計（SOC2/GDPR準拠） |
-| [CueMe](https://cueme.app/) | 日本発、Mac専用 | 日本語UI/UX、ホットキー実装 |
-| [Interview Hunter](https://interviewhunter.com/) | 技術面接特化 | コーディング問題対応ロジック |
-| [KanpeAI](https://kanpe.ai/) | 多言語対応 | 面接後の分析レポート機能 |
+#### Phase 1: 音声認識
+- ✅ Deepgram WebSocket接続
+- ✅ リアルタイム文字起こし（interim + final）
+- ✅ 16kHz PCM音声キャプチャ
+- ✅ 音声ファイルテスト機能（WSL2対応）
+
+#### Phase 2: AI回答生成
+- ✅ OpenAI GPT-4oストリーミング
+- ✅ 面接回答特化システムプロンプト
+- ✅ リアルタイムレスポンス表示
+
+#### Phase 3: コンテキスト管理
+- ✅ PDF/DOCXファイル解析
+- ✅ テキストチャンク化（500文字）
+- ✅ OpenAI Embeddings生成
+- ✅ JSON永続化（userData/context-data.json）
+- ✅ Cosine類似度検索（top-3）
+- ✅ AIへの自動コンテキスト統合
 
 ---
 
-## 🗂️ プロジェクト構造（完成形）
+## 🗂️ プロジェクト構造
 
 ```
 interview-automatic-bot/
-├── README.md                    ✅ 作成済み
-├── DEVELOPMENT.md               ✅ 作成済み
-├── ARCHITECTURE.md              ✅ 作成済み
-├── DISCUSSION.md                ✅ 作成済み（壁打ち用）
-├── PROJECT_OVERVIEW.md          ✅ このファイル
-├── package.json                 ✅ 作成済み
-├── .env.example                 ✅ 作成済み
-├── .gitignore                   ✅ 作成済み
-├── tsconfig.json                ⏳ Phase 0で作成
-├── electron.vite.config.ts      ⏳ Phase 0で作成
+├── README.md                    # プロジェクト概要
+├── DEVELOPMENT.md               # 開発ガイド
+├── ARCHITECTURE.md              # アーキテクチャ設計
+├── CLAUDE.md                    # Claude Code用ガイダンス
+├── PROJECT_OVERVIEW.md          # このファイル
+├── package.json                 # 依存関係・スクリプト
+├── .env.example                 # 環境変数テンプレート
+├── electron.vite.config.ts      # ビルド設定
+├── tsconfig.json                # TypeScript設定
 │
 ├── src/
-│   ├── main/                    ⏳ Electronメインプロセス
-│   │   ├── index.ts
-│   │   ├── window.ts
-│   │   ├── hotkey.ts
-│   │   └── audio/
-│   │       └── capture.ts
-│   ├── preload/                 ⏳ プリロードスクリプト
-│   │   └── index.ts
-│   ├── renderer/                ⏳ React UI
-│   │   ├── src/
-│   │   │   ├── App.tsx
-│   │   │   ├── components/
-│   │   │   ├── hooks/
-│   │   │   └── store/
-│   │   └── index.html
-│   └── services/                ⏳ ビジネスロジック
-│       ├── stt.service.ts
-│       ├── llm.service.ts
-│       └── rag.service.ts
+│   ├── main/                    # Electronメインプロセス
+│   │   ├── index.ts             # エントリーポイント
+│   │   └── ipc.ts               # IPC通信ハンドラー
+│   │
+│   ├── preload/                 # プリロードスクリプト
+│   │   └── index.ts             # contextBridge API公開
+│   │
+│   ├── renderer/                # React UI（レンダラープロセス）
+│   │   └── src/
+│   │       ├── App.tsx          # メインコンポーネント
+│   │       ├── hooks/           # カスタムフック
+│   │       │   ├── useSTT.ts           # STT接続管理
+│   │       │   ├── useAudioCapture.ts  # 音声キャプチャ
+│   │       │   ├── useAIResponse.ts    # AI回答生成
+│   │       │   └── useDocuments.ts     # ドキュメント管理
+│   │       └── components/      # UIコンポーネント
+│   │           └── DocumentUploadPanel.tsx
+│   │
+│   ├── services/                # ビジネスロジック（メインプロセス）
+│   │   ├── stt.service.ts       # Deepgram統合
+│   │   ├── ai.service.ts        # OpenAI統合
+│   │   ├── document.service.ts  # PDF/DOCX解析
+│   │   ├── context.service.ts   # RAGコンテキスト管理
+│   │   └── logger.service.ts    # Winston ロガー
+│   │
+│   └── types/                   # 型定義
+│       ├── electron.d.ts        # Window.electron型
+│       └── document.ts          # ドキュメント関連型
 │
-├── docs/
-│   └── SETUP.md                 ✅ 作成済み
+├── tests/                       # テストコード
+│   ├── unit/                    # ユニットテスト
+│   └── integration/             # 統合テスト
 │
-└── resources/                   ⏳ Phase 6で作成
-    └── icon.ico
+└── docs/                        # ドキュメント
+    ├── SETUP.md                 # セットアップ手順
+    ├── REFERENCES.md            # 参考資料
+    └── FUTURE_FEATURES.md       # 将来実装予定機能
 ```
-
----
-
-## 📅 開発スケジュール
-
-| Phase | 期間 | 主要タスク | 成果物 |
-|-------|------|-----------|--------|
-| **Phase 0** | 1-2日 | プロジェクト初期化、環境構築 | 空のElectronアプリ起動 |
-| **Phase 1** | 3-4日 | 音声認識実装（Deepgram） | リアルタイム文字起こし |
-| **Phase 2** | 3-4日 | LLM統合（OpenAI） | AI回答生成 |
-| **Phase 3** | 2-3日 | ステルスUI実装 | 透明オーバーレイ |
-| **Phase 4** | 4-5日 | RAG実装 | 履歴書ベース回答 |
-| **Phase 5** | 2-3日 | 設定・保存機能 | 設定画面・履歴保存 |
-| **Phase 6** | 2-3日 | ビルド・配布 | **Windows .exe完成** |
-
-**MVP完成**: Phase 3終了時（約2週間）
-**製品版完成**: Phase 6終了時（約3-4週間）
 
 ---
 
@@ -153,106 +156,92 @@ interview-automatic-bot/
 - 利用可能時間: 約46,000分（約767時間）
 - 日常開発では無料枠内で完結
 
-**OpenAI GPT-4 Turbo**:
-- 想定: 1回答あたり500トークン（入力300 + 出力200）
-- コスト: $0.003 + $0.006 = **$0.009/回答**
-- 月100回答: 約$0.9
-- 月1000回答: 約$9
+**OpenAI**:
+| API | 料金 | 用途 |
+|-----|------|------|
+| GPT-4o（入力） | $0.005/1k tokens | AI回答生成 |
+| GPT-4o（出力） | $0.015/1k tokens | AI回答生成 |
+| text-embedding-3-small | $0.00002/1k tokens | ドキュメント埋め込み |
 
-**合計月額コスト**: 約$10以下（開発・個人利用）
-
----
-
-## 🎯 機能要件（優先度順）
-
-### MVP（必須機能）
-
-- ✅ リアルタイム音声認識
-- ✅ 質問自動検出
-- ✅ AI回答生成
-- ✅ 透明オーバーレイUI
-- ✅ ホットキー操作（Ctrl+Shift+A）
-- ✅ 設定管理（APIキー保存）
-
-### Phase 2（推奨機能）
-
-- 履歴書アップロード
-- RAG回答生成
-- 複数LLM対応（Claude/Gemini）
-- 会話履歴保存
-
-### Phase 3（オプション機能）
-
-- 音声応答（TTS）
-- Web検索統合
-- 評価レポート生成
-- クラウド同期
+**月額コスト目安**:
+- 開発・個人利用: 約$10以下
+- 月100回答: 約$1
+- 月1000回答: 約$10
 
 ---
 
-## 🚀 次のステップ（推奨順序）
+## 📅 開発フェーズ
 
-### ステップ1: ドキュメント確認
+### 完了済み（Phase 1-3）
 
-以下の順序で読んでください：
+| Phase | 主要タスク | 成果物 |
+|-------|-----------|--------|
+| Phase 1 | 音声認識実装（Deepgram） | リアルタイム文字起こし |
+| Phase 2 | LLM統合（OpenAI） | AI回答生成 |
+| Phase 3 | コンテキスト管理（RAG） | 履歴書ベース回答 |
 
-1. **[DISCUSSION.md](./DISCUSSION.md)** ← **最優先！**
-   - 技術的な決定事項を確認
-   - 未解決の疑問点を議論
+### 次フェーズ（Phase 4）
 
-2. **[README.md](./README.md)**
-   - プロジェクト全体像を把握
+UI/UX改善の検討項目:
+1. 設定画面UI（APIキー設定）
+2. テーマ切り替え（ダーク/ライト）
+3. トースト通知システム
+4. セッション履歴保存
+5. キーボードショートカット
 
-3. **[ARCHITECTURE.md](./ARCHITECTURE.md)**
-   - システム設計を理解
+詳細は [docs/FUTURE_FEATURES.md](./docs/FUTURE_FEATURES.md) を参照。
 
-### ステップ2: 壁打ちディスカッション
+---
 
-**[DISCUSSION.md](./DISCUSSION.md)** を開いて、以下を決定しましょう：
+## 📚 参考プロジェクト・サービス
 
-#### 今決めるべきこと（5つ）
+### オープンソースプロジェクト
 
-1. **開発開始時期**
-   - 今すぐPhase 0を開始するか？
-   - 追加調査が必要か？
+| プロジェクト | 技術 | 参考部分 |
+|------------|------|---------|
+| [Interview-Assistant](https://github.com/nohairblingbling/Interview-Assistant) | Electron + TypeScript | 透明オーバーレイ実装 |
+| [AI-powererd-interview-Assistant](https://github.com/Vijaysingh1621/AI-powererd-interview-Assistant) | Next.js + Deepgram | RAG実装（Pinecone） |
 
-2. **開発期間の目標**
-   - MVP（2週間）を目指すか？
-   - 完全版（4週間）を目指すか？
+### 商用サービス（参考資料）
 
-3. **コスト上限**
-   - OpenAI APIの月額上限は？（$10、$50、$100？）
+| サービス | 特徴 | 参考にした点 |
+|---------|------|------------|
+| [Cluely](https://cluely.ai/) | 米国、透明オーバーレイ | セキュリティ設計 |
+| [CueMe](https://cueme.app/) | 日本発、Mac専用 | 日本語UI/UX |
 
-4. **優先機能**
-   - MVP必須機能は上記で良いか？
-   - Phase 7で何を実装したいか？
+詳細は [docs/REFERENCES.md](./docs/REFERENCES.md) を参照。
 
-5. **プロンプト方針**
-   - 回答のトーン（です・ます調 vs だ・である調）
-   - 文字数制限（200-300文字で良いか？）
+---
 
-### ステップ3: Phase 0開始
+## 🚀 クイックスタート
 
-決定事項が固まったら：
+### 1. 依存関係インストール
 
 ```bash
-# プロジェクト作成
-npm create @quick-start/electron@latest interview-automatic-bot
-
-cd interview-automatic-bot
-
-# 依存関係インストール
 pnpm install
+```
 
-# APIキー設定
+### 2. 環境変数設定
+
+```bash
 cp .env.example .env
-# .envを編集してAPIキーを記入
+# .envにAPIキーを記入
+```
 
-# 開発サーバー起動
+### 3. 開発サーバー起動
+
+```bash
 pnpm dev
 ```
 
-詳細は **[docs/SETUP.md](./docs/SETUP.md)** を参照
+### 4. 使用方法
+
+1. 「録音開始」ボタンをクリック
+2. 面接官の質問を自動認識
+3. 履歴書/求人票をアップロード（オプション）
+4. AI回答が自動生成
+
+詳細は [docs/SETUP.md](./docs/SETUP.md) を参照。
 
 ---
 
@@ -277,28 +266,14 @@ MIT License（自由に改変・配布可能）
 
 ---
 
-## 🤝 サポート・連絡先
-
-- **GitHub Issues**: [https://github.com/yourusername/interview-automatic-bot/issues](https://github.com/yourusername/interview-automatic-bot/issues)
-- **ドキュメント**: このリポジトリの各種.mdファイル
-
----
-
-## ✅ チェックリスト
-
-開始前に以下を確認してください：
+## ✅ 開発環境チェックリスト
 
 - [ ] Node.js v18.x以上をインストール済み
 - [ ] pnpmをインストール済み（`npm install -g pnpm`）
 - [ ] Deepgram APIキーを取得済み
 - [ ] OpenAI APIキーを取得済み（支払い方法登録済み）
 - [ ] Visual Studio Codeをインストール済み
-- [ ] [DISCUSSION.md](./DISCUSSION.md)を読んで疑問点を整理済み
-- [ ] 開発期間・優先機能を決定済み
-
-すべてチェックできたら、Phase 0を開始しましょう！ 🚀
 
 ---
 
-**最終更新**: 2026-02-01
-**次のアクション**: [DISCUSSION.md](./DISCUSSION.md)を開いて壁打ち開始！
+**最終更新**: 2026-02-04

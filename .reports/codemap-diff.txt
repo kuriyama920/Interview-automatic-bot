@@ -1,0 +1,53 @@
+Codemap Update Report
+=====================
+
+Generated: 2026-02-04
+Status: NEW (Initial Creation)
+
+Files Created:
+--------------
+1. codemaps/architecture.md
+   - Overall system architecture
+   - IPC communication patterns
+   - Data flow diagrams
+   - Key file references
+
+2. codemaps/backend.md
+   - Main process services
+   - STTService, AIService, ContextService, DocumentService
+   - IPC handler mapping
+   - Dependency graph
+
+3. codemaps/frontend.md
+   - Renderer process structure
+   - React component hierarchy
+   - Custom hooks (useSTT, useAudioCapture, useAIResponse, useDocuments)
+   - Electron API (preload)
+   - UI layout
+
+4. codemaps/data.md
+   - Type definitions
+   - Storage schema (context-data.json)
+   - Data flow diagrams
+   - Validation rules
+   - Immutability patterns
+
+Diff Summary:
+-------------
+Previous version: None
+Current version: v1.0.0
+Change percentage: 100% (new creation)
+
+Coverage:
+---------
+- src/main/: 100%
+- src/preload/: 100%
+- src/services/: 100%
+- src/renderer/: 100%
+- src/types/: 100%
+
+Next Update Recommendation:
+---------------------------
+- After major architectural changes
+- After adding new services
+- After adding new IPC channels
