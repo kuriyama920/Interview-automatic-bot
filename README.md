@@ -65,7 +65,9 @@ Webブラウザでは以下の機能が**技術的に不可能**です：
 
 ---
 
-## 参考プロジェクト
+## 参考プロジェクト・サービス
+
+### オープンソースプロジェクト
 
 本プロジェクトは以下のOSSプロジェクトを参考に設計しています：
 
@@ -77,6 +79,23 @@ Webブラウザでは以下の機能が**技術的に不可能**です：
 | **Ai-Interview-Assistant-Python** | Python + Eel | システム音声キャプチャロジック | [GitHub](https://github.com/pixelpump/Ai-Interview-Assistant-Python) |
 | **ai-interview-assistant** | React + Express | 履歴書パーシング、セッション管理 | [GitHub](https://github.com/Guna1610/ai-interview-assistant) |
 | **llm-interview-assistant** | Python + Streamlit | RAG設計（Elasticsearch + PostgreSQL） | [GitHub](https://github.com/dmytrovoytko/llm-interview-assistant) |
+
+### 商用サービス（参考資料）
+
+以下の商用サービスも技術仕様・UI/UX設計の参考にしています：
+
+| サービス | 特徴 | 技術・機能 |
+|---------|------|-----------|
+| **[Cluely](https://cluely.ai/)** | 米国スタートアップ、a16z出資 | ・透明オーバーレイ<br>・12言語対応（応答300ms、95%精度）<br>・フォローアップメール自動生成<br>・SOC2/ISO27001/GDPR準拠 |
+| **[CueMe](https://cueme.app/)** | 日本発、Mac専用アプリ | ・Whisperベース音声認識<br>・Command+Tホットキー<br>・ステルスモード（画面共有非表示）<br>・履歴書ベース回答生成 |
+| **[Interview Hunter](https://interviewhunter.com/)** | 技術面接特化ツール | ・コーディング問題対応<br>・リアルタイム回答提案<br>・LeetCode/HackerRank連携 |
+| **[KanpeAI](https://kanpe.ai/)** | オンライン面接支援 | ・音声認識＋AI回答<br>・複数言語対応<br>・面接後の分析レポート |
+
+**参考ポイント**:
+- Cluely: セキュリティ・コンプライアンス設計
+- CueMe: 日本語UI/UX、ホットキー実装
+- Interview Hunter: 技術面接特化の回答ロジック
+- KanpeAI: 分析・レポート機能
 
 ---
 
