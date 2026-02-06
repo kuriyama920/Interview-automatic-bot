@@ -27,7 +27,7 @@ const ALLOWED_ORIGINS: string[] = [
  */
 export function setCorsHeaders(res: VercelResponse, origin: string | null | undefined): boolean {
   // 許可するメソッドとヘッダー
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
   res.setHeader('Access-Control-Max-Age', '86400') // 24時間キャッシュ
 

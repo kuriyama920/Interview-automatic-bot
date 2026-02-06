@@ -14,6 +14,9 @@ interface EnvConfig {
   // Supabase
   SUPABASE_URL: string
   SUPABASE_SERVICE_ROLE_KEY: string
+
+  // OpenAI (Phase 6: サーバーサイドEmbedding)
+  OPENAI_API_KEY: string
 }
 
 const REQUIRED_ENV_VARS: (keyof EnvConfig)[] = [
@@ -22,6 +25,7 @@ const REQUIRED_ENV_VARS: (keyof EnvConfig)[] = [
   'JWT_SECRET',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
+  'OPENAI_API_KEY',
 ]
 
 /**

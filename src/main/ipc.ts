@@ -1,9 +1,7 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
 import * as fs from 'fs/promises'
-import { v4 as uuidv4 } from 'uuid'
 import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse } from '../services/ai.service'
-import { documentService } from '../services/document.service'
 import { contextService } from '../services/context.service'
 import { settingsService } from '../services/settings.service'
 import { authService } from '../services/auth.service'
@@ -314,15 +312,11 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     return { initialized: aiService.isInitialized() }
   })
 
-  // Context初期化
+  // Context初期化（Phase 6: APIキー不要 - サーバーサイドでEmbedding生成）
   ipcMain.handle('context:init', async () => {
     log.info('context:init called')
     try {
-      const key = process.env.OPENAI_API_KEY
-      if (!key) {
-        return { success: false, error: 'OpenAI API key not found' }
-      }
-      await contextService.initialize(key)
+      await contextService.initialize()
       return { success: true }
     } catch (error) {
       log.error('Failed to initialize context service', { error: String(error) })
@@ -330,7 +324,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ドキュメントアップロード
+  // ドキュメントアップロード（Phase 6: API経由でアップロード）
   ipcMain.handle('document:upload', async (_event, documentType: DocumentType) => {
     log.info('document:upload called', { type: documentType })
     try {
@@ -355,33 +349,18 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
       const fileBuffer = await fs.readFile(filePath)
 
-      // Parse document
-      const parsed = await documentService.parseFile(filePath, fileBuffer)
+      // Phase 6: Upload to API (server-side parsing and embedding)
+      const document = await contextService.addDocument(fileBuffer, fileName, documentType)
 
-      // Create document metadata
-      const documentId = uuidv4()
-      const metadata = {
-        id: documentId,
-        name: fileName,
-        type: documentType,
-        uploadedAt: Date.now(),
-        chunkCount: 0,
-        totalTokens: Math.ceil(parsed.text.length / 4),
-      }
-
-      // Chunk and embed
-      const chunks = await documentService.chunkText(parsed.text, documentId)
-      await contextService.addDocument(metadata, chunks)
-
-      log.info('Document uploaded successfully', { id: documentId, name: fileName })
+      log.info('Document uploaded successfully', { id: document.id, name: fileName })
       return {
         success: true,
         document: {
-          id: documentId,
-          name: fileName,
-          type: documentType,
-          wordCount: parsed.metadata.wordCount,
-          chunkCount: chunks.length,
+          id: document.id,
+          name: document.name,
+          type: document.type,
+          wordCount: document.totalTokens * 4,
+          chunkCount: document.chunkCount,
         },
       }
     } catch (error) {
@@ -390,9 +369,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ドキュメント一覧取得
-  ipcMain.handle('document:list', () => {
-    return { success: true, documents: contextService.getDocuments() }
+  // ドキュメント一覧取得（Phase 6: API経由で取得）
+  ipcMain.handle('document:list', async () => {
+    try {
+      const documents = await contextService.getDocuments()
+      return { success: true, documents }
+    } catch (error) {
+      log.error('Failed to list documents', { error: String(error) })
+      return { success: false, error: String(error), documents: [] }
+    }
   })
 
   // ドキュメント削除

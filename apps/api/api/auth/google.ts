@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 期限切れのstateをクリーンアップ（非同期、エラーは無視）
-    supabaseAdmin.rpc('cleanup_expired_oauth_states').catch(() => {})
+    void supabaseAdmin.rpc('cleanup_expired_oauth_states')
 
     // API側のコールバックURL
     const apiCallbackUrl = `${getBaseUrl(req)}/api/auth/callback`

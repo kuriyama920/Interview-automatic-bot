@@ -30,13 +30,9 @@
     "@deepgram/sdk": "^3.4.0",
     "dotenv": "^17.2.3",
     "electron-store": "^8.1.0",
-    "langchain": "^0.1.0",
-    "mammoth": "^1.6.0",
     "openai": "^4.28.0",
-    "pdf-parse": "^1.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },
   "devDependencies": {
@@ -45,7 +41,6 @@
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
     "@types/node": "^20.11.0",
-    "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@typescript-eslint/eslint-plugin": "^6.18.0",

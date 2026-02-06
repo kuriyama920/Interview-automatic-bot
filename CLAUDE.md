@@ -144,6 +144,7 @@ Renderer Process              Main Process
 
 ### コンテキスト管理（RAG）
 
+**現状（Phase 5まで）**: ローカルRAG
 ```
 ドキュメント (PDF/DOCX)
      │
@@ -157,10 +158,33 @@ LangChain TextSplitter          # 500文字チャンク化
 OpenAI Embeddings               # text-embedding-3-small
      │
      ▼
-context-data.json               # JSONファイルで永続化
+context-data.json               # ローカルJSONで永続化
      │
      ▼
-cosine similarity検索           # top-3、MIN_SIMILARITY=0.7
+cosine similarity検索           # JavaScript計算
+```
+
+**Phase 6以降**: クラウドRAG
+```
+ドキュメント (PDF/DOCX)
+     │
+     ▼
+Electron → POST /api/documents
+     │
+     ▼
+Vercel API: テキスト抽出 + チャンク化
+     │
+     ▼
+Vercel API: OpenAI Embeddings生成
+     │
+     ▼
+Supabase document_chunks        # pgvector (1536次元)
+     │
+     ▼
+POST /api/documents/search
+     │
+     ▼
+Supabase match_documents()      # IVFFlat高速検索
 ```
 
 ## 開発フェーズ
@@ -172,22 +196,195 @@ cosine similarity検索           # top-3、MIN_SIMILARITY=0.7
 | Phase 3 | コンテキスト管理（履歴書/求人票解析） | ✅ 完了 |
 | Phase 4 | UI/UX改善 | ✅ 完了 |
 | Phase 5 | SaaS基盤（認証・DB） | ✅ 完了 |
-| Phase 6 | データ同期 | 🔜 次 |
+| Phase 6 | クラウドRAG | 🔜 次 |
 | Phase 7 | Stripe決済 | ⏳ 予定 |
 | Phase 8 | APIプロキシ | ⏳ 予定 |
+
+---
+
+## SaaSアーキテクチャ
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ユーザー（Windows PC）                     │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │           Interview Bot (.exe)                       │   │
+│  │                                                       │   │
+│  │  ・Google OAuth ログイン                              │   │
+│  │  ・音声認識 → API経由                                 │   │
+│  │  ・AI回答生成 → API経由                               │   │
+│  │  ・ドキュメント → クラウド保存                         │   │
+│  │  ・サブスクリプション確認                              │   │
+│  └──────────────────────┬──────────────────────────────┘   │
+└─────────────────────────┼───────────────────────────────────┘
+                          │ HTTPS
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Vercel API（運用者管理）                   │
+│                                                             │
+│  /api/auth/*        認証 ✅                                 │
+│  /api/documents/*   ドキュメント管理（Phase 6）              │
+│  /api/stt/proxy     Deepgram プロキシ（Phase 8）            │
+│  /api/ai/proxy      OpenAI プロキシ（Phase 8）              │
+│  /api/stripe/*      決済 Webhook（Phase 7）                 │
+│                                                             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────┐ ┌─────────────────┐
+│    Supabase     │ │   Stripe    │ │ Deepgram/OpenAI │
+│                 │ │             │ │                 │
+│ ・PostgreSQL    │ │ ・課金      │ │ ・運用者の      │
+│ ・pgvector      │ │ ・Webhook   │ │   APIキーで実行 │
+│ ・ユーザーデータ │ │             │ │                 │
+│ ・RAGベクトル   │ │             │ │                 │
+└─────────────────┘ └─────────────┘ └─────────────────┘
+```
+
+## ビジネスモデル（サブスクリプション）
+
+| プラン | 月額 | STT | AIトークン | ドキュメント |
+|--------|------|-----|-----------|-------------|
+| Free | ¥0 | 60分/月 | 50,000/月 | 5件 |
+| Pro | ¥1,980 | 600分/月 | 500,000/月 | 50件 |
+| Enterprise | ¥9,800 | 無制限 | 無制限 | 無制限 |
+
+---
+
+## Phase 6: クラウドRAG
+
+**目的**: ローカルRAGを廃止し、Supabase pgvectorでクラウドRAGを実装
+
+### 変更前（現状）
+```
+Electron → ローカルJSON (context-data.json)
+```
+
+### 変更後
+```
+Electron → Vercel API → Supabase pgvector
+```
+
+### 実装タスク
+
+#### 6.1 APIエンドポイント（apps/api/）
+```
+POST   /api/documents           # ドキュメントアップロード + Embedding生成
+GET    /api/documents           # ドキュメント一覧取得
+DELETE /api/documents/:id       # ドキュメント削除
+POST   /api/documents/search    # ベクトル類似検索（RAG）
+```
+
+#### 6.2 Electron側の変更（src/）
+- [ ] `context.service.ts` → API呼び出しに変更
+- [ ] ローカルJSON保存を廃止
+- [ ] `useDocuments.ts` フック更新
+
+#### 6.3 データベース（既存スキーマ活用）
+- `documents` テーブル: メタデータ
+- `document_chunks` テーブル: ベクトル埋め込み（pgvector 1536次元）
+- `match_documents()` 関数: ベクトル検索
+
+---
+
+## Phase 7: Stripe決済
+
+**目的**: サブスクリプション課金を実装
+
+### 実装タスク
+
+#### 7.1 Stripe設定
+- [ ] Stripe アカウント作成
+- [ ] 商品・価格設定（Free/Pro/Enterprise）
+- [ ] Webhook エンドポイント設定
+
+#### 7.2 APIエンドポイント（apps/api/）
+```
+POST /api/stripe/checkout       # Checkout Session作成
+POST /api/stripe/webhook        # Webhook受信（支払い完了等）
+POST /api/stripe/portal         # カスタマーポータルURL生成
+GET  /api/subscription          # 現在のプラン取得
+```
+
+#### 7.3 Electron側の変更
+- [ ] 課金UI（プランアップグレード画面）
+- [ ] 使用量表示（STT分数、AIトークン）
+- [ ] 制限到達時の警告表示
+
+#### 7.4 使用量管理
+- [ ] `usage_logs` テーブルへの記録
+- [ ] 月次リセット処理
+- [ ] プラン制限チェック
+
+---
+
+## Phase 8: APIプロキシ
+
+**目的**: Deepgram/OpenAI APIを運用者のキーで実行（ユーザーはAPIキー不要）
+
+### 変更前（現状）
+```
+Electron → Deepgram/OpenAI（ユーザーのAPIキー）
+```
+
+### 変更後
+```
+Electron → Vercel API → Deepgram/OpenAI（運用者のAPIキー）
+```
+
+### 実装タスク
+
+#### 8.1 APIエンドポイント（apps/api/）
+```
+POST /api/stt/token             # Deepgram一時トークン発行
+POST /api/ai/generate           # GPT-4o ストリーミング応答
+POST /api/ai/embeddings         # Embeddings生成
+```
+
+#### 8.2 Electron側の変更
+- [ ] `stt.service.ts` → API経由に変更
+- [ ] `ai.service.ts` → API経由に変更
+- [ ] ローカル`.env`からAPIキー削除
+
+#### 8.3 使用量チェック
+- [ ] リクエスト前にプラン制限確認
+- [ ] 超過時はエラー返却
+- [ ] 使用量記録
+
+#### 8.4 セキュリティ
+- [ ] JWT認証必須
+- [ ] レート制限
+- [ ] 不正利用検知
+
+---
+
+## Phase 9以降（将来検討）
+
+| 機能 | 優先度 | 備考 |
+|------|--------|------|
+| 複数LLM対応（Claude, Gemini） | 高 | ユーザー選択肢拡大 |
+| TTS（音声応答） | 高 | 実用性向上 |
+| Web検索統合 | 中 | 最新情報対応 |
+| 面接後の評価レポート | 中 | 学習効果 |
+| 自動更新機能 | 低 | electron-updater |
+| マルチ言語UI | 低 | i18n |
 
 ## 環境変数
 
 ### Electronアプリ（`.env`）
 
 ```env
-# 必須: 外部API
-DEEPGRAM_API_KEY=your_deepgram_api_key
-OPENAI_API_KEY=your_openai_api_key
+# Phase 5まで（ローカル処理時）
+DEEPGRAM_API_KEY=your_deepgram_api_key    # Phase 8で廃止
+OPENAI_API_KEY=your_openai_api_key        # Phase 8で廃止
 
 # SaaS API接続
 API_BASE_URL=https://your-api.vercel.app
 ```
+
+**Phase 8完了後**: ユーザーはAPIキー不要（API_BASE_URLのみ）
 
 ### Vercel API（環境変数設定）
 
@@ -209,6 +406,10 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 
 # Resend (Phase 7)
 RESEND_API_KEY=re_xxx
+
+# APIプロキシ用（Phase 8）- 運用者のキー
+DEEPGRAM_API_KEY=your_deepgram_api_key
+OPENAI_API_KEY=your_openai_api_key
 ```
 
 ## テスト方針
@@ -256,7 +457,19 @@ RESEND_API_KEY=re_xxx
 - 音声データは16kHz, 16bit PCMでDeepgramに送信
 - ロギングはWinston（Main）/ 軽量ロガー（Renderer）を使用
 - ファイルサイズ上限: 10MB（PDF/DOCX）
-- コンテキストデータは `userData/context-data.json` に保存
+- コンテキストデータ: Phase 5まで `userData/context-data.json`、Phase 6以降 Supabase
 - 認証トークンは `electron-store` で暗号化保存
 - Deep Linkプロトコル: `interview-bot://` (OAuth コールバック用)
 - モノレポ構成: `apps/api/` (Vercel), ルート (Electron)
+
+## 配布方法
+
+```bash
+# Windows インストーラー生成
+pnpm build:win
+
+# 出力
+dist-electron/InterviewBot-Setup-x.x.x.exe
+```
+
+ユーザーは .exe をインストールし、Google OAuth でログインするだけで利用可能（Phase 8完了後はAPIキー不要）。

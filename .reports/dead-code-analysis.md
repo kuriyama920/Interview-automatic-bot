@@ -1,23 +1,22 @@
 # Dead Code Analysis Report
 
-Generated: 2026-02-04
-Analysis Tools: knip v5.83.0, depcheck v1.4.7, manual grep analysis
-Test Status: All 63 tests passing
+Generated: 2026-02-05
+Analysis Tools: knip v5.83.0, manual grep analysis
+Test Status: Pending verification
 
 ---
 
 ## Executive Summary
 
-This analysis identifies unused exports, files, dependencies, and types in the Interview-automatic-bot codebase. Items are categorized by risk level for safe cleanup.
+Post-Phase 6 analysis identifies dead code after Cloud RAG migration.
 
 | Category | Count | Action Required |
 |----------|-------|-----------------|
 | DANGER (False Positives) | 25 | DO NOT DELETE - entry points/API routes |
-| CAUTION (Review Needed) | 6 | Keep - planned features/testing |
-| SAFE (Truly Unused) | 0 | No deletions needed |
-| Missing Dependency | 1 | Add @vitest/coverage-v8 |
+| CAUTION (Review Needed) | 4 | Keep - planned features |
+| SAFE (Truly Unused) | 6 | DELETE - Phase 6 migration leftovers |
 
-**Conclusion**: The codebase is clean. All flagged items are false positives or planned features.
+**Conclusion**: Phase 6 migration created dead code that should be cleaned up.
 
 ---
 
@@ -97,13 +96,48 @@ These items may have indirect usage patterns or are reserved for future features
 | Export | File | Reason |
 |--------|------|--------|
 | `ContextService` | src/services/context.service.ts | Singleton pattern - class exported for testing |
-| `DocumentService` | src/services/document.service.ts | Singleton pattern - class exported for testing |
 
 **Recommendation**: Keep - useful for unit testing with dependency injection.
 
 ---
 
-## SAFE - Can Be Deleted
+## SAFE - Phase 6 Dead Code (DELETE)
+
+### 1. src/services/document.service.ts (ENTIRE FILE)
+
+**Status**: DELETE
+**Reason**: Phase 6でAPI側 (`apps/api/lib/document-parser.ts`) に移行済み
+**Evidence**:
+- No imports found anywhere in codebase
+- Functionality fully replicated in API
+- `langchain` dependency only used here
+
+### 2. Unused Types in src/types/document.ts
+
+**Types to DELETE**:
+- `DocumentChunk` (line 12)
+- `ParsedDocument` (line 22)
+
+**Reason**: Only used by dead `document.service.ts`
+
+### 3. Root Dependencies to REMOVE
+
+| Package | Reason |
+|---------|--------|
+| `langchain` | Only used by dead document.service.ts |
+| `mammoth` | Moved to apps/api/package.json |
+| `pdf-parse` | Moved to apps/api/package.json |
+| `uuid` | No imports found |
+
+### 4. Root devDependencies to REMOVE
+
+| Package | Reason |
+|---------|--------|
+| `@types/pdf-parse` | pdf-parse removed from root |
+
+---
+
+## Dependencies Analysis (Updated)
 
 ### Dependencies Analysis
 
@@ -179,6 +213,38 @@ pnpm lint
 
 ---
 
+## Cleanup Execution Log (Phase 6)
+
+**Date**: 2026-02-05
+**Trigger**: Phase 6 Cloud RAG migration completed
+
+### Files Deleted
+| File | Reason |
+|------|--------|
+| `src/services/document.service.ts` | Moved to `apps/api/lib/document-parser.ts` |
+
+### Types Removed
+| Type | File |
+|------|------|
+| `DocumentChunk` | `src/types/document.ts` |
+| `ParsedDocument` | `src/types/document.ts` |
+
+### Dependencies Removed (root package.json)
+| Package | Type | Reason |
+|---------|------|--------|
+| `langchain` | dependency | Only used by deleted document.service.ts |
+| `mammoth` | dependency | Moved to apps/api |
+| `pdf-parse` | dependency | Moved to apps/api |
+| `uuid` | dependency | No longer imported |
+| `@types/pdf-parse` | devDependency | pdf-parse removed |
+
+### Verification
+- Tests: 63/63 passing
+- TypeScript: No errors
+- Build: Verified
+
+---
+
 ## Previous Cleanup Actions (Completed)
 
 The following packages were identified and removed in previous analysis:
@@ -189,6 +255,10 @@ The following packages were identified and removed in previous analysis:
 | `react-redux` | REMOVED | Pre-Phase 4 |
 | `@electron-toolkit/preload` | REMOVED | Pre-Phase 4 |
 | `@electron-toolkit/utils` | REMOVED | Pre-Phase 4 |
+| `langchain` | REMOVED | Phase 6 |
+| `mammoth` | REMOVED | Phase 6 |
+| `pdf-parse` | REMOVED | Phase 6 |
+| `uuid` | REMOVED | Phase 6 |
 
 ---
 

@@ -135,6 +135,18 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.39.0
         version: 2.94.0
+      formidable:
+        specifier: ^3.5.1
+        version: 3.5.4
+      mammoth:
+        specifier: ^1.6.0
+        version: 1.11.0
+      openai:
+        specifier: ^4.28.0
+        version: 4.104.0(ws@8.19.0)(zod@3.25.76)
+      pdf-parse:
+        specifier: ^1.1.1
+        version: 1.1.4
       resend:
         specifier: ^2.1.0
         version: 2.1.0
@@ -142,6 +154,9 @@ importers:
         specifier: ^14.14.0
         version: 14.25.0
     devDependencies:
+      '@types/formidable':
+        specifier: ^3.4.5
+        version: 3.4.6
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.31
@@ -855,6 +870,10 @@ packages:
     resolution: {integrity: sha512-Yhlar6v9WQgUp/He7BdgzOz8lqMQ8sU+jkCq7Wx8Myc5YFJLbEe7lgui/V7G1qB1DJykHSGwreceSaD60Y0PUQ==}
     hasBin: true
 
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
+    engines: {node: ^14.21.3 || >=16}
+
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
     engines: {node: '>= 8'}
@@ -869,6 +888,9 @@ packages:
 
   '@one-ini/wasm@0.1.1':
     resolution: {integrity: sha512-XuySG1E38YScSJoMlqovLru4KTUNSjgVTIjyh7qMX6aNN5HY5Ct5LhRJdxO79JtTzKfzV/bnWpz+zquYrISsvw==}
+
+  '@paralleldrive/cuid2@2.3.1':
+    resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -1132,6 +1154,9 @@ packages:
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
+
+  '@types/formidable@3.4.6':
+    resolution: {integrity: sha512-LI4Hk+KNsM5q7br4oMVoaWeb+gUqJpz1N8+Y2Q6Cz9cVH33ybahRKUWaRmMboVlkwSbOUGgwc/pEkS7yMSzoWg==}
 
   '@types/fs-extra@9.0.13':
     resolution: {integrity: sha512-nEnwB++1u5lVDM2UI4c1+5R+FYaKfaAzS4OococimjVm3nQw3TuzH5UNsocrcTBbhnerblyHj4A49qXbIiZdpA==}
@@ -1540,6 +1565,9 @@ packages:
   arraybuffer.prototype.slice@1.0.4:
     resolution: {integrity: sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==}
     engines: {node: '>= 0.4'}
+
+  asap@2.0.6:
+    resolution: {integrity: sha512-BSHWgDSAiKs50o2Re8ppvp3seVHXSRM44cdSsT9FfNEUUZLOGWVCsiWaRPWM1Znn+mqZ1OfVZ3z3DWEzSp7hRA==}
 
   assert-plus@1.0.0:
     resolution: {integrity: sha512-NfJ4UzBCcQGLDlQq7nHxH+tv3kyZ0hHQqF5BO6J7tNJeP5do1llPr8dZ8zHonfhAu0PHAdMkSo+8o0wxg9lZWw==}
@@ -2003,6 +2031,9 @@ packages:
 
   detect-node@2.1.0:
     resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
+
+  dezalgo@1.0.4:
+    resolution: {integrity: sha512-rXSP0bf+5n0Qonsb+SVVfNfIsimO4HEtmnIpPHY8Q1UCzKlQrDMfdobr8nJOOsRgWCyMRqeSBQzmWUMq7zvVig==}
 
   didyoumean@1.2.2:
     resolution: {integrity: sha512-gxtyfqMg7GKyhQmb056K7M3xszy/myH8w+B4RT+QXBQsvAOdc3XymqDDPHx1BgPgsdAA5SIifona89YtRATDzw==}
@@ -2539,6 +2570,10 @@ packages:
   formdata-node@4.4.1:
     resolution: {integrity: sha512-0iirZp3uVDjVGt9p49aTaqjk84TrglENEDuqfdlZQ1roC9CWlPk6Avf8EEnZNcAqPonwkG35x4n3ww/1THYAeQ==}
     engines: {node: '>= 12.20'}
+
+  formidable@3.5.4:
+    resolution: {integrity: sha512-YikH+7CUTOtP44ZTnUhR7Ic2UASBPOqmaRkRKxRbywPTe5VxF7RRCck4af9wutiZ/QKM5nME9Bie2fFaPz5Gug==}
+    engines: {node: '>=14.0.0'}
 
   fraction.js@5.3.4:
     resolution: {integrity: sha512-1X1NTtiJphryn/uLQz3whtY6jK3fTqoE3ohKs0tT+Ujr1W59oopxmoEh7Lu5p6vBaPbgoM0bzveAW4Qi5RyWDQ==}
@@ -5390,6 +5425,8 @@ snapshots:
       - encoding
       - supports-color
 
+  '@noble/hashes@1.8.0': {}
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -5403,6 +5440,10 @@ snapshots:
       fastq: 1.20.1
 
   '@one-ini/wasm@0.1.1': {}
+
+  '@paralleldrive/cuid2@2.3.1':
+    dependencies:
+      '@noble/hashes': 1.8.0
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -5642,6 +5683,10 @@ snapshots:
       '@types/ms': 2.1.0
 
   '@types/estree@1.0.8': {}
+
+  '@types/formidable@3.4.6':
+    dependencies:
+      '@types/node': 20.19.31
 
   '@types/fs-extra@9.0.13':
     dependencies:
@@ -6272,6 +6317,8 @@ snapshots:
       get-intrinsic: 1.3.0
       is-array-buffer: 3.0.5
 
+  asap@2.0.6: {}
+
   assert-plus@1.0.0:
     optional: true
 
@@ -6757,6 +6804,11 @@ snapshots:
 
   detect-node@2.1.0:
     optional: true
+
+  dezalgo@1.0.4:
+    dependencies:
+      asap: 2.0.6
+      wrappy: 1.0.2
 
   didyoumean@1.2.2: {}
 
@@ -7450,6 +7502,12 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 4.0.0-beta.3
+
+  formidable@3.5.4:
+    dependencies:
+      '@paralleldrive/cuid2': 2.3.1
+      dezalgo: 1.0.4
+      once: 1.4.0
 
   fraction.js@5.3.4: {}
 

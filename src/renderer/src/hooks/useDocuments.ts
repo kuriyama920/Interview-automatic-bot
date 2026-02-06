@@ -92,7 +92,13 @@ export function useDocuments(): UseDocumentsReturn {
             log.info('Document uploaded', { document: result.document })
             await refreshDocuments()
           } else if (result.error && result.error !== 'No file selected') {
-            setError(result.error)
+            // ネットワークエラーのユーザーフレンドリーなメッセージ
+            const errorMessage = result.error.includes('fetch')
+              ? 'ネットワーク接続を確認してください'
+              : result.error.includes('Unauthorized') || result.error.includes('認証')
+                ? '認証の有効期限が切れました。再ログインしてください'
+                : result.error
+            setError(errorMessage)
             log.error('Document upload failed', { error: result.error })
           }
         }
