@@ -13,7 +13,7 @@ import type { DocumentMetadata, DocumentType, ContextResult } from '../types/doc
 const log = createLogger('context-service')
 
 // API Base URL
-const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-automatic-bot.vercel.app'
+const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
 
 interface ApiDocumentResponse {
   success: boolean

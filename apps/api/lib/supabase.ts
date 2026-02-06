@@ -2,16 +2,42 @@
  * Supabase クライアント初期化
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// 遅延初期化用のキャッシュ
+let _supabaseAdmin: SupabaseClient | null = null
 
-// サーバーサイド用クライアント（RLSバイパス）
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
+/**
+ * Supabase Admin クライアントを取得（遅延初期化）
+ */
+function getSupabaseAdmin(): SupabaseClient {
+  if (_supabaseAdmin) {
+    return _supabaseAdmin
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error(
+      `Missing Supabase environment variables: ${!supabaseUrl ? 'SUPABASE_URL' : ''} ${!supabaseServiceKey ? 'SUPABASE_SERVICE_ROLE_KEY' : ''}`.trim()
+    )
+  }
+
+  _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+
+  return _supabaseAdmin
+}
+
+// サーバーサイド用クライアント（RLSバイパス）- Proxyで遅延アクセス
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get(_, prop) {
+    return getSupabaseAdmin()[prop as keyof SupabaseClient]
   },
 })
 

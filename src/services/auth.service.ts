@@ -18,7 +18,7 @@ import type {
 const log = createLogger('auth-service')
 
 // API Base URL (Vercel)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-automatic-bot.vercel.app'
+const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
 
 interface AuthStoreSchema {
   tokens: AuthTokens | null
