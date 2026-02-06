@@ -15,6 +15,8 @@ interface AIResponse {
 
 type DocumentType = 'resume' | 'job_posting'
 
+type AudioSource = 'mic' | 'system' | 'both'
+
 interface DocumentInfo {
   id: string
   name: string
@@ -28,6 +30,7 @@ interface AppSettings {
   openaiApiKey: string
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
+  audioSource: AudioSource
   aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
   aiTemperature: number
   aiMaxTokens: number
@@ -85,6 +88,10 @@ interface Window {
       getEffectiveApiKey: (
         keyType: 'deepgram' | 'openai'
       ) => Promise<{ success: boolean; key?: string | null }>
+    }
+    audio: {
+      setSource: (source: AudioSource) => Promise<{ success: boolean; error?: string }>
+      getSource: () => Promise<{ success: boolean; source: AudioSource; error?: string }>
     }
     send: (channel: string, data: unknown) => void
     on: (channel: string, callback: (...args: unknown[]) => void) => void

@@ -21,11 +21,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // 1. Environment check (キー名のみ、値は非公開)
+  const openaiKey = process.env.OPENAI_API_KEY || ''
   results.env = {
     hasSupabaseUrl: !!process.env.SUPABASE_URL,
     hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
     hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    hasOpenaiApiKey: !!openaiKey,
+    openaiKeyPrefix: openaiKey ? openaiKey.substring(0, 7) + '...' : 'NOT SET',
+    hasDeepgramApiKey: !!process.env.DEEPGRAM_API_KEY,
   }
 
   // 2. Test oauth_states table (件数のみ)

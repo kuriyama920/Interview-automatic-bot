@@ -7,7 +7,7 @@ import { settingsService } from '../services/settings.service'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
 import type { DocumentType } from '../types/document'
-import type { AppSettings } from '../types/settings'
+import type { AppSettings, AudioSource } from '../types/settings'
 
 const log = createLogger('IPC')
 
@@ -139,6 +139,37 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('settings:getEffectiveApiKey', (_event: unknown, keyType: 'deepgram' | 'openai') => {
     const key = settingsService.getEffectiveApiKey(keyType)
     return { success: true, key }
+  })
+
+  // ============================================
+  // 音声キャプチャ関連のIPCハンドラー（Phase 6.5）
+  // ============================================
+
+  // 音声ソース設定
+  ipcMain.handle('audio:setSource', (_event: unknown, source: AudioSource) => {
+    log.info('audio:setSource called', { source })
+    try {
+      if (!['mic', 'system', 'both'].includes(source)) {
+        return { success: false, error: `Invalid audio source: ${source}` }
+      }
+      settingsService.setSetting('audioSource', source)
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to set audio source', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // 音声ソース取得
+  ipcMain.handle('audio:getSource', () => {
+    log.debug('audio:getSource called')
+    try {
+      const source = settingsService.getSetting('audioSource') || 'mic'
+      return { success: true, source }
+    } catch (error) {
+      log.error('Failed to get audio source', { error: String(error) })
+      return { success: false, error: String(error), source: 'mic' }
+    }
   })
 
   // 音声認識開始（APIキーは環境変数から直接取得 - セキュリティ向上）

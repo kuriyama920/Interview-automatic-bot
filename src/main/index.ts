@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, session, desktopCapturer } from 'electron'
 import { join } from 'path'
 import { config } from 'dotenv'
 import { setupIPC } from './ipc'
@@ -105,6 +105,28 @@ if (!gotTheLock) {
     authService.initialize(mainWindow)
 
     setupIPC(mainWindow)
+
+    // システム音声キャプチャを有効化（Phase 6.5）
+    // getDisplayMedia() 呼び出し時にダイアログなしでシステム音声をキャプチャ
+    session.defaultSession.setDisplayMediaRequestHandler(
+      (_request, callback) => {
+        desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+          if (sources.length === 0) {
+            console.error('[Main] No desktop sources available')
+            callback({})
+            return
+          }
+          // video: 画面ソース（APIの仕様上必須だがレンダラーで即停止）
+          // audio: 'loopback' でシステム音声（Zoom/Teams等の相手の声）をキャプチャ
+          callback({ video: sources[0], audio: 'loopback' })
+        }).catch((error) => {
+          console.error('[Main] Failed to get desktop sources:', error)
+          callback({})
+        })
+      },
+      { useSystemPicker: false } // ユーザー選択ダイアログを表示しない
+    )
+    console.log('[Main] System audio capture (loopback) enabled')
 
     // macOS: open-urlイベントでDeep Linkを処理
     app.on('open-url', (_event, url) => {

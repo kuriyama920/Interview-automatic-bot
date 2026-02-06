@@ -2,6 +2,9 @@
  * アプリケーション設定の型定義
  */
 
+// 音声ソースの種類
+export type AudioSource = 'mic' | 'system' | 'both'
+
 export interface AppSettings {
   // API設定
   deepgramApiKey: string
@@ -10,6 +13,9 @@ export interface AppSettings {
   // UI設定
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
+
+  // 音声キャプチャ設定
+  audioSource: AudioSource
 
   // AI設定
   aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
@@ -33,6 +39,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // UI設定
   theme: 'dark',
   autoGenerateAI: true,
+
+  // 音声キャプチャ設定
+  audioSource: 'mic',
 
   // AI設定
   aiModel: 'gpt-4o',

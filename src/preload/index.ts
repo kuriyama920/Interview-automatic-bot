@@ -23,11 +23,15 @@ export interface DocumentInfo {
   chunkCount: number
 }
 
+// 音声ソースの種類
+export type AudioSource = 'mic' | 'system' | 'both'
+
 export interface AppSettings {
   deepgramApiKey: string
   openaiApiKey: string
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
+  audioSource: AudioSource
   aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
   aiTemperature: number
   aiMaxTokens: number
@@ -101,6 +105,9 @@ const ALLOWED_INVOKE_CHANNELS = [
   'auth:validate',
   'auth:logout',
   'auth:getToken',
+  // 音声キャプチャ関連 (Phase 6.5)
+  'audio:setSource',
+  'audio:getSource',
 ] as const
 const ALLOWED_ON_CHANNELS = [
   'stt:transcript',
@@ -222,6 +229,16 @@ const electronAPI = {
       keyType: 'deepgram' | 'openai'
     ): Promise<{ success: boolean; key?: string | null }> =>
       ipcRenderer.invoke('settings:getEffectiveApiKey', keyType),
+  },
+
+  // Audio API (Phase 6.5: システム音声キャプチャ)
+  audio: {
+    setSource: (
+      source: AudioSource
+    ): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('audio:setSource', source),
+    getSource: (): Promise<{ success: boolean; source: AudioSource; error?: string }> =>
+      ipcRenderer.invoke('audio:getSource'),
   },
 
   // 汎用IPC（ホワイトリスト制限付き - セキュリティ向上）

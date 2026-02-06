@@ -78,11 +78,23 @@ const EyeOffIcon = () => (
   </svg>
 )
 
-type TabType = 'api' | 'ai' | 'appearance'
+const MicrophoneIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+    />
+  </svg>
+)
+
+type TabType = 'api' | 'ai' | 'audio' | 'appearance'
 
 const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
   { id: 'api', label: 'API設定', icon: <KeyIcon /> },
   { id: 'ai', label: 'AI設定', icon: <BrainIcon /> },
+  { id: 'audio', label: '音声設定', icon: <MicrophoneIcon /> },
   { id: 'appearance', label: '表示設定', icon: <PaletteIcon /> },
 ]
 
@@ -303,6 +315,43 @@ export function SettingsModal({
                 value={localSettings.contextTopK}
                 onChange={(value) => handleChange('contextTopK', value)}
               />
+            </div>
+          )}
+
+          {/* 音声設定タブ (Phase 6.5) */}
+          {activeTab === 'audio' && (
+            <div className="space-y-6">
+              <Alert variant="info">
+                面接モードではZoom/Teams等の相手の声も文字起こしされます。
+              </Alert>
+
+              {/* 音声キャプチャ対象 */}
+              <Select
+                label="音声キャプチャ対象"
+                value={localSettings.audioSource || 'mic'}
+                onChange={(e) => handleChange('audioSource', e.target.value as AppSettings['audioSource'])}
+                options={[
+                  { value: 'mic', label: 'マイクのみ（通常）' },
+                  { value: 'system', label: 'システム音声のみ' },
+                  { value: 'both', label: 'マイク + システム音声（面接モード・推奨）' },
+                ]}
+              />
+
+              <div className="p-4 bg-surface-secondary rounded-lg">
+                <h4 className="text-sm font-medium text-content mb-2">音声ソースの説明</h4>
+                <ul className="text-xs text-content-secondary space-y-1.5">
+                  <li><strong>マイクのみ:</strong> 自分の声だけをキャプチャ（対面面接向け）</li>
+                  <li><strong>システム音声のみ:</strong> PCから出る音声のみ（録音確認向け）</li>
+                  <li><strong>マイク + システム音声:</strong> 両方をキャプチャ（オンライン面接向け）</li>
+                </ul>
+              </div>
+
+              <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
+                <p className="text-xs text-warning-content">
+                  <strong>注意:</strong> システム音声キャプチャはPC上のすべての音声を拾います。
+                  通知音やBGMも文字起こしに含まれる可能性があります。
+                </p>
+              </div>
             </div>
           )}
 
