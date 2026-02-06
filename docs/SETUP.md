@@ -10,8 +10,8 @@
 
 以下をインストールしてください：
 
-1. **Node.js v18.x LTS**
-   - 推奨: v18.19.0以上
+1. **Node.js v20.x LTS**
+   - 推奨: v20.x以上
    - インストール確認: `node --version`
 
 2. **pnpm**（推奨パッケージマネージャー）
@@ -293,9 +293,9 @@ Error: Unauthorized (401)
 
 ✅ セットアップ完了後、以下のドキュメントを参照してください:
 
-1. **[DEVELOPMENT.md](../DEVELOPMENT.md)**: 開発ワークフロー
-2. **[ARCHITECTURE.md](../ARCHITECTURE.md)**: システム設計
-3. **[README.md](../README.md)**: プロジェクト概要
+1. **[README.md](../README.md)**: プロジェクト概要
+2. **[CLAUDE.md](../CLAUDE.md)**: 開発ガイダンス
+3. **[ARCHITECTURE.md](../ARCHITECTURE.md)**: システム設計
 
 ---
 
@@ -308,4 +308,4 @@ Error: Unauthorized (401)
 
 ---
 
-**最終更新**: 2026-02-04
+**最終更新**: 2026-02-06

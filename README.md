@@ -17,10 +17,12 @@
 
 | Phase | 機能 | ステータス |
 |-------|------|-----------|
-| Phase 1 | 音声認識（Deepgram STT） | ✅ 完了 |
-| Phase 2 | AI回答生成（OpenAI GPT-4o） | ✅ 完了 |
-| Phase 3 | コンテキスト管理（履歴書/求人票解析） | ✅ 完了 |
-| Phase 4 | UI/UX改善 | 🔜 次 |
+| Phase 1-4 | 音声認識・AI回答・コンテキスト・UI | ✅ 完了 |
+| Phase 5 | SaaS基盤（Google OAuth + Supabase） | ✅ 完了 |
+| Phase 6 | クラウドRAG（pgvector） | ✅ 完了 |
+| **Phase 6.5** | **システム音声キャプチャ（Zoom/Teams対応）** | 🔜 **次** |
+| Phase 7 | Stripe決済 + Webダッシュボード | ⏳ 予定 |
+| Phase 8 | APIプロキシ（ユーザーAPIキー不要化） | ⏳ 予定 |
 
 ### なぜデスクトップアプリが必要か？
 
@@ -75,39 +77,27 @@ Webブラウザでは以下の機能が**技術的に不可能**です：
 interview-automatic-bot/
 ├── README.md                    # このファイル
 ├── CLAUDE.md                    # Claude Code用ガイダンス
-├── DEVELOPMENT.md               # 開発ガイド
 ├── ARCHITECTURE.md              # アーキテクチャ設計書
 ├── package.json                 # 依存関係・スクリプト
 ├── .env.example                 # 環境変数テンプレート
 │
 ├── src/
 │   ├── main/                    # Electronメインプロセス
-│   │   ├── index.ts             # エントリーポイント
-│   │   └── ipc.ts               # IPC通信ハンドラー
 │   ├── preload/                 # プリロードスクリプト
-│   │   └── index.ts             # contextBridge API公開
 │   ├── renderer/                # React UI
-│   │   └── src/
-│   │       ├── App.tsx          # メインコンポーネント
-│   │       ├── hooks/           # カスタムフック
-│   │       └── components/      # UIコンポーネント
-│   ├── services/                # ビジネスロジック
-│   │   ├── stt.service.ts       # Deepgram統合
-│   │   ├── ai.service.ts        # OpenAI統合
-│   │   ├── document.service.ts  # PDF/DOCX解析
-│   │   ├── context.service.ts   # RAGコンテキスト管理
-│   │   └── logger.service.ts    # Winston ロガー
+│   ├── services/                # ビジネスロジック（STT, AI, Auth等）
 │   └── types/                   # 型定義
-│       └── document.ts          # ドキュメント関連型
+│
+├── apps/api/                    # Vercel APIプロジェクト（SaaS）
+│   ├── api/auth/                # Google OAuth
+│   └── api/documents/           # ドキュメントCRUD + ベクトル検索
 │
 ├── tests/                       # テストコード
-│   ├── unit/                    # 単体テスト
-│   └── integration/             # 統合テスト
 │
-└── docs/                        # ドキュメント
+└── docs/
     ├── SETUP.md                 # セットアップ手順
-    ├── REFERENCES.md            # 参考資料
-    └── FUTURE_FEATURES.md       # 将来実装予定機能
+    ├── PHASE_ROADMAP.md         # Phase 6.5-9 詳細計画
+    └── UI_DESIGN_GUIDELINES.md  # UIデザインガイドライン
 ```
 
 ---
@@ -242,7 +232,6 @@ pnpm format           # Prettier実行
 | [Cluely](https://cluely.ai/) | セキュリティ・コンプライアンス設計 |
 | [CueMe](https://cueme.app/) | 日本語UI/UX、ホットキー実装 |
 
-詳細は [docs/REFERENCES.md](./docs/REFERENCES.md) を参照。
 
 ---
 
@@ -289,4 +278,4 @@ MIT License
 
 ---
 
-**最終更新**: 2026-02-04
+**最終更新**: 2026-02-06

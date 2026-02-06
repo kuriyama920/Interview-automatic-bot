@@ -941,4 +941,4 @@ log.debug('Context retrieved', { resultCount: groupedResults.size })
 
 ---
 
-**最終更新**: 2026-02-04
+**最終更新**: 2026-02-06
