@@ -18,7 +18,7 @@ export interface AppSettings {
   audioSource: AudioSource
 
   // AI設定
-  aiModel: 'gpt-4o' | 'gpt-4-turbo' | 'gpt-3.5-turbo'
+  aiModel: 'gpt-5' | 'gpt-4o' | 'gpt-4o-mini'
   aiTemperature: number
   aiMaxTokens: number
 
@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   audioSource: 'mic',
 
   // AI設定
-  aiModel: 'gpt-4o',
+  aiModel: 'gpt-5',
   aiTemperature: 0.7,
   aiMaxTokens: 1000,
 

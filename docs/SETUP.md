@@ -83,7 +83,7 @@ pnpm install
 | カテゴリ | ライブラリ | 用途 |
 |---------|-----------|------|
 | 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
-| AI | openai | GPT-4o回答生成、Embeddings |
+| AI | openai | GPT-5回答生成、Embeddings |
 | PDF解析 | pdf-parse | 履歴書PDFテキスト抽出 |
 | DOCX解析 | mammoth | Word文書テキスト抽出 |
 | テキスト分割 | langchain | RecursiveCharacterTextSplitter |
@@ -120,9 +120,9 @@ cp .env.example .env
 4. 「API Keys」→「Create new secret key」
 5. キーをコピー（一度しか表示されないので注意！）
 
-**料金（GPT-4o）**:
-- 入力: $0.005/1k tokens
-- 出力: $0.015/1k tokens
+**料金（GPT-5）**:
+- 入力: $1.25/1M tokens
+- 出力: $10.00/1M tokens
 
 ### 3.3 .envファイル編集
 

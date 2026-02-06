@@ -70,7 +70,7 @@ Interview Automatic Botの技術アーキテクチャとシステム設計の詳
 │  ┌─────────────────┐  ┌─────────────────┐                      │
 │  │  Deepgram API   │  │   OpenAI API    │                      │
 │  │                 │  │                 │                      │
-│  │ ・音声認識       │  │ ・GPT-4o       │                      │
+│  │ ・音声認識       │  │ ・GPT-5       │                      │
 │  │ ・WebSocket接続 │  │ ・Embeddings    │                      │
 │  │ ・~300ms遅延   │  │ ・ストリーミング │                      │
 │  └─────────────────┘  └─────────────────┘                      │
@@ -223,7 +223,7 @@ src/
 | サービス | ライブラリ | 用途 |
 |---------|-----------|------|
 | **音声認識** | @deepgram/sdk 3.4.0 | リアルタイムSTT |
-| **AI** | openai 4.28.0 | GPT-4o回答生成、Embeddings |
+| **AI** | openai 4.28.0 | GPT-5回答生成、Embeddings |
 | **PDF解析** | pdf-parse 1.1.1 | 履歴書テキスト抽出 |
 | **DOCX解析** | mammoth 1.6.0 | Word文書解析 |
 | **テキスト分割** | langchain 0.1.0 | RecursiveCharacterTextSplitter |
@@ -673,7 +673,7 @@ App
 **ストリーミングリクエスト**:
 ```typescript
 {
-  model: 'gpt-4o',
+  model: 'gpt-5',
   messages: [
     {
       role: 'system',
@@ -711,7 +711,7 @@ data: [DONE]
 ```
 
 **コスト**:
-- GPT-4o: $0.005/1k tokens (入力), $0.015/1k tokens (出力)
+- GPT-5: $0.005/1k tokens (入力), $0.015/1k tokens (出力)
 - Embeddings: $0.00002/1k tokens
 
 ---

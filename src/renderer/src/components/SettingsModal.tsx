@@ -262,9 +262,9 @@ export function SettingsModal({
                 value={localSettings.aiModel}
                 onChange={(e) => handleChange('aiModel', e.target.value as AppSettings['aiModel'])}
                 options={[
-                  { value: 'gpt-4o', label: 'GPT-4o（推奨）' },
-                  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-                  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo（低コスト）' },
+                  { value: 'gpt-5', label: 'GPT-5（推奨）' },
+                  { value: 'gpt-4o', label: 'GPT-4o' },
+                  { value: 'gpt-4o-mini', label: 'GPT-4o mini（低コスト）' },
                 ]}
               />
 
