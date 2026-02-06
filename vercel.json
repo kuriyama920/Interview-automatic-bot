@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "buildCommand": null,
+  "outputDirectory": null,
+  "installCommand": "cd apps/api && npm install",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/apps/api/api/$1"
+    }
+  ],
+  "functions": {
+    "apps/api/api/**/*.ts": {
+      "runtime": "@vercel/node@3"
+    }
+  }
+}
