@@ -4,15 +4,17 @@
   "outputDirectory": null,
   "installCommand": "cd apps/api && npm install",
   "framework": null,
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/apps/api/api/$1"
-    }
-  ],
   "functions": {
     "apps/api/api/**/*.ts": {
       "runtime": "@vercel/node@3"
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/auth/google", "destination": "/apps/api/api/auth/google.ts" },
+    { "source": "/api/auth/callback", "destination": "/apps/api/api/auth/callback.ts" },
+    { "source": "/api/auth/session", "destination": "/apps/api/api/auth/session.ts" },
+    { "source": "/api/auth/me", "destination": "/apps/api/api/auth/me.ts" },
+    { "source": "/api/debug", "destination": "/apps/api/api/debug.ts" },
+    { "source": "/api/(.*)", "destination": "/apps/api/api/$1" }
+  ]
 }

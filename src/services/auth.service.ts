@@ -18,7 +18,7 @@ import type {
 const log = createLogger('auth-service')
 
 // API Base URL (Vercel)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
+const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-automatic-bot.vercel.app'
 
 interface AuthStoreSchema {
   tokens: AuthTokens | null
@@ -31,6 +31,7 @@ class AuthService {
   private initialized = false
   private mainWindow: BrowserWindow | null = null
   private authStateListeners: Array<(state: AuthState) => void> = []
+  private pollingAbortController: AbortController | null = null
 
   /**
    * サービスを初期化
@@ -113,21 +114,225 @@ class AuthService {
   }
 
   /**
-   * Google OAuthログインを開始
+   * Google OAuthログインを開始（ポーリング方式）
+   *
+   * 1. セッションを作成
+   * 2. ブラウザでOAuth認証
+   * 3. ポーリングでトークンを取得
    */
-  async startGoogleLogin(): Promise<void> {
-    log.info('Starting Google OAuth login')
+  async startGoogleLogin(): Promise<AuthState> {
+    log.info('Starting Google OAuth login (polling mode)')
 
-    const authUrl = `${API_BASE_URL}/api/auth/google`
+    // ローディング状態を通知
+    this.notifyListeners({
+      isAuthenticated: false,
+      isLoading: true,
+      user: null,
+      settings: null,
+      error: null,
+    })
 
     try {
-      // 外部ブラウザでOAuthページを開く
+      // 1. セッションを作成
+      const sessionResponse = await fetch(`${API_BASE_URL}/api/auth/session`, {
+        method: 'POST',
+      })
+
+      if (!sessionResponse.ok) {
+        throw new Error('セッションの作成に失敗しました')
+      }
+
+      const { sessionId, authUrl } = await sessionResponse.json()
+      log.info('Created auth session', { sessionId: sessionId.substring(0, 10) + '...' })
+
+      // 2. ブラウザでOAuth認証を開始
       await shell.openExternal(authUrl)
       log.info('Opened OAuth URL in browser')
+
+      // 3. ポーリングでトークンを取得
+      return await this.pollForAuthResult(sessionId)
     } catch (error) {
-      log.error('Failed to open OAuth URL', { error: String(error) })
-      throw new Error('ブラウザでログインページを開けませんでした')
+      log.error('Failed to start Google login', { error: String(error) })
+      const state: AuthState = {
+        isAuthenticated: false,
+        isLoading: false,
+        user: null,
+        settings: null,
+        error: String(error),
+      }
+      this.notifyListeners(state)
+      return state
     }
+  }
+
+  /**
+   * 認証結果をポーリング
+   */
+  private async pollForAuthResult(sessionId: string): Promise<AuthState> {
+    const maxAttempts = 60 // 5分間（5秒間隔）
+    const pollInterval = 5000
+
+    // 前のポーリングをキャンセル
+    this.pollingAbortController?.abort()
+    this.pollingAbortController = new AbortController()
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // キャンセルチェック
+      if (this.pollingAbortController.signal.aborted) {
+        log.info('Polling cancelled')
+        return this.getAuthState()
+      }
+
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/auth/session?id=${sessionId}`,
+          { signal: this.pollingAbortController.signal }
+        )
+
+        const data = await response.json()
+
+        if (data.status === 'pending') {
+          // まだ認証中、待機
+          await this.sleep(pollInterval)
+          continue
+        }
+
+        if (data.status === 'completed') {
+          log.info('Auth completed via polling')
+          return await this.processAuthToken(data.token, data.user)
+        }
+
+        if (data.status === 'expired' || data.status === 'error') {
+          const state: AuthState = {
+            isAuthenticated: false,
+            isLoading: false,
+            user: null,
+            settings: null,
+            error: data.error || '認証がタイムアウトしました',
+          }
+          this.notifyListeners(state)
+          return state
+        }
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          log.info('Polling aborted')
+          return this.getAuthState()
+        }
+        log.warn('Polling error, retrying...', { error: String(error) })
+      }
+
+      await this.sleep(pollInterval)
+    }
+
+    // タイムアウト
+    const state: AuthState = {
+      isAuthenticated: false,
+      isLoading: false,
+      user: null,
+      settings: null,
+      error: '認証がタイムアウトしました。もう一度お試しください。',
+    }
+    this.notifyListeners(state)
+    return state
+  }
+
+  /**
+   * トークンを処理して認証状態を更新
+   */
+  private async processAuthToken(token: string, userData?: User): Promise<AuthState> {
+    try {
+      // トークンをデコードして有効期限を取得
+      const payload = this.decodeJWT(token)
+      if (!payload) {
+        throw new Error('トークンのデコードに失敗しました')
+      }
+
+      const tokens: AuthTokens = {
+        accessToken: token,
+        expiresAt: payload.exp * 1000,
+      }
+
+      // トークンを保存
+      this.store?.set('tokens', tokens)
+
+      // ユーザー情報を取得（セッションから取得できなかった場合）
+      let user = userData
+      let settings: UserSettings | null = null
+
+      if (!user) {
+        const authData = await this.fetchUserInfo(token)
+        user = authData.user
+        settings = authData.settings
+      } else {
+        // 設定を取得
+        try {
+          const authData = await this.fetchUserInfo(token)
+          settings = authData.settings
+        } catch {
+          // 設定取得失敗は無視
+        }
+      }
+
+      // ユーザー情報と設定を保存
+      this.store?.set('user', user)
+      if (settings) {
+        this.store?.set('settings', settings)
+      }
+
+      const state: AuthState = {
+        isAuthenticated: true,
+        isLoading: false,
+        user,
+        settings,
+        error: null,
+      }
+
+      this.notifyListeners(state)
+
+      // メインウィンドウをフォーカス
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore()
+        }
+        this.mainWindow.focus()
+      }
+
+      log.info('Auth completed successfully', { userId: user.id })
+      return state
+    } catch (error) {
+      log.error('Failed to process auth token', { error: String(error) })
+      const state: AuthState = {
+        isAuthenticated: false,
+        isLoading: false,
+        user: null,
+        settings: null,
+        error: String(error),
+      }
+      this.notifyListeners(state)
+      return state
+    }
+  }
+
+  /**
+   * ポーリングをキャンセル
+   */
+  cancelLogin(): void {
+    log.info('Cancelling login')
+    this.pollingAbortController?.abort()
+    this.notifyListeners({
+      isAuthenticated: false,
+      isLoading: false,
+      user: null,
+      settings: null,
+      error: null,
+    })
+  }
+
+  /**
+   * スリープ
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   /**

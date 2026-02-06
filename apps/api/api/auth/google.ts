@@ -3,6 +3,10 @@
  * GET /api/auth/google
  *
  * Electron アプリからこのURLを開いてOAuth認証を開始
+ *
+ * クエリパラメータ:
+ * - session_id: ポーリング認証フロー用のセッションID（推奨）
+ * - redirect_uri: Deep Link用のリダイレクトURI（レガシー）
  */
 
 import { VercelRequest, VercelResponse } from '@vercel/node'
@@ -12,7 +16,8 @@ import crypto from 'crypto'
 
 // State data stored in Supabase
 interface StateData {
-  redirectUri: string
+  redirectUri: string | null
+  sessionId: string | null
   expiresAt: Date
 }
 
@@ -22,10 +27,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Electronアプリからのリダイレクト先を取得
-    const { redirect_uri } = req.query
-    const appRedirectUri =
-      typeof redirect_uri === 'string' ? redirect_uri : 'interview-bot://auth/callback'
+    const { redirect_uri, session_id } = req.query
+
+    // セッションIDまたはリダイレクトURIを取得
+    const sessionId = typeof session_id === 'string' ? session_id : null
+    const appRedirectUri = sessionId
+      ? null
+      : typeof redirect_uri === 'string'
+        ? redirect_uri
+        : 'interview-bot://auth/callback'
 
     // CSRFトークンを生成
     const state = crypto.randomBytes(32).toString('hex')
@@ -33,10 +43,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 有効期限（5分後）
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
-    // Supabaseにstateを保存
+    // Supabaseにstateを保存（session_idも保存）
     const { error: insertError } = await supabaseAdmin.from('oauth_states').insert({
       state,
       redirect_uri: appRedirectUri,
+      session_id: sessionId,
       expires_at: expiresAt.toISOString(),
     })
 
@@ -71,7 +82,7 @@ function getBaseUrl(req: VercelRequest): string {
 export async function getOAuthState(state: string): Promise<StateData | null> {
   const { data, error } = await supabaseAdmin
     .from('oauth_states')
-    .select('redirect_uri, expires_at')
+    .select('redirect_uri, session_id, expires_at')
     .eq('state', state)
     .single()
 
@@ -87,6 +98,7 @@ export async function getOAuthState(state: string): Promise<StateData | null> {
 
   return {
     redirectUri: data.redirect_uri,
+    sessionId: data.session_id,
     expiresAt,
   }
 }
