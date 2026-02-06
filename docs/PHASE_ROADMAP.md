@@ -198,7 +198,7 @@ Electron → /api/stt/token (JWT) → 一時トークン取得
 |---------------|------|
 | POST /api/stt/token | Deepgram一時トークン発行 |
 | POST /api/stt/usage | 使用量報告 |
-| POST /api/ai/generate | GPT-5ストリーミング |
+| POST /api/ai/generate | GPT-5 Miniストリーミング |
 | POST /api/ai/embeddings | Embeddings生成 |
 
 ### Electron変更後

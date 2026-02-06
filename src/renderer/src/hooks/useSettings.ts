@@ -13,7 +13,7 @@ export interface AppSettings {
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
   audioSource: AudioSource
-  aiModel: 'gpt-5' | 'gpt-4o' | 'gpt-4o-mini'
+  aiModel: 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
   aiTemperature: number
   aiMaxTokens: number
   contextMinSimilarity: number
@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   autoGenerateAI: true,
   audioSource: 'mic',
-  aiModel: 'gpt-5',
+  aiModel: 'gpt-5-mini',
   aiTemperature: 0.7,
   aiMaxTokens: 1000,
   contextMinSimilarity: 0.7,

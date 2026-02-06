@@ -35,7 +35,7 @@ export class AIService {
 
   initialize(config: AIServiceConfig): void {
     this.config = {
-      model: 'gpt-5',
+      model: 'gpt-5-mini',
       maxTokens: 500,
       temperature: 0.7,
       ...config,

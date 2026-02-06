@@ -31,7 +31,7 @@ interface AppSettings {
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
   audioSource: AudioSource
-  aiModel: 'gpt-5' | 'gpt-4o' | 'gpt-4o-mini'
+  aiModel: 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
   aiTemperature: number
   aiMaxTokens: number
   contextMinSimilarity: number

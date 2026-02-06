@@ -152,7 +152,7 @@ async function upsertUser(googleUser: { id: string; email: string; name: string;
     user_id: newUser.id,
     theme: 'dark',
     auto_generate_ai: true,
-    ai_model: 'gpt-5',
+    ai_model: 'gpt-5-mini',
     ai_temperature: 0.7,
     ai_max_tokens: 1000,
     context_min_similarity: 0.7,

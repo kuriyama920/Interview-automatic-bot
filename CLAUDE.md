@@ -17,7 +17,7 @@ Claude Codeがこのリポジトリで作業する際のガイダンス。
 | スタイル | Tailwind CSS 3.4 + DaisyUI 4.6 |
 | 音声認識 | Deepgram SDK 3.4 (WebSocket) |
 | 音声キャプチャ | Electron desktopCapturer + setDisplayMediaRequestHandler |
-| AI | OpenAI API 4.28 (GPT-5) |
+| AI | OpenAI API 4.28 (GPT-5 Mini) |
 | ローカル保存 | electron-store 8.1 (AES暗号化) |
 
 ### SaaSバックエンド（Vercel）
@@ -102,7 +102,7 @@ docs/
 ### AI回答生成
 ```
 質問 → /api/documents/search → pgvector類似検索 → 関連コンテキスト
-    → OpenAI GPT-5 → ストリーミング回答
+    → OpenAI GPT-5 Mini → ストリーミング回答
 ```
 
 ### 認証フロー

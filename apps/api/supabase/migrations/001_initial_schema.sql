@@ -49,7 +49,7 @@ CREATE TABLE public.user_settings (
   auto_generate_ai BOOLEAN NOT NULL DEFAULT true,
 
   -- AI設定
-  ai_model TEXT NOT NULL DEFAULT 'gpt-5',
+  ai_model TEXT NOT NULL DEFAULT 'gpt-5-mini',
   ai_temperature DECIMAL(3,2) NOT NULL DEFAULT 0.7
     CHECK (ai_temperature >= 0 AND ai_temperature <= 2),
   ai_max_tokens INTEGER NOT NULL DEFAULT 1000

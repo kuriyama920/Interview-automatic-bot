@@ -9,7 +9,7 @@
 ### 主要機能
 
 - **リアルタイム音声認識**: Deepgram APIによる超低遅延（<300ms）文字起こし
-- **AI回答生成**: OpenAI GPT-5による質問への回答例生成（ストリーミング対応）
+- **AI回答生成**: OpenAI GPT-5 Miniによる質問への回答例生成（ストリーミング対応）
 - **コンテキスト管理**: 履歴書・求人票をアップロードしてRAGベースの回答生成
 - **自動コンテキスト統合**: アップロードしたドキュメントを自動的に回答に反映
 
@@ -54,7 +54,7 @@ Webブラウザでは以下の機能が**技術的に不可能**です：
 | 機能 | ライブラリ | 用途 |
 |------|-----------|------|
 | 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
-| AI | openai | GPT-5回答生成、Embeddings |
+| AI | openai | GPT-5 Mini回答生成、Embeddings |
 | PDF解析 | pdf-parse | 履歴書PDFテキスト抽出 |
 | DOCX解析 | mammoth | Word文書テキスト抽出 |
 | テキスト分割 | langchain | RecursiveCharacterTextSplitter |
