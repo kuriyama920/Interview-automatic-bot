@@ -1,9 +1,11 @@
 /**
  * 設定モーダルコンポーネント
+ * Linear Design + Apple Vibrancy スタイル
  */
 
 import { useState, useEffect } from 'react'
 import type { AppSettings } from '../hooks/useSettings'
+import { Button, IconButton, Input, Select, Toggle, Slider, Alert } from './ui'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -13,6 +15,77 @@ interface SettingsModalProps {
   onReset: () => Promise<boolean>
 }
 
+// アイコン
+const CloseIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+)
+
+const KeyIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+    />
+  </svg>
+)
+
+const BrainIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+    />
+  </svg>
+)
+
+const PaletteIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
+    />
+  </svg>
+)
+
+const EyeIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+    />
+  </svg>
+)
+
+const EyeOffIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+    />
+  </svg>
+)
+
+type TabType = 'api' | 'ai' | 'appearance'
+
+const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+  { id: 'api', label: 'API設定', icon: <KeyIcon /> },
+  { id: 'ai', label: 'AI設定', icon: <BrainIcon /> },
+  { id: 'appearance', label: '表示設定', icon: <PaletteIcon /> },
+]
+
 export function SettingsModal({
   isOpen,
   onClose,
@@ -20,18 +93,15 @@ export function SettingsModal({
   onSave,
   onReset,
 }: SettingsModalProps) {
-  // ローカル編集用の状態
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings)
   const [isSaving, setIsSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'api' | 'ai' | 'appearance'>('api')
+  const [activeTab, setActiveTab] = useState<TabType>('api')
   const [showApiKeys, setShowApiKeys] = useState({ deepgram: false, openai: false })
 
-  // settings propが変更されたらローカル状態を更新
   useEffect(() => {
     setLocalSettings(settings)
   }, [settings])
 
-  // モーダルが開いたときにESCキーで閉じる
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -66,123 +136,106 @@ export function SettingsModal({
   if (!isOpen) return null
 
   return (
-    <div className="modal modal-open">
-      <div className="modal-box max-w-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* バックドロップ */}
+      <div
+        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* モーダル */}
+      <div className="relative w-full max-w-2xl bg-surface rounded-2xl shadow-modal border border-border animate-fade-in">
         {/* ヘッダー */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold">設定</h3>
-          <button className="btn btn-sm btn-circle btn-ghost" onClick={onClose}>
-            ✕
-          </button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-content">設定</h2>
+          <IconButton icon={<CloseIcon />} label="閉じる" onClick={onClose} />
         </div>
 
         {/* タブ */}
-        <div className="tabs tabs-boxed mb-4">
-          <button
-            className={`tab ${activeTab === 'api' ? 'tab-active' : ''}`}
-            onClick={() => setActiveTab('api')}
-          >
-            API設定
-          </button>
-          <button
-            className={`tab ${activeTab === 'ai' ? 'tab-active' : ''}`}
-            onClick={() => setActiveTab('ai')}
-          >
-            AI設定
-          </button>
-          <button
-            className={`tab ${activeTab === 'appearance' ? 'tab-active' : ''}`}
-            onClick={() => setActiveTab('appearance')}
-          >
-            表示設定
-          </button>
+        <div className="flex border-b border-border">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px
+                ${
+                  activeTab === tab.id
+                    ? 'border-accent text-accent'
+                    : 'border-transparent text-content-secondary hover:text-content hover:bg-surface-hover'
+                }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* タブコンテンツ */}
-        <div className="space-y-4">
+        {/* コンテンツ */}
+        <div className="p-6 max-h-[60vh] overflow-y-auto">
           {/* API設定タブ */}
           {activeTab === 'api' && (
-            <div className="space-y-4">
-              <div className="alert alert-info text-sm">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  className="stroke-current shrink-0 w-5 h-5"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  ></path>
-                </svg>
-                <span>
-                  APIキーを設定すると、環境変数より優先されます。空欄の場合は.envの値を使用します。
-                </span>
-              </div>
+            <div className="space-y-6">
+              <Alert variant="info">
+                APIキーを設定すると、環境変数より優先されます。空欄の場合は.envの値を使用します。
+              </Alert>
 
               {/* Deepgram API Key */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Deepgram API Key</span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-content">Deepgram API Key</label>
                   <a
                     href="https://console.deepgram.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="label-text-alt link link-primary"
+                    className="text-xs text-accent hover:underline"
                   >
-                    キーを取得
+                    キーを取得 →
                   </a>
-                </label>
-                <div className="join w-full">
-                  <input
+                </div>
+                <div className="flex gap-2">
+                  <Input
                     type={showApiKeys.deepgram ? 'text' : 'password'}
-                    className="input input-bordered join-item flex-1"
                     placeholder="空欄の場合は環境変数を使用"
                     value={localSettings.deepgramApiKey}
                     onChange={(e) => handleChange('deepgramApiKey', e.target.value)}
+                    className="flex-1"
                   />
-                  <button
-                    className="btn join-item"
-                    onClick={() =>
-                      setShowApiKeys((prev) => ({ ...prev, deepgram: !prev.deepgram }))
-                    }
-                  >
-                    {showApiKeys.deepgram ? '隠す' : '表示'}
-                  </button>
+                  <IconButton
+                    icon={showApiKeys.deepgram ? <EyeOffIcon /> : <EyeIcon />}
+                    label={showApiKeys.deepgram ? '隠す' : '表示'}
+                    variant="secondary"
+                    onClick={() => setShowApiKeys((prev) => ({ ...prev, deepgram: !prev.deepgram }))}
+                  />
                 </div>
               </div>
 
               {/* OpenAI API Key */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">OpenAI API Key</span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-content">OpenAI API Key</label>
                   <a
                     href="https://platform.openai.com/api-keys"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="label-text-alt link link-primary"
+                    className="text-xs text-accent hover:underline"
                   >
-                    キーを取得
+                    キーを取得 →
                   </a>
-                </label>
-                <div className="join w-full">
-                  <input
+                </div>
+                <div className="flex gap-2">
+                  <Input
                     type={showApiKeys.openai ? 'text' : 'password'}
-                    className="input input-bordered join-item flex-1"
                     placeholder="空欄の場合は環境変数を使用"
                     value={localSettings.openaiApiKey}
                     onChange={(e) => handleChange('openaiApiKey', e.target.value)}
+                    className="flex-1"
                   />
-                  <button
-                    className="btn join-item"
-                    onClick={() =>
-                      setShowApiKeys((prev) => ({ ...prev, openai: !prev.openai }))
-                    }
-                  >
-                    {showApiKeys.openai ? '隠す' : '表示'}
-                  </button>
+                  <IconButton
+                    icon={showApiKeys.openai ? <EyeOffIcon /> : <EyeIcon />}
+                    label={showApiKeys.openai ? '隠す' : '表示'}
+                    variant="secondary"
+                    onClick={() => setShowApiKeys((prev) => ({ ...prev, openai: !prev.openai }))}
+                  />
                 </div>
               </div>
             </div>
@@ -190,170 +243,115 @@ export function SettingsModal({
 
           {/* AI設定タブ */}
           {activeTab === 'ai' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* AIモデル選択 */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">AIモデル</span>
-                </label>
-                <select
-                  className="select select-bordered w-full"
-                  value={localSettings.aiModel}
-                  onChange={(e) =>
-                    handleChange('aiModel', e.target.value as AppSettings['aiModel'])
-                  }
-                >
-                  <option value="gpt-4o">GPT-4o（推奨）</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo（低コスト）</option>
-                </select>
-              </div>
+              <Select
+                label="AIモデル"
+                value={localSettings.aiModel}
+                onChange={(e) => handleChange('aiModel', e.target.value as AppSettings['aiModel'])}
+                options={[
+                  { value: 'gpt-4o', label: 'GPT-4o（推奨）' },
+                  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+                  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo（低コスト）' },
+                ]}
+              />
 
               {/* Temperature */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">
-                    Temperature: {localSettings.aiTemperature.toFixed(1)}
-                  </span>
-                  <span className="label-text-alt">創造性の度合い</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  className="range range-primary"
-                  value={localSettings.aiTemperature}
-                  onChange={(e) => handleChange('aiTemperature', parseFloat(e.target.value))}
-                />
-                <div className="w-full flex justify-between text-xs px-2 mt-1">
-                  <span>正確</span>
-                  <span>創造的</span>
-                </div>
-              </div>
+              <Slider
+                label="Temperature"
+                valueLabel={`${localSettings.aiTemperature.toFixed(1)} - ${localSettings.aiTemperature < 0.3 ? '正確' : localSettings.aiTemperature > 0.7 ? '創造的' : 'バランス'}`}
+                min={0}
+                max={1}
+                step={0.1}
+                value={localSettings.aiTemperature}
+                onChange={(value) => handleChange('aiTemperature', value)}
+              />
 
               {/* Max Tokens */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">最大トークン数: {localSettings.aiMaxTokens}</span>
-                  <span className="label-text-alt">回答の長さ上限</span>
-                </label>
-                <input
-                  type="range"
-                  min="500"
-                  max="4000"
-                  step="100"
-                  className="range range-primary"
-                  value={localSettings.aiMaxTokens}
-                  onChange={(e) => handleChange('aiMaxTokens', parseInt(e.target.value))}
-                />
-                <div className="w-full flex justify-between text-xs px-2 mt-1">
-                  <span>短い</span>
-                  <span>長い</span>
-                </div>
-              </div>
+              <Slider
+                label="最大トークン数"
+                valueLabel={`${localSettings.aiMaxTokens} トークン`}
+                min={500}
+                max={4000}
+                step={100}
+                value={localSettings.aiMaxTokens}
+                onChange={(value) => handleChange('aiMaxTokens', value)}
+              />
 
-              {/* RAG設定 */}
-              <div className="divider">RAG設定（コンテキスト検索）</div>
+              <hr className="border-border" />
+
+              <h3 className="text-sm font-medium text-content">RAG設定（コンテキスト検索）</h3>
 
               {/* Context Min Similarity */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">
-                    最小類似度: {(localSettings.contextMinSimilarity * 100).toFixed(0)}%
-                  </span>
-                  <span className="label-text-alt">高いほど関連性の高い情報のみ使用</span>
-                </label>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="0.95"
-                  step="0.05"
-                  className="range range-secondary"
-                  value={localSettings.contextMinSimilarity}
-                  onChange={(e) =>
-                    handleChange('contextMinSimilarity', parseFloat(e.target.value))
-                  }
-                />
-              </div>
+              <Slider
+                label="最小類似度"
+                valueLabel={`${(localSettings.contextMinSimilarity * 100).toFixed(0)}%`}
+                min={0.5}
+                max={0.95}
+                step={0.05}
+                value={localSettings.contextMinSimilarity}
+                onChange={(value) => handleChange('contextMinSimilarity', value)}
+              />
 
               {/* Context Top K */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">参照チャンク数: {localSettings.contextTopK}</span>
-                  <span className="label-text-alt">使用するコンテキストの数</span>
-                </label>
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  step="1"
-                  className="range range-secondary"
-                  value={localSettings.contextTopK}
-                  onChange={(e) => handleChange('contextTopK', parseInt(e.target.value))}
-                />
-              </div>
+              <Slider
+                label="参照チャンク数"
+                valueLabel={`${localSettings.contextTopK} 件`}
+                min={1}
+                max={10}
+                step={1}
+                value={localSettings.contextTopK}
+                onChange={(value) => handleChange('contextTopK', value)}
+              />
             </div>
           )}
 
           {/* 表示設定タブ */}
           {activeTab === 'appearance' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* テーマ */}
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">テーマ</span>
-                </label>
-                <select
-                  className="select select-bordered w-full"
-                  value={localSettings.theme}
-                  onChange={(e) =>
-                    handleChange('theme', e.target.value as AppSettings['theme'])
-                  }
-                >
-                  <option value="dark">ダーク</option>
-                  <option value="light">ライト</option>
-                </select>
-              </div>
+              <Select
+                label="テーマ"
+                value={localSettings.theme}
+                onChange={(e) => handleChange('theme', e.target.value as AppSettings['theme'])}
+                options={[
+                  { value: 'interview-light', label: 'ライト（推奨）' },
+                  { value: 'dark', label: 'ダーク' },
+                ]}
+              />
 
               {/* 自動AI生成 */}
-              <div className="form-control">
-                <label className="label cursor-pointer">
-                  <span className="label-text">質問検出時にAI回答を自動生成</span>
-                  <input
-                    type="checkbox"
-                    className="toggle toggle-primary"
-                    checked={localSettings.autoGenerateAI}
-                    onChange={(e) => handleChange('autoGenerateAI', e.target.checked)}
-                  />
-                </label>
+              <div className="flex items-center justify-between p-4 bg-surface-secondary rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-content">自動AI回答生成</p>
+                  <p className="text-xs text-content-secondary mt-0.5">
+                    質問検出時に自動でAI回答を生成します
+                  </p>
+                </div>
+                <Toggle
+                  checked={localSettings.autoGenerateAI}
+                  onChange={(checked) => handleChange('autoGenerateAI', checked)}
+                />
               </div>
             </div>
           )}
         </div>
 
         {/* フッター */}
-        <div className="modal-action">
-          <button className="btn btn-ghost" onClick={handleReset} disabled={isSaving}>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface-secondary rounded-b-2xl">
+          <Button variant="ghost" onClick={handleReset} disabled={isSaving}>
             リセット
-          </button>
-          <div className="flex-1"></div>
-          <button className="btn" onClick={onClose} disabled={isSaving}>
-            キャンセル
-          </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <>
-                <span className="loading loading-spinner loading-sm"></span>
-                保存中...
-              </>
-            ) : (
-              '保存'
-            )}
-          </button>
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose} disabled={isSaving}>
+              キャンセル
+            </Button>
+            <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
+              保存
+            </Button>
+          </div>
         </div>
       </div>
-      <div className="modal-backdrop" onClick={onClose}></div>
     </div>
   )
 }

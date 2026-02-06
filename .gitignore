@@ -62,3 +62,6 @@ tmp/
 temp/
 *.tmp
 .vercel
+
+# MCP configuration
+.mcp.json

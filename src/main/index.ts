@@ -14,13 +14,16 @@ console.log('[Main] DEEPGRAM_API_KEY found:', !!process.env.DEEPGRAM_API_KEY)
 // Deep Linkプロトコル
 const PROTOCOL = 'interview-bot'
 
-// 開発環境以外ではデフォルトプロトコルクライアントとして登録
+// デフォルトプロトコルクライアントとして登録
 if (!app.isPackaged) {
-  // 開発環境でもプロトコルを設定（Windowsのみ）
+  // 開発環境でのプロトコル設定
   if (process.platform === 'win32') {
     app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
       join(process.cwd(), 'node_modules', 'electron', 'dist', 'electron.exe'),
     ])
+  } else if (process.platform === 'linux') {
+    // Linux: 開発環境ではelectronのパスを指定
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.cwd()])
   }
 } else {
   app.setAsDefaultProtocolClient(PROTOCOL)

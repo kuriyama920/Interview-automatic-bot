@@ -13,6 +13,7 @@
 - **ビルドツール**: electron-vite 2.0, Vite 5
 - **言語**: TypeScript 5.3
 - **スタイリング**: Tailwind CSS 3.4 + DaisyUI 4.6
+- **UIデザイン**: Linear Design + Apple Vibrancy ハイブリッド（白ベース、透過対応）
 - **状態管理**: React Hooks (useState, useEffect, useCallback)
 - **テスト**: Vitest + Testing Library + Playwright
 - **音声認識**: Deepgram SDK 3.4 (WebSocket)
@@ -71,6 +72,8 @@ src/
 │       │   ├── useDocuments.ts    # ドキュメント管理
 │       │   └── useSettings.ts     # 設定管理
 │       ├── components/        # UIコンポーネント
+│       │   ├── ui/
+│       │   │   └── index.tsx         # 共通UIコンポーネント（Card, Button, Badge等）
 │       │   ├── LoginPage.tsx          # ログインUI
 │       │   ├── DocumentUploadPanel.tsx # ドキュメントアップロード
 │       │   ├── SettingsModal.tsx      # 設定モーダル
@@ -101,6 +104,9 @@ apps/api/                      # Vercel APIプロジェクト（SaaSバックエ
 │   └── supabase.ts            # Supabaseクライアント
 └── supabase/
     └── migrations/            # DBマイグレーション
+
+docs/
+└── UI_DESIGN_GUIDELINES.md    # UIデザインガイドライン
 
 tests/
 ├── unit/                      # ユニットテスト

@@ -2,8 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Toast animation */
-@keyframes slide-in {
+/**
+ * グローバルスタイル
+ * Linear Design + Apple Vibrancy
+ */
+
+@layer base {
+  /* ルート要素スタイル */
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    --font-mono: "SF Mono", Monaco, "Cascadia Code", "Noto Sans Mono CJK JP", monospace;
+  }
+
+  /* HTML/Body基本スタイル */
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-surface text-content;
+    font-feature-settings: "palt" 1;
+    line-height: 1.6;
+  }
+
+  /* スクロールバースタイル（WebKit） */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-content-tertiary;
+  }
+
+  /* セレクション */
+  ::selection {
+    @apply bg-accent/20 text-content;
+  }
+
+  /* プレースホルダー */
+  ::placeholder {
+    @apply text-content-tertiary;
+  }
+
+  /* フォーカスリング */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-surface;
+  }
+
+  /* インプット共通 */
+  input, textarea, select {
+    @apply font-sans;
+  }
+
+  /* コードフォント */
+  code, pre, kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /* アニメーションユーティリティ */
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+
+  /* グラスモーフィズム */
+  .glass {
+    @apply bg-translucent-white backdrop-blur-glass;
+  }
+
+  /* Electronドラッグ領域 */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@layer utilities {
+  /* テキストバランス（将来のブラウザ対応） */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 行クランプ */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* キーフレームアニメーション */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
   from {
     transform: translateX(100%);
     opacity: 0;
@@ -14,6 +157,20 @@
   }
 }
 
-.animate-slide-in {
-  animation: slide-in 0.3s ease-out;
+@keyframes pulseSubtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes wave {
+  0%, 100% {
+    transform: scaleY(0.5);
+  }
+  50% {
+    transform: scaleY(1);
+  }
 }
