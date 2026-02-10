@@ -11,6 +11,7 @@ import { getUserFromRequest } from '../../lib/auth'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { stripe } from '../../lib/stripe'
 import { getOrCreateStripeCustomer } from '../../lib/subscription'
+import { getBaseUrl } from '../../lib/url'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin as string | undefined
@@ -37,9 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const customerId = await getOrCreateStripeCustomer(jwtPayload.sub)
 
     // ベースURL を取得
-    const protocol = req.headers['x-forwarded-proto'] || 'https'
-    const host = req.headers['x-forwarded-host'] || req.headers.host
-    const baseUrl = `${protocol}://${host}`
+    const baseUrl = getBaseUrl(req)
 
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,

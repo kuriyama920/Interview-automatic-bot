@@ -12,6 +12,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import { generateGoogleAuthUrl } from '../../lib/auth'
 import { supabaseAdmin } from '../../lib/supabase'
+import { getBaseUrl } from '../../lib/url'
 import crypto from 'crypto'
 
 // State data stored in Supabase
@@ -31,9 +32,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // セッションIDまたはリダイレクトURIを取得
     const sessionId = typeof session_id === 'string' ? session_id : null
+    const ALLOWED_REDIRECT_URIS = ['interview-bot://auth/callback']
     const appRedirectUri = sessionId
       ? null
-      : typeof redirect_uri === 'string'
+      : typeof redirect_uri === 'string' && ALLOWED_REDIRECT_URIS.includes(redirect_uri)
         ? redirect_uri
         : 'interview-bot://auth/callback'
 
@@ -72,11 +74,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-function getBaseUrl(req: VercelRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  return `${protocol}://${host}`
-}
 
 // Helper functions for state store operations
 export async function getOAuthState(state: string): Promise<StateData | null> {

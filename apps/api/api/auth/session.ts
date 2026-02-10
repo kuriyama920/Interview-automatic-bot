@@ -7,17 +7,19 @@
 
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../../lib/supabase'
+import { setCorsHeaders, handlePreflight } from '../../lib/cors'
+import { isAllowedOrigin } from '../../lib/allowed-origins'
+import { getBaseUrl } from '../../lib/url'
 import crypto from 'crypto'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  const origin = req.headers.origin as string | undefined
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end()
+    return handlePreflight(res, origin)
   }
+
+  setCorsHeaders(res, origin)
 
   if (req.method === 'POST') {
     return handleCreateSession(req, res)
@@ -38,10 +40,28 @@ async function handleCreateSession(req: VercelRequest, res: VercelResponse) {
     const sessionId = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5分後
 
+    // Webチェックアウトフロー: returnUrl を検証して保存
+    const { returnUrl } = req.body || {}
+    let validatedReturnUrl: string | null = null
+
+    if (returnUrl && typeof returnUrl === 'string') {
+      if (!isAllowedOrigin(returnUrl)) {
+        return res.status(400).json({ error: 'Invalid returnUrl origin' })
+      }
+      // クレデンシャルやフラグメントを除去した安全なURLを保存
+      try {
+        const parsed = new URL(returnUrl)
+        validatedReturnUrl = `${parsed.origin}${parsed.pathname}${parsed.search}`
+      } catch {
+        return res.status(400).json({ error: 'Invalid returnUrl format' })
+      }
+    }
+
     const { error } = await supabaseAdmin.from('auth_sessions').insert({
       id: sessionId,
       status: 'pending',
       expires_at: expiresAt.toISOString(),
+      return_url: validatedReturnUrl,
     })
 
     if (error) {
@@ -69,6 +89,7 @@ async function handleCreateSession(req: VercelRequest, res: VercelResponse) {
 
 /**
  * セッションのステータスをポーリング
+ * アトミックな DELETE ... RETURNING で同時ポーリング時の二重取得を防止
  */
 async function handlePollSession(req: VercelRequest, res: VercelResponse) {
   try {
@@ -78,9 +99,23 @@ async function handlePollSession(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Session ID required' })
     }
 
+    // まずアトミックにセッションを消費（completed かつ未期限切れの場合のみ）
+    const { data: consumed } = await supabaseAdmin.rpc('consume_auth_session', {
+      p_session_id: id,
+    })
+
+    if (consumed && consumed.length > 0) {
+      return res.status(200).json({
+        status: 'completed',
+        token: consumed[0].session_token,
+        user: consumed[0].session_user_data,
+      })
+    }
+
+    // セッションが消費されなかった場合、ステータスを確認
     const { data: session, error } = await supabaseAdmin
       .from('auth_sessions')
-      .select('*')
+      .select('status, expires_at, error')
       .eq('id', id)
       .single()
 
@@ -92,24 +127,12 @@ async function handlePollSession(req: VercelRequest, res: VercelResponse) {
     if (new Date(session.expires_at) < new Date()) {
       return res.status(410).json({
         status: 'expired',
-        error: 'Session expired'
+        error: 'Session expired',
       })
     }
 
-    // ステータスに応じてレスポンス
     if (session.status === 'pending') {
       return res.status(200).json({ status: 'pending' })
-    }
-
-    if (session.status === 'completed') {
-      // セッションを削除（一度だけ使用可能）
-      await supabaseAdmin.from('auth_sessions').delete().eq('id', id)
-
-      return res.status(200).json({
-        status: 'completed',
-        token: session.token,
-        user: session.user_data,
-      })
     }
 
     // エラーの場合
@@ -121,10 +144,4 @@ async function handlePollSession(req: VercelRequest, res: VercelResponse) {
     console.error('Poll session error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
-}
-
-function getBaseUrl(req: VercelRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  return `${protocol}://${host}`
 }

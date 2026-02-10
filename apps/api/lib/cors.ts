@@ -4,20 +4,7 @@
  */
 
 import { VercelResponse } from '@vercel/node'
-
-// 許可されたオリジン
-// - 本番Webダッシュボード用
-// - 開発環境用
-// - Electronアプリはoriginがnullまたは不在
-const ALLOWED_ORIGINS: string[] = [
-  // 本番環境
-  'https://interview-bot.vercel.app',
-  'https://interview-bot-dashboard.vercel.app',
-  // 開発環境
-  'http://localhost:3000',
-  'http://localhost:5173',
-  // Electronアプリ（originがnullの場合用）
-]
+import { ALLOWED_ORIGINS } from './allowed-origins'
 
 /**
  * CORSヘッダーを設定
@@ -42,7 +29,7 @@ export function setCorsHeaders(res: VercelResponse, origin: string | null | unde
   }
 
   // 許可されたオリジンかチェック
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Credentials', 'true')
     return true

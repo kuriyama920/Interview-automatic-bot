@@ -12,6 +12,8 @@ import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { stripe } from '../../lib/stripe'
 import { getOrCreateStripeCustomer } from '../../lib/subscription'
 import { supabaseAdmin } from '../../lib/supabase'
+import { isAllowedOrigin } from '../../lib/allowed-origins'
+import { getBaseUrl } from '../../lib/url'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin as string | undefined
@@ -35,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    const { priceId } = req.body || {}
+    const { priceId, successUrl, cancelUrl } = req.body || {}
 
     if (!priceId || typeof priceId !== 'string') {
       return res.status(400).json({ error: 'priceId is required' })
@@ -57,16 +59,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const customerId = await getOrCreateStripeCustomer(jwtPayload.sub)
 
     // ベースURL を取得
-    const protocol = req.headers['x-forwarded-proto'] || 'https'
-    const host = req.headers['x-forwarded-host'] || req.headers.host
-    const baseUrl = `${protocol}://${host}`
+    const baseUrl = getBaseUrl(req)
+
+    // Webチェックアウトフロー: カスタムリダイレクトURLの検証
+    const finalSuccessUrl =
+      successUrl && typeof successUrl === 'string' && isAllowedOrigin(successUrl)
+        ? `${successUrl}${successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`
+        : `${baseUrl}/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`
+
+    const finalCancelUrl =
+      cancelUrl && typeof cancelUrl === 'string' && isAllowedOrigin(cancelUrl)
+        ? cancelUrl
+        : `${baseUrl}/api/stripe/cancel`
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${baseUrl}/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/api/stripe/cancel`,
+      success_url: finalSuccessUrl,
+      cancel_url: finalCancelUrl,
       metadata: { userId: jwtPayload.sub },
       subscription_data: {
         metadata: { userId: jwtPayload.sub },

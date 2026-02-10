@@ -14,8 +14,9 @@ import {
   generateJWT,
 } from '../../lib/auth'
 import { supabaseAdmin } from '../../lib/supabase'
+import { isAllowedOrigin } from '../../lib/allowed-origins'
+import { getBaseUrl } from '../../lib/url'
 import { getOAuthState, deleteOAuthState } from './google'
-import crypto from 'crypto'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -74,6 +75,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // セッションベースフロー（推奨）
     if (stateData.sessionId) {
+      // Webチェックアウトフロー: return_url があるか確認
+      const { data: session } = await supabaseAdmin
+        .from('auth_sessions')
+        .select('return_url')
+        .eq('id', stateData.sessionId)
+        .single()
+
       await supabaseAdmin.from('auth_sessions').update({
         status: 'completed',
         token: jwt,
@@ -81,6 +89,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         completed_at: new Date().toISOString(),
       }).eq('id', stateData.sessionId)
 
+      // return_url がある場合はWebにリダイレクト（JWTはURLに含めない）
+      if (session?.return_url && isAllowedOrigin(session.return_url)) {
+        const redirectUrl = new URL(session.return_url)
+        redirectUrl.searchParams.set('session_id', stateData.sessionId)
+        res.setHeader('Referrer-Policy', 'no-referrer')
+        return res.redirect(302, redirectUrl.toString())
+      }
+
+      // Electronフロー: 従来通りHTML成功ページを表示
       return showSuccessPage(res, user.display_name || user.email)
     }
 
@@ -89,6 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const redirectUrl = new URL(stateData.redirectUri)
       redirectUrl.searchParams.set('token', jwt)
       redirectUrl.searchParams.set('user', JSON.stringify(userData))
+      res.setHeader('Referrer-Policy', 'no-referrer')
       return res.redirect(302, redirectUrl.toString())
     }
 
@@ -102,71 +120,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 /**
  * ユーザーを作成または更新
+ * ON CONFLICT (email) で同時リクエスト時の UNIQUE 制約違反を防止
  */
 async function upsertUser(googleUser: { id: string; email: string; name: string; picture: string }) {
-  // 既存ユーザーを検索
-  const { data: existingUser } = await supabaseAdmin
-    .from('profiles')
-    .select('*')
-    .eq('email', googleUser.email)
-    .single()
-
-  if (existingUser) {
-    // 既存ユーザーを更新
-    const { data: updatedUser, error } = await supabaseAdmin
-      .from('profiles')
-      .update({
-        display_name: googleUser.name,
-        avatar_url: googleUser.picture,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existingUser.id)
-      .select()
-      .single()
-
-    if (error) throw error
-    return updatedUser
-  }
-
-  // 新規ユーザーを作成
-  const { data: newUser, error } = await supabaseAdmin
-    .from('profiles')
-    .insert({
-      id: crypto.randomUUID(),
-      email: googleUser.email,
-      display_name: googleUser.name,
-      avatar_url: googleUser.picture,
-      subscription_tier: 'free',
-      subscription_status: 'active',
-      monthly_stt_minutes_used: 0,
-      monthly_ai_tokens_used: 0,
-      monthly_storage_bytes_used: 0,
-    })
-    .select()
-    .single()
-
-  if (error) throw error
-
-  // デフォルト設定を作成
-  await supabaseAdmin.from('user_settings').insert({
-    user_id: newUser.id,
-    theme: 'dark',
-    auto_generate_ai: true,
-    ai_model: 'gpt-5-mini',
-    ai_temperature: 0.7,
-    ai_max_tokens: 1000,
-    context_min_similarity: 0.7,
-    context_top_k: 3,
+  // アトミックな upsert: INSERT ... ON CONFLICT (email) DO UPDATE
+  const { data: user, error } = await supabaseAdmin.rpc('upsert_user_profile', {
+    p_email: googleUser.email,
+    p_display_name: googleUser.name,
+    p_avatar_url: googleUser.picture,
   })
 
-  return newUser
+  if (error) throw error
+  if (!user) throw new Error('Failed to upsert user')
+
+  // デフォルト設定が未作成の場合のみ作成（新規ユーザー）
+  await supabaseAdmin
+    .from('user_settings')
+    .upsert({
+      user_id: user.id,
+      theme: 'dark',
+      auto_generate_ai: true,
+      ai_model: 'gpt-5-mini',
+      ai_temperature: 0.7,
+      ai_max_tokens: 1000,
+      context_min_similarity: 0.7,
+      context_top_k: 3,
+    }, { onConflict: 'user_id' })
+
+  return user
 }
 
-function getBaseUrl(req: VercelRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] || 'https'
-  const host = req.headers['x-forwarded-host'] || req.headers.host
-  return `${protocol}://${host}`
-}
 
 /**
  * エラーハンドリング
@@ -178,11 +161,26 @@ async function handleError(
 ) {
   // セッションベースの場合はセッションを更新
   if (stateData?.sessionId) {
+    // Webチェックアウトフロー: return_url があるか確認
+    const { data: session } = await supabaseAdmin
+      .from('auth_sessions')
+      .select('return_url')
+      .eq('id', stateData.sessionId)
+      .single()
+
     await supabaseAdmin.from('auth_sessions').update({
       status: 'error',
       error,
       completed_at: new Date().toISOString(),
     }).eq('id', stateData.sessionId)
+
+    // return_url がある場合はWebにリダイレクト
+    if (session?.return_url && isAllowedOrigin(session.return_url)) {
+      const redirectUrl = new URL(session.return_url)
+      redirectUrl.searchParams.set('auth_error', 'authentication_failed')
+      res.setHeader('Referrer-Policy', 'no-referrer')
+      return res.redirect(302, redirectUrl.toString())
+    }
 
     return showErrorPage(res, error)
   }

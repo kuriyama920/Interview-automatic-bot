@@ -113,7 +113,7 @@ export function PricingSection() {
               </ul>
 
               <Link
-                href="/download"
+                href={plan.price === 0 ? '/download' : `/checkout?plan=${plan.id}`}
                 className={`block w-full py-2.5 rounded-lg text-sm font-medium text-center transition-colors ${
                   plan.popular
                     ? 'bg-accent text-white hover:bg-accent-hover'
