@@ -43,7 +43,7 @@ export interface UserSettings {
 /**
  * サブスクリプションティア
  */
-export type SubscriptionTier = 'free' | 'pro' | 'enterprise'
+export type SubscriptionTier = 'free' | 'pro' | 'max'
 
 /**
  * サブスクリプション状態
@@ -118,6 +118,35 @@ export interface SubscriptionPlan {
   priceMonthly: number
   priceYearly: number | null
   limits: PlanLimits
+}
+
+/**
+ * サブスクリプション API レスポンス (GET /api/subscription)
+ */
+export interface SubscriptionResponse {
+  subscription: {
+    tier: SubscriptionTier
+    status: SubscriptionStatus
+    periodEnd: string | null
+  }
+  usage: UserUsage
+  plan: {
+    id: string
+    name: string
+    priceMonthly: number
+    limits: PlanLimits
+    features: Record<string, boolean>
+  } | null
+  plans: Array<{
+    id: string
+    name: string
+    priceMonthly: number
+    priceYearly: number | null
+    stripePriceIdMonthly: string | null
+    stripePriceIdYearly: string | null
+    limits: PlanLimits
+    features: Record<string, boolean>
+  }>
 }
 
 /**
