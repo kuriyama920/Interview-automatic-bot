@@ -44,13 +44,6 @@ class SettingsService {
   }
 
   /**
-   * 初期化状態を確認
-   */
-  isInitialized(): boolean {
-    return this.initialized
-  }
-
-  /**
    * 全設定を取得
    */
   getSettings(): AppSettings {

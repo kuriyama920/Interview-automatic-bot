@@ -318,18 +318,6 @@ export function Alert({ children, variant = 'info', onClose, className = '' }: A
 }
 
 // ============================================================
-// Divider コンポーネント
-// ============================================================
-
-interface DividerProps {
-  className?: string
-}
-
-export function Divider({ className = '' }: DividerProps) {
-  return <hr className={`border-t border-border my-4 ${className}`} />
-}
-
-// ============================================================
 // WaveformVisualizer コンポーネント（音声波形）
 // ============================================================
 

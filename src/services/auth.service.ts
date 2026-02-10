@@ -12,7 +12,6 @@ import type {
   User,
   UserSettings,
   AuthMeResponse,
-  DEFAULT_AUTH_STATE,
 } from '../types/auth'
 
 const log = createLogger('auth-service')
@@ -66,13 +65,6 @@ class AuthService {
       log.error('Failed to initialize AuthService', { error: String(error) })
       throw error
     }
-  }
-
-  /**
-   * 初期化状態を確認
-   */
-  isInitialized(): boolean {
-    return this.initialized
   }
 
   /**
@@ -315,21 +307,6 @@ class AuthService {
       this.notifyListeners(state)
       return state
     }
-  }
-
-  /**
-   * ポーリングをキャンセル
-   */
-  cancelLogin(): void {
-    log.info('Cancelling login')
-    this.pollingAbortController?.abort()
-    this.notifyListeners({
-      isAuthenticated: false,
-      isLoading: false,
-      user: null,
-      settings: null,
-      error: null,
-    })
   }
 
   /**

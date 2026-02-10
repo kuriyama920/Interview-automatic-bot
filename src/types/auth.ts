@@ -62,18 +62,6 @@ export interface AuthState {
 }
 
 /**
- * JWTペイロード
- */
-export interface JWTPayload {
-  sub: string
-  email: string
-  name: string | null
-  picture: string | null
-  iat: number
-  exp: number
-}
-
-/**
  * 認証トークン
  */
 export interface AuthTokens {
@@ -82,71 +70,11 @@ export interface AuthTokens {
 }
 
 /**
- * 認証コールバックパラメータ
- */
-export interface AuthCallbackParams {
-  token: string
-  error?: string
-}
-
-/**
  * API レスポンス
  */
 export interface AuthMeResponse {
   user: User
   settings: UserSettings | null
-}
-
-/**
- * プラン制限
- */
-export interface PlanLimits {
-  sttMinutesMonthly: number
-  aiTokensMonthly: number
-  storageBytesTotal: number
-  maxDocuments: number
-  customApiKeys: boolean
-  prioritySupport: boolean
-}
-
-/**
- * サブスクリプションプラン
- */
-export interface SubscriptionPlan {
-  id: SubscriptionTier
-  name: string
-  priceMonthly: number
-  priceYearly: number | null
-  limits: PlanLimits
-}
-
-/**
- * サブスクリプション API レスポンス (GET /api/subscription)
- */
-export interface SubscriptionResponse {
-  subscription: {
-    tier: SubscriptionTier
-    status: SubscriptionStatus
-    periodEnd: string | null
-  }
-  usage: UserUsage
-  plan: {
-    id: string
-    name: string
-    priceMonthly: number
-    limits: PlanLimits
-    features: Record<string, boolean>
-  } | null
-  plans: Array<{
-    id: string
-    name: string
-    priceMonthly: number
-    priceYearly: number | null
-    stripePriceIdMonthly: string | null
-    stripePriceIdYearly: string | null
-    limits: PlanLimits
-    features: Record<string, boolean>
-  }>
 }
 
 /**

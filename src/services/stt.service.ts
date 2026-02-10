@@ -11,7 +11,7 @@ export interface TranscriptResult {
   timestamp: number
 }
 
-export type TranscriptCallback = (result: TranscriptResult) => void
+type TranscriptCallback = (result: TranscriptResult) => void
 
 const KEEPALIVE_INTERVAL_MS = 5000 // 5秒ごとにキープアライブを送信
 

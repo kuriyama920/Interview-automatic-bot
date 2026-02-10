@@ -307,13 +307,6 @@ export class AIService {
   isUsingProxy(): boolean {
     return this.useProxy
   }
-
-  updateConfig(config: Partial<AIServiceConfig>): void {
-    if (this.config) {
-      this.config = { ...this.config, ...config }
-      log.info('AI service config updated', { model: this.config.model })
-    }
-  }
 }
 
 export const aiService = new AIService()
