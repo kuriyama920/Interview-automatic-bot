@@ -133,9 +133,14 @@ export function verifyJWT(token: string): JWTPayload | null {
   try {
     const [header, payload, signature] = token.split('.')
 
-    // 署名検証
+    // 署名検証（タイミング攻撃対策で定数時間比較）
     const expectedSignature = createHmacSignature(`${header}.${payload}`, getJwtSecret())
-    if (signature !== expectedSignature) {
+    const sigBuffer = Buffer.from(signature, 'base64url')
+    const expectedBuffer = Buffer.from(expectedSignature, 'base64url')
+    if (
+      sigBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+    ) {
       return null
     }
 

@@ -15,27 +15,17 @@ import { checkUsageLimit, recordUsage, hasCustomApiKey } from '../../lib/usage'
 import { supabaseAdmin } from '../../lib/supabase'
 import { generateEmbedding } from '../../lib/openai'
 import { getEnv } from '../../lib/env'
+import { SYSTEM_PROMPT } from '../../lib/prompts'
 
 export const config = {
   maxDuration: 60,
 }
 
-const SYSTEM_PROMPT = `あなたは面接支援AIアシスタントです。面接官の質問に対して、候補者が答えるべき最適な回答を提案します。
-
-以下のガイドラインに従ってください：
-1. 簡潔で明確な回答を提供する
-2. STAR法（Situation, Task, Action, Result）を意識した構造的な回答
-3. 具体的なエピソードや数値を含める提案
-4. ポジティブな表現を使用
-5. 日本語で回答する
-
-回答形式：
-- メインの回答（2-3文）
-- 補足ポイント（箇条書き2-3個）`
-
 const DEFAULT_MODEL = 'gpt-5-mini'
 const DEFAULT_MAX_TOKENS = 500
 const MAX_QUESTION_LENGTH = 2000
+// 許可モデル一覧（コスト管理のため制限）
+const ALLOWED_MODELS = ['gpt-5-mini', 'gpt-4o-mini']
 // GPT-5 Mini は temperature パラメータ未サポート（デフォルト1のみ）
 const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-mini']
 const DEFAULT_TOP_K = 3
@@ -78,7 +68,8 @@ function validateRequest(body: unknown): ValidatedRequest | { error: string } {
 
   const context = typeof data.context === 'string' ? data.context : undefined
   const includeDocumentContext = data.includeDocumentContext !== false
-  const model = typeof data.model === 'string' ? data.model : DEFAULT_MODEL
+  const requestedModel = typeof data.model === 'string' ? data.model : DEFAULT_MODEL
+  const model = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : DEFAULT_MODEL
   const maxTokens =
     typeof data.maxTokens === 'number' && data.maxTokens > 0 && data.maxTokens <= 4000
       ? data.maxTokens
@@ -281,7 +272,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // SSE が開始済みの場合はエラーイベントを送信
-    res.write(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`)
-    res.end()
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`)
+      res.end()
+    } catch {
+      // クライアント切断時は何もできない
+    }
   }
 }
