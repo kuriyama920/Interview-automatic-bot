@@ -51,6 +51,11 @@ vi.mock('../../apps/api/lib/openai', () => ({
   generateEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0)),
 }))
 
+// Prompts モック
+vi.mock('../../apps/api/lib/prompts', () => ({
+  SYSTEM_PROMPT: 'テスト用プロンプト',
+}))
+
 // Env モック
 vi.mock('../../apps/api/lib/env', () => ({
   getEnv: vi.fn((key: string) => {
@@ -254,7 +259,7 @@ describe('POST /api/ai/generate', () => {
   it('should pass temperature for non-gpt-5-mini models', async () => {
     const req = createMockRequest({
       method: 'POST',
-      body: { question: 'テスト', model: 'gpt-4o', temperature: 0.5 },
+      body: { question: 'テスト', model: 'gpt-4o-mini', temperature: 0.5 },
     })
     const res = createMockResponse()
     mockGetUserFromRequest.mockReturnValue({ sub: 'user-123' })
@@ -268,10 +273,32 @@ describe('POST /api/ai/generate', () => {
 
     await handler(req, res)
 
-    // gpt-4o では temperature が渡される
+    // gpt-4o-mini では temperature が渡される
     const createCall = mockStreamCreate.mock.calls[0][0]
-    expect(createCall.model).toBe('gpt-4o')
+    expect(createCall.model).toBe('gpt-4o-mini')
     expect(createCall.temperature).toBe(0.5)
+  })
+
+  it('should reject non-allowlisted models and fallback to default', async () => {
+    const req = createMockRequest({
+      method: 'POST',
+      body: { question: 'テスト', model: 'gpt-4' },
+    })
+    const res = createMockResponse()
+    mockGetUserFromRequest.mockReturnValue({ sub: 'user-123' })
+
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: { content: 'OK' } }], usage: { total_tokens: 10 } }
+      },
+    }
+    mockStreamCreate.mockResolvedValue(mockStream)
+
+    await handler(req, res)
+
+    // 許可されていないモデルはデフォルトにフォールバック
+    const createCall = mockStreamCreate.mock.calls[0][0]
+    expect(createCall.model).toBe('gpt-5-mini')
   })
 
   it('should handle OPTIONS preflight', async () => {

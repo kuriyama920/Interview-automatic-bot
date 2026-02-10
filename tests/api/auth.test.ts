@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import crypto from 'crypto'
 
 // 環境変数を設定（モジュールロード前に必要）
 vi.stubEnv('JWT_SECRET', 'test-jwt-secret')
@@ -65,7 +66,6 @@ describe('Auth Library', () => {
 
     it('should return null for expired token', () => {
       // 手動で期限切れトークンを作成
-      const crypto = require('crypto')
       const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
       const payload = Buffer.from(JSON.stringify({
         sub: 'user',
