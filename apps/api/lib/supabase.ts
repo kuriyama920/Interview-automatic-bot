@@ -52,7 +52,7 @@ export interface Database {
           display_name: string | null
           avatar_url: string | null
           stripe_customer_id: string | null
-          subscription_tier: 'free' | 'pro' | 'enterprise'
+          subscription_tier: 'free' | 'pro' | 'max'
           subscription_status: 'active' | 'canceled' | 'past_due' | 'trialing'
           subscription_period_end: string | null
           monthly_stt_minutes_used: number

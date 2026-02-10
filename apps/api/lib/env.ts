@@ -17,6 +17,14 @@ interface EnvConfig {
 
   // OpenAI (Phase 6: サーバーサイドEmbedding)
   OPENAI_API_KEY: string
+
+  // Stripe (Phase 7: 決済) - エンドポイント側で遅延バリデーション
+  STRIPE_SECRET_KEY: string
+  STRIPE_WEBHOOK_SECRET: string
+  CRON_SECRET: string
+
+  // Deepgram (Phase 8: APIプロキシ) - エンドポイント側で遅延バリデーション
+  DEEPGRAM_API_KEY: string
 }
 
 const REQUIRED_ENV_VARS: (keyof EnvConfig)[] = [
