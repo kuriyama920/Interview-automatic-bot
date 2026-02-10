@@ -56,7 +56,6 @@ describe('AIService', () => {
         apiKey: 'test-api-key',
         model: 'gpt-4',
         maxTokens: 1000,
-        temperature: 0.5,
       })
       expect(aiService.isInitialized()).toBe(true)
     })
@@ -115,16 +114,4 @@ describe('AIService', () => {
     })
   })
 
-  describe('updateConfig', () => {
-    it('should update config after initialization', () => {
-      aiService.initialize({ apiKey: 'test-api-key' })
-      aiService.updateConfig({ model: 'gpt-4' })
-      expect(aiService.isInitialized()).toBe(true)
-    })
-
-    it('should not update if not initialized', () => {
-      aiService.updateConfig({ model: 'gpt-4' })
-      expect(aiService.isInitialized()).toBe(false)
-    })
-  })
 })

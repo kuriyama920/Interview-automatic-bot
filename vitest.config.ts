@@ -9,12 +9,17 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['**/node_modules/**'],
+    exclude: ['**/node_modules/**', 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.d.ts', 'src/main/index.ts', 'src/preload/index.ts'],
+      include: ['src/**/*.{ts,tsx}', 'apps/api/**/*.ts'],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/main/index.ts',
+        'src/preload/index.ts',
+        'apps/api/node_modules/**',
+      ],
     },
     deps: {
       inline: ['@deepgram/sdk'],
