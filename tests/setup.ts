@@ -59,6 +59,10 @@ const mockElectronAPI = {
     onTranscript: vi.fn(),
     removeTranscriptListener: vi.fn(),
   },
+  audio: {
+    getSource: vi.fn().mockResolvedValue({ success: true, source: 'mic' }),
+    setSource: vi.fn().mockResolvedValue({ success: true }),
+  },
 }
 
 Object.defineProperty(window, 'electron', {
@@ -85,8 +89,24 @@ class MockAudioContext {
     disconnect: vi.fn(),
     onaudioprocess: null,
   }))
+  audioWorklet = {
+    addModule: vi.fn().mockResolvedValue(undefined),
+  }
   destination = {}
-  close = vi.fn()
+  close = vi.fn().mockResolvedValue(undefined)
 }
 
 globalThis.AudioContext = MockAudioContext as unknown as typeof AudioContext
+
+// Mock AudioWorkletNode
+class MockAudioWorkletNode {
+  connect = vi.fn()
+  disconnect = vi.fn()
+  port = {
+    onmessage: null as ((e: MessageEvent) => void) | null,
+    postMessage: vi.fn(),
+  }
+  constructor() {}
+}
+
+globalThis.AudioWorkletNode = MockAudioWorkletNode as unknown as typeof AudioWorkletNode

@@ -15,6 +15,12 @@ vi.mock('electron', () => ({
       mockIpcListeners[channel] = listener
     }),
   },
+  dialog: {
+    showOpenDialog: vi.fn(),
+  },
+  shell: {
+    openExternal: vi.fn(),
+  },
 }))
 
 // Mock STTService
@@ -23,6 +29,7 @@ const mockSTTService = {
   disconnect: vi.fn(),
   send: vi.fn(),
   isConnected: vi.fn(() => true),
+  getSessionMinutes: vi.fn(() => 0),
 }
 
 vi.mock('../../src/services/stt.service', () => ({
@@ -35,11 +42,66 @@ const mockAIService = vi.hoisted(() => ({
   generateResponse: vi.fn(),
   generateStreamResponse: vi.fn(),
   isInitialized: vi.fn(() => false),
+  isUsingProxy: vi.fn(() => false),
   updateConfig: vi.fn(),
 }))
 
 vi.mock('../../src/services/ai.service', () => ({
   aiService: mockAIService,
+}))
+
+// Mock settingsService
+const mockSettingsService = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  getSettings: vi.fn(() => ({})),
+  saveSettings: vi.fn((s: unknown) => s),
+  resetSettings: vi.fn(() => ({})),
+  getSetting: vi.fn(),
+  setSetting: vi.fn(),
+  getEffectiveApiKey: vi.fn(),
+}))
+
+vi.mock('../../src/services/settings.service', () => ({
+  settingsService: mockSettingsService,
+}))
+
+// Mock authService
+const mockAuthService = vi.hoisted(() => ({
+  addAuthStateListener: vi.fn(),
+  getAuthState: vi.fn(() => ({ isAuthenticated: false })),
+  startGoogleLogin: vi.fn(),
+  validateAndRefresh: vi.fn(),
+  logout: vi.fn(),
+  getAccessToken: vi.fn(),
+  authenticatedFetch: vi.fn(),
+}))
+
+vi.mock('../../src/services/auth.service', () => ({
+  authService: mockAuthService,
+}))
+
+// Mock contextService
+const mockContextService = vi.hoisted(() => ({
+  isInitialized: vi.fn(() => false),
+  initialize: vi.fn(),
+  getRelevantContext: vi.fn(() => []),
+  addDocument: vi.fn(),
+  getDocuments: vi.fn(() => []),
+  removeDocument: vi.fn(),
+}))
+
+vi.mock('../../src/services/context.service', () => ({
+  contextService: mockContextService,
+}))
+
+// Mock logger.service
+vi.mock('../../src/services/logger.service', () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
 }))
 
 describe('IPC Handlers', () => {
@@ -54,7 +116,7 @@ describe('IPC Handlers', () => {
     Object.keys(mockIpcListeners).forEach((key) => delete mockIpcListeners[key])
 
     // Mock environment variable
-    process.env = { ...originalEnv, DEEPGRAM_API_KEY: 'test-api-key' }
+    process.env = { ...originalEnv }
 
     // Create mock BrowserWindow
     mockMainWindow = {
@@ -67,12 +129,21 @@ describe('IPC Handlers', () => {
     mockSTTService.connect.mockResolvedValue(undefined)
     mockSTTService.disconnect.mockResolvedValue(undefined)
     mockSTTService.isConnected.mockReturnValue(true)
+    mockSTTService.getSessionMinutes.mockReturnValue(0)
 
     // Reset AI mock implementations
     mockAIService.initialize.mockClear()
     mockAIService.generateResponse.mockReset()
     mockAIService.generateStreamResponse.mockReset()
     mockAIService.isInitialized.mockReturnValue(false)
+    mockAIService.isUsingProxy.mockReturnValue(false)
+
+    // Default: settingsService returns custom deepgram key
+    mockSettingsService.getEffectiveApiKey.mockImplementation((type: string) => {
+      if (type === 'deepgram') return 'test-deepgram-key'
+      if (type === 'openai') return 'test-openai-key'
+      return null
+    })
   })
 
   afterEach(() => {
@@ -94,28 +165,53 @@ describe('IPC Handlers', () => {
       expect(mockIpcHandlers['ai:generate']).toBeDefined()
       expect(mockIpcHandlers['ai:generateStream']).toBeDefined()
       expect(mockIpcHandlers['ai:status']).toBeDefined()
+
+      // Phase 7: Subscription handlers
+      expect(mockIpcHandlers['subscription:getPlans']).toBeDefined()
+      expect(mockIpcHandlers['subscription:checkout']).toBeDefined()
+      expect(mockIpcHandlers['subscription:portal']).toBeDefined()
+      expect(mockIpcHandlers['subscription:refresh']).toBeDefined()
     })
   })
 
   describe('stt:start handler', () => {
-    it('should start STT service successfully', async () => {
+    it('should start STT service successfully with custom key', async () => {
+      mockSettingsService.getEffectiveApiKey.mockReturnValue('test-deepgram-key')
       setupIPC(mockMainWindow)
 
-      // stt:start no longer takes apiKey - gets it from environment
       const result = await mockIpcHandlers['stt:start']()
 
       expect(result).toEqual({ success: true })
     })
 
-    it('should fail when DEEPGRAM_API_KEY is not configured', async () => {
-      delete process.env.DEEPGRAM_API_KEY
+    it('should start STT via proxy when no custom key', async () => {
+      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
+      mockAuthService.authenticatedFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ token: 'proxy-temp-token', expiresIn: 600 }),
+      })
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['stt:start']()
+
+      expect(result).toEqual({ success: true })
+      expect(mockAuthService.authenticatedFetch).toHaveBeenCalled()
+    })
+
+    it('should fail when proxy returns usage limit exceeded', async () => {
+      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
+      mockAuthService.authenticatedFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        json: async () => ({ error: 'Usage limit exceeded' }),
+      })
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['stt:start']()
 
       expect(result).toEqual({
         success: false,
-        error: 'DEEPGRAM_API_KEY not configured in environment',
+        error: 'STT usage limit exceeded. Please upgrade your plan.',
       })
     })
 
@@ -252,11 +348,14 @@ describe('IPC Handlers', () => {
 
   describe('ai:init handler', () => {
     beforeEach(() => {
-      process.env.OPENAI_API_KEY = 'test-openai-key'
       mockAIService.isInitialized.mockReturnValue(false)
     })
 
-    it('should initialize AI service with environment API key', async () => {
+    it('should initialize AI service with custom key from settings', async () => {
+      mockSettingsService.getEffectiveApiKey.mockImplementation((type: string) => {
+        if (type === 'openai') return 'test-openai-key'
+        return 'test-deepgram-key'
+      })
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['ai:init'](null)
@@ -265,7 +364,7 @@ describe('IPC Handlers', () => {
       expect(mockAIService.initialize).toHaveBeenCalledWith({ apiKey: 'test-openai-key' })
     })
 
-    it('should use provided API key over environment', async () => {
+    it('should use provided API key over settings', async () => {
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['ai:init'](null, 'custom-api-key')
@@ -274,15 +373,16 @@ describe('IPC Handlers', () => {
       expect(mockAIService.initialize).toHaveBeenCalledWith({ apiKey: 'custom-api-key' })
     })
 
-    it('should fail when no API key available', async () => {
-      delete process.env.OPENAI_API_KEY
+    it('should initialize in proxy mode when no API key available', async () => {
+      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['ai:init'](null)
 
-      expect(result).toEqual({
-        success: false,
-        error: 'OpenAI API key not found',
+      expect(result).toEqual({ success: true })
+      expect(mockAIService.initialize).toHaveBeenCalledWith({
+        useProxy: true,
+        apiBaseUrl: expect.any(String),
       })
     })
   })
@@ -295,7 +395,6 @@ describe('IPC Handlers', () => {
     }
 
     beforeEach(() => {
-      process.env.OPENAI_API_KEY = 'test-openai-key'
       mockAIService.isInitialized.mockReturnValue(true)
       mockAIService.generateResponse.mockResolvedValue(mockResponse)
     })
@@ -347,8 +446,8 @@ describe('IPC Handlers', () => {
     }
 
     beforeEach(() => {
-      process.env.OPENAI_API_KEY = 'test-openai-key'
       mockAIService.isInitialized.mockReturnValue(true)
+      mockAIService.isUsingProxy.mockReturnValue(false)
       mockAIService.generateStreamResponse.mockResolvedValue(mockResponse)
     })
 

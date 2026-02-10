@@ -9,35 +9,59 @@ const mockElectronStt = window.electron.stt
 describe('useAudioCapture', () => {
   let mockMediaStream: MediaStream
   let mockAudioContext: AudioContext
-  let mockProcessor: ScriptProcessorNode
+  let mockWorkletNode: AudioWorkletNode
+  let workletMessageHandler: ((e: MessageEvent) => void) | null
 
   beforeEach(() => {
     vi.clearAllMocks()
+    workletMessageHandler = null
 
     // Setup mock MediaStream
     mockMediaStream = {
       getTracks: vi.fn(() => [{ stop: vi.fn() }]),
+      getAudioTracks: vi.fn(() => [{ label: 'Default', stop: vi.fn() }]),
     } as unknown as MediaStream
 
-    // Setup mock AudioContext
-    mockProcessor = {
+    // Setup mock AudioWorkletNode
+    mockWorkletNode = {
       connect: vi.fn(),
       disconnect: vi.fn(),
-      onaudioprocess: null,
-    } as unknown as ScriptProcessorNode
+      port: {
+        get onmessage() {
+          return workletMessageHandler
+        },
+        set onmessage(handler: ((e: MessageEvent) => void) | null) {
+          workletMessageHandler = handler
+        },
+        postMessage: vi.fn(),
+      },
+    } as unknown as AudioWorkletNode
 
+    // Setup mock AudioContext with AudioWorklet support
     mockAudioContext = {
       sampleRate: 48000,
       createMediaStreamSource: vi.fn(() => ({
         connect: vi.fn(),
       })),
-      createScriptProcessor: vi.fn(() => mockProcessor),
       destination: {},
-      close: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+      audioWorklet: {
+        addModule: vi.fn().mockResolvedValue(undefined),
+      },
     } as unknown as AudioContext
 
     // Mock AudioContext constructor
     globalThis.AudioContext = vi.fn(() => mockAudioContext) as unknown as typeof AudioContext
+
+    // Mock AudioWorkletNode constructor
+    globalThis.AudioWorkletNode = vi.fn(() => mockWorkletNode) as unknown as typeof AudioWorkletNode
+
+    // Mock URL.createObjectURL / revokeObjectURL
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    globalThis.URL.revokeObjectURL = vi.fn()
+
+    // Mock Blob
+    globalThis.Blob = vi.fn(() => ({})) as unknown as typeof Blob
 
     mockGetUserMedia.mockResolvedValue(mockMediaStream)
   })
@@ -68,7 +92,7 @@ describe('useAudioCapture', () => {
       })
     })
 
-    it('should create AudioContext and processor', async () => {
+    it('should create AudioContext and AudioWorklet processor', async () => {
       const { result } = renderHook(() => useAudioCapture())
 
       await act(async () => {
@@ -76,7 +100,8 @@ describe('useAudioCapture', () => {
       })
 
       expect(AudioContext).toHaveBeenCalled()
-      expect(mockAudioContext.createScriptProcessor).toHaveBeenCalledWith(4096, 1, 1)
+      expect(mockAudioContext.audioWorklet.addModule).toHaveBeenCalled()
+      expect(AudioWorkletNode).toHaveBeenCalledWith(mockAudioContext, 'audio-capture-processor')
       expect(result.current.isCapturing).toBe(true)
     })
 
@@ -98,27 +123,22 @@ describe('useAudioCapture', () => {
       expect(caughtError).not.toBeNull()
       expect(result.current.isCapturing).toBe(false)
       expect(result.current.error).not.toBeNull()
-      expect(result.current.error).toMatch(/マイクへのアクセスに失敗しました/)
+      expect(result.current.error).toMatch(/音声キャプチャに失敗しました/)
     })
 
-    it('should process audio data and send to main process', async () => {
+    it('should process audio data and send to main process via worklet', async () => {
       const { result } = renderHook(() => useAudioCapture())
 
       await act(async () => {
         await result.current.startCapture()
       })
 
-      // Simulate audio processing
-      const mockInputBuffer = {
-        getChannelData: vi.fn(() => new Float32Array(4096).fill(0.5)),
-      }
-      const mockEvent = {
-        inputBuffer: mockInputBuffer,
-      }
+      // Simulate AudioWorklet posting audio data
+      const mockAudioData = new Float32Array(4096).fill(0.5)
 
       act(() => {
-        if (mockProcessor.onaudioprocess) {
-          ;(mockProcessor.onaudioprocess as unknown as (e: typeof mockEvent) => void)(mockEvent)
+        if (workletMessageHandler) {
+          workletMessageHandler({ data: mockAudioData } as MessageEvent)
         }
       })
 
@@ -128,9 +148,6 @@ describe('useAudioCapture', () => {
 
   describe('stopCapture', () => {
     it('should stop capturing and cleanup resources', async () => {
-      // Mock close to return a resolved promise
-      mockAudioContext.close = vi.fn().mockResolvedValue(undefined)
-
       const { result } = renderHook(() => useAudioCapture())
 
       // Start capture first
@@ -140,13 +157,13 @@ describe('useAudioCapture', () => {
 
       expect(result.current.isCapturing).toBe(true)
 
-      // Stop capture (now async)
+      // Stop capture
       await act(async () => {
         await result.current.stopCapture()
       })
 
       expect(result.current.isCapturing).toBe(false)
-      expect(mockProcessor.disconnect).toHaveBeenCalled()
+      expect(mockWorkletNode.disconnect).toHaveBeenCalled()
       expect(mockAudioContext.close).toHaveBeenCalled()
     })
 
@@ -154,11 +171,9 @@ describe('useAudioCapture', () => {
       const mockTrack = { stop: vi.fn() }
       mockMediaStream = {
         getTracks: vi.fn(() => [mockTrack]),
+        getAudioTracks: vi.fn(() => [{ label: 'Default', stop: vi.fn() }]),
       } as unknown as MediaStream
       mockGetUserMedia.mockResolvedValue(mockMediaStream)
-
-      // Mock close to return a resolved promise
-      mockAudioContext.close = vi.fn().mockResolvedValue(undefined)
 
       const { result } = renderHook(() => useAudioCapture())
 
@@ -182,25 +197,20 @@ describe('useAudioCapture', () => {
         await result.current.startCapture()
       })
 
-      // Simulate audio processing with 48kHz input
+      // Simulate audio processing with 48kHz input via AudioWorklet
       const inputSamples = 4096
       const expectedOutputSamples = Math.floor(inputSamples / 3) // 48000 / 16000 = 3
-
-      const mockInputBuffer = {
-        getChannelData: vi.fn(() => new Float32Array(inputSamples).fill(0.5)),
-      }
-      const mockEvent = {
-        inputBuffer: mockInputBuffer,
-      }
 
       let sentData: ArrayBuffer | null = null
       ;(mockElectronStt.sendAudio as ReturnType<typeof vi.fn>).mockImplementation((data) => {
         sentData = data
       })
 
+      const mockAudioData = new Float32Array(inputSamples).fill(0.5)
+
       act(() => {
-        if (mockProcessor.onaudioprocess) {
-          ;(mockProcessor.onaudioprocess as unknown as (e: typeof mockEvent) => void)(mockEvent)
+        if (workletMessageHandler) {
+          workletMessageHandler({ data: mockAudioData } as MessageEvent)
         }
       })
 
