@@ -67,9 +67,12 @@ apps/api/                 # Vercel API
 ├── api/
 │   ├── auth/             # OAuth
 │   ├── documents/        # ドキュメントCRUD + 検索
-│   ├── stripe/           # Phase 7: 決済
-│   └── stt/, ai/         # Phase 8: APIプロキシ
-└── lib/                  # ユーティリティ
+│   ├── stripe/           # Checkout, Webhook, Portal
+│   ├── cron/             # 月次使用量リセット
+│   ├── subscription.ts   # プラン・使用量取得
+│   ├── stt/              # Phase 8: STTトークン発行 + 使用量報告
+│   └── ai/               # Phase 8: AI生成プロキシ + Embeddings
+└── lib/                  # ユーティリティ (auth, cors, supabase, stripe, subscription, usage, deepgram)
 
 docs/
 ├── PHASE_ROADMAP.md      # Phase 6.5-9 詳細実装計画
@@ -83,9 +86,9 @@ docs/
 | 1-4 | 音声認識・AI回答・コンテキスト・UI | ✅ 完了 |
 | 5 | SaaS基盤（認証・DB） | ✅ 完了 |
 | 6 | クラウドRAG（pgvector） | ✅ 完了 |
-| **6.5** | **システム音声キャプチャ** | 🔜 **次** |
-| 7 | Stripe決済 + Webダッシュボード | ⏳ 予定 |
-| 8 | APIプロキシ（ユーザーAPIキー不要） | ⏳ 予定 |
+| 6.5 | システム音声キャプチャ | ✅ 完了 |
+| 7 | Stripe決済 + サブスクリプション管理 | ✅ 完了 |
+| 8 | APIプロキシ（ユーザーAPIキー不要） | ✅ 完了 |
 
 > 詳細実装計画: [docs/PHASE_ROADMAP.md](docs/PHASE_ROADMAP.md)
 
@@ -99,10 +102,20 @@ docs/
                  ScriptProcessor → PCM 16kHz → Deepgram
 ```
 
-### AI回答生成
+### AI回答生成（Phase 8: プロキシモード）
 ```
-質問 → /api/documents/search → pgvector類似検索 → 関連コンテキスト
-    → OpenAI GPT-5 Mini → ストリーミング回答
+質問 → POST /api/ai/generate (JWT + SSE)
+    → 使用量チェック → pgvector RAGコンテキスト取得
+    → OpenAI GPT-5 Mini → SSEストリーミング → 使用量記録
+（カスタムキー時は直接OpenAI API接続）
+```
+
+### STTフロー（Phase 8: プロキシモード）
+```
+POST /api/stt/token (JWT) → 使用量チェック → Deepgram一時トークン(10分)
+    → Electron → Deepgram WebSocket (一時トークン) → 音声ストリーミング
+    → セッション終了 → POST /api/stt/usage → 使用量記録
+（カスタムキー時は直接Deepgram接続、使用量報告なし）
 ```
 
 ### 認証フロー
@@ -116,17 +129,26 @@ docs/
 
 | プラン | 月額 | STT | AIトークン | ドキュメント |
 |--------|------|-----|-----------|-------------|
-| Free | ¥0 | 60分 | 50,000 | 5件 |
-| Pro | ¥1,980 | 600分 | 500,000 | 50件 |
-| Enterprise | ¥9,800 | 無制限 | 無制限 | 無制限 |
+| Free | ¥0 | 30分 | 30,000 | 3件 |
+| Pro | ¥2,980 | 600分 | 500,000 | 50件 |
+| Max | ¥14,800 | 3,000分 | 5,000,000 | 200件 |
+
+### コスト構造（2026年2月時点）
+
+主要コスト: Deepgram STT ¥1.16/分, GPT-5 Mini 入力$0.25/出力$2.00 per 1Mトークン
+- Free: 最大¥39/ユーザー（赤字だが体験用として許容）
+- Pro: 粗利率70%（¥2,079/ユーザー）
+- Max: 粗利率68%（¥10,059/ユーザー）、上限ありで赤字リスク排除
+- 固定費: Supabase Pro ¥3,750 + Vercel Pro ¥3,000 = ¥6,750/月
+- 損益分岐点: Pro 約4人で固定費回収
 
 ## 環境変数
 
 ### Electron（.env）
 ```env
-# Phase 8完了後は不要
-DEEPGRAM_API_KEY=xxx
-OPENAI_API_KEY=xxx
+# カスタムキー使用時のみ必要（プロキシモードでは不要）
+# DEEPGRAM_API_KEY=xxx
+# OPENAI_API_KEY=xxx
 
 # SaaS接続
 API_BASE_URL=https://api-kuriyama-natos-projects.vercel.app

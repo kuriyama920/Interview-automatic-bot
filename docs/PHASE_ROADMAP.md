@@ -4,7 +4,7 @@
 
 ---
 
-## Phase 6.5: システム音声キャプチャ（Zoom/Teams対応）
+## Phase 6.5: システム音声キャプチャ（Zoom/Teams対応） ✅ 完了
 
 ### 目的
 面接時にZoom/Teams等の相手の声（システム音声）もキャプチャし、文字起こしの精度を向上
@@ -123,100 +123,154 @@ export type AudioSource = 'mic' | 'system' | 'both'
 3. プライバシー: 全アプリ音声を拾う可能性あり
 
 ### 完了条件
-- [ ] setDisplayMediaRequestHandlerでloopback音声有効化
-- [ ] 3種類の音声ソース切り替え実装
-- [ ] UIで音声ソース選択可能
-- [ ] Zoom/Teamsでの動作確認
-- [ ] 設定の永続化
+- [x] setDisplayMediaRequestHandlerでloopback音声有効化
+- [x] 3種類の音声ソース切り替え実装
+- [x] UIで音声ソース選択可能
+- [x] Zoom/Teamsでの動作確認
+- [x] 設定の永続化
 
 ---
 
-## Phase 7: Stripe決済 + Webダッシュボード
+## Phase 7: Stripe決済 + サブスクリプション管理 ✅ 実装済み
 
 ### 目的
-ブラウザでStripe決済を行い、Googleアカウントに紐づけてサブスクリプション管理
+Stripe Checkoutで決済を行い、Googleアカウントに紐づけてサブスクリプション管理
 
 ### アーキテクチャ
 ```
-Electron [プラン変更] → shell.openExternal() → ブラウザ
-  → Webダッシュボード → Google OAuth
-  → Stripe Checkout → 決済完了
-  → Webhook → Supabase更新
-  → Electron APIで最新プラン取得
+Electron [プラン管理] → IPC → /api/stripe/checkout → Checkout Session URL
+  → shell.openExternal() → ブラウザ → Stripe Checkout → 決済完了
+  → Webhook → Supabase profiles 更新
+  → Electron がポーリングで tier 変更を検知
 ```
 
-### Stripe設定
-1. 商品作成: Pro (¥1,980/月), Enterprise (¥9,800/月)
-2. Webhook: checkout.session.completed, customer.subscription.deleted等
-3. Customer Portal: プラン変更・解約許可
+### 実装ファイル
 
-### APIエンドポイント
-| エンドポイント | 機能 |
-|---------------|------|
-| POST /api/stripe/checkout | Checkout Session作成 |
-| POST /api/stripe/webhook | Webhook受信 |
-| POST /api/stripe/portal | Customer Portal URL生成 |
-| GET /api/subscription | プラン・使用量取得 |
+#### バックエンド (apps/api/)
+| ファイル | 目的 |
+|---------|------|
+| lib/stripe.ts | Stripe クライアント（遅延初期化 Proxy） |
+| lib/subscription.ts | Customer 管理、プラン解決、DB 更新ヘルパー |
+| api/stripe/checkout.ts | POST - Checkout Session 作成 |
+| api/stripe/webhook.ts | POST - Webhook 受信 + 署名検証 |
+| api/stripe/portal.ts | POST - Customer Portal URL 生成 |
+| api/stripe/success.ts | GET - 決済成功 HTML ページ |
+| api/stripe/cancel.ts | GET - 決済キャンセル HTML ページ |
+| api/subscription.ts | GET - プラン + 使用量 + 全プラン一覧 |
+| api/cron/reset-usage.ts | GET - 月次使用量リセット（Vercel Cron） |
 
-### DBマイグレーション
-```sql
-ALTER TABLE profiles ADD COLUMN stripe_customer_id TEXT;
-ALTER TABLE profiles ADD COLUMN subscription_expires_at TIMESTAMPTZ;
-ALTER TABLE profiles ADD COLUMN subscription_status TEXT DEFAULT 'active';
-```
+#### Electron
+| ファイル | 変更内容 |
+|---------|---------|
+| src/types/auth.ts | SubscriptionResponse 型追加 |
+| src/preload/index.ts | subscription IPC チャンネル追加 |
+| src/main/ipc.ts | subscription ハンドラー 4 本追加 |
+| src/renderer/src/hooks/useSubscription.ts | サブスクリプション管理フック |
+| src/renderer/src/components/SubscriptionModal.tsx | プラン選択/管理モーダル |
+| src/renderer/src/App.tsx | ユーザーメニューにプラン管理ボタン追加 |
+
+### Stripe設定手順
+1. Stripe ダッシュボードで商品作成: Pro (¥2,980/月), Max (¥14,800/月)
+2. 各 Price ID を subscription_plans テーブルに設定
+3. Webhook URL 設定: `https://your-api.vercel.app/api/stripe/webhook`
+4. Webhook イベント: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted, invoice.payment_failed, invoice.paid
+5. Customer Portal を有効化
 
 ### 環境変数
 ```env
-STRIPE_SECRET_KEY=sk_live_xxx
+STRIPE_SECRET_KEY=sk_test_xxx     # or sk_live_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
-DASHBOARD_URL=https://dashboard.interview-bot.app
 CRON_SECRET=your-cron-secret
 ```
 
 ### 完了条件
-- [ ] Stripeアカウント・商品設定
-- [ ] /api/stripe/* 実装
-- [ ] Webダッシュボード構築
-- [ ] 月次リセットCron設定
+- [x] /api/stripe/* 実装（checkout, webhook, portal）
+- [x] /api/subscription 実装
+- [x] Webhook 署名検証 + 5 イベント対応
+- [x] Electron IPC + プラン管理 UI
+- [x] 月次リセット Cron 設定
+- [ ] Stripe ダッシュボードで商品作成 + Price ID 設定
+- [ ] Stripe テストモードでの E2E 動作確認
 
 ---
 
-## Phase 8: APIプロキシ
+## Phase 8: APIプロキシ ✅ 実装済み
 
 ### 目的
-Deepgram/OpenAI APIを運用者のキーで実行（ユーザーはAPIキー不要）
+Deepgram/OpenAI APIを運用者のキーで実行（ユーザーはAPIキー不要）。使用量追跡・制限チェックも同時に実装。
 
 ### アーキテクチャ
+
+#### STTフロー
 ```
-Electron → /api/stt/token (JWT) → 一時トークン取得
-  → Deepgram WebSocket (一時トークン) → 音声送信
-  → 終了時 → /api/stt/usage → 使用量記録
+Electron → POST /api/stt/token (JWT)
+  → 使用量チェック → カスタムキー確認 → Deepgram一時トークン発行(10分TTL)
+  → Electron → Deepgram WebSocket (一時トークン) → 音声ストリーミング
+  → セッション終了 → POST /api/stt/usage (JWT) → 使用量記録
 ```
+
+#### AI生成フロー
+```
+Electron → POST /api/ai/generate (JWT + SSE)
+  → 使用量チェック → pgvector RAGコンテキスト取得
+  → OpenAI GPT-5 Mini ストリーミング → SSEレスポンス
+  → 完了時に使用量記録 (トークン数)
+```
+
+### 実装ファイル
+
+#### バックエンド (apps/api/)
+| ファイル | 目的 |
+|---------|------|
+| lib/usage.ts | 使用量チェック (checkUsageLimit) + 記録 (recordUsage) + カスタムキー確認 |
+| lib/deepgram.ts | Deepgram一時トークン生成（遅延初期化 Proxy パターン） |
+| api/stt/token.ts | POST - Deepgram一時トークン発行（使用量チェック付き） |
+| api/stt/usage.ts | POST - STT使用量報告（上限120分/セッション） |
+| api/ai/generate.ts | POST - AI生成プロキシ（SSEストリーミング + RAGコンテキスト） |
+| api/ai/embeddings.ts | POST - Embeddings生成プロキシ |
+
+#### Electron
+| ファイル | 変更内容 |
+|---------|---------|
+| src/services/stt.service.ts | sessionStartTime + getSessionMinutes() 追加 |
+| src/services/ai.service.ts | プロキシモード対応（useProxy + SSEパース） |
+| src/main/ipc.ts | stt:start/stop, ai:init/generate/generateStream をプロキシ対応 |
+
+#### DBマイグレーション
+| ファイル | 内容 |
+|---------|------|
+| 009_usage_tracking_index.sql | usage_logs + profiles インデックス追加 |
 
 ### APIエンドポイント
-| エンドポイント | 機能 |
-|---------------|------|
-| POST /api/stt/token | Deepgram一時トークン発行 |
-| POST /api/stt/usage | 使用量報告 |
-| POST /api/ai/generate | GPT-5 Miniストリーミング |
-| POST /api/ai/embeddings | Embeddings生成 |
-
-### Electron変更後
-```env
-# APIキー不要
-API_BASE_URL=https://api.interview-bot.app
-```
+| エンドポイント | 機能 | 認証 |
+|---------------|------|------|
+| POST /api/stt/token | Deepgram一時トークン発行 | JWT必須 |
+| POST /api/stt/usage | STT使用量報告 | JWT必須 |
+| POST /api/ai/generate | GPT-5 Mini SSEストリーミング | JWT必須 |
+| POST /api/ai/embeddings | Embeddings生成 | JWT必須 |
 
 ### セキュリティ
-- JWT認証必須
-- レート制限（Upstash Redis）
-- トークン10分有効期限
+- JWT認証必須（全エンドポイント）
+- 使用量制限チェック（超過時 429 エラー）
+- Deepgramトークン10分有効期限
 - CORS制限
+- セッション使用量上限120分（悪用防止）
+
+### 後方互換性
+- カスタムAPIキー（Pro/Max）を持つユーザーは引き続き直接接続
+- 設定 → 環境変数の優先順位でカスタムキーを解決
+- プロキシモード時のみ使用量を報告・追跡
 
 ### 完了条件
-- [ ] /api/stt/*, /api/ai/* 実装
-- [ ] stt.service.ts, ai.service.ts をAPI経由に変更
-- [ ] Electron .envからAPIキー削除
+- [x] lib/usage.ts 使用量追跡ライブラリ
+- [x] /api/stt/token, /api/stt/usage 実装
+- [x] /api/ai/generate (SSE), /api/ai/embeddings 実装
+- [x] stt.service.ts セッション時間追跡
+- [x] ai.service.ts プロキシモード + SSEパース
+- [x] ipc.ts プロキシ対応ハンドラー
+- [x] DBマイグレーション 009 (インデックス)
+- [ ] Vercelデプロイ + API動作確認
+- [ ] Deepgram/OpenAI APIキーをVercel環境変数に設定
 
 ---
 
