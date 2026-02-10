@@ -22,14 +22,24 @@ export class STTService {
   private onTranscript: TranscriptCallback | null = null
   private _isConnected = false
   private keepAliveInterval: NodeJS.Timeout | null = null
+  private sessionStartTime: number | null = null
 
   constructor(apiKey: string) {
     this.apiKey = apiKey
     log.debug('Service created')
   }
 
+  /**
+   * セッション開始からの経過時間（分、切り上げ）
+   */
+  getSessionMinutes(): number {
+    if (!this.sessionStartTime) return 0
+    return Math.ceil((Date.now() - this.sessionStartTime) / 60000)
+  }
+
   async connect(onTranscript: TranscriptCallback): Promise<void> {
     this.onTranscript = onTranscript
+    this.sessionStartTime = Date.now()
     this.client = createClient(this.apiKey)
 
     log.info('Creating live connection...')
@@ -69,21 +79,17 @@ export class STTService {
       this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
         const transcript = data.channel?.alternatives?.[0]?.transcript
         const confidence = data.channel?.alternatives?.[0]?.confidence ?? 0
-        log.debug('Raw transcript from Deepgram', {
-          transcript,
-          isFinal: data.is_final,
-          confidence,
-        })
+
         if (transcript && this.onTranscript) {
-          log.debug('Sending transcript to renderer')
+          if (data.is_final) {
+            log.debug('Final transcript', { length: transcript.length, confidence })
+          }
           this.onTranscript({
             text: transcript,
             isFinal: data.is_final ?? false,
             confidence,
             timestamp: Date.now(),
           })
-        } else if (!transcript) {
-          log.debug('Empty transcript received (silence or partial)')
         }
       })
 

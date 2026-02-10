@@ -16,6 +16,38 @@ interface UseAudioCaptureReturn {
 }
 
 const TARGET_SAMPLE_RATE = 16000
+const WORKLET_BUFFER_SIZE = 4096
+
+// AudioWorkletProcessor のコード（インライン定義）
+// オーディオスレッドで動作し、ScriptProcessorNodeのクラッシュ問題を回避
+const AUDIO_WORKLET_CODE = `
+class AudioCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super()
+    this._bufferSize = ${WORKLET_BUFFER_SIZE}
+    this._buffer = new Float32Array(this._bufferSize)
+    this._writeIndex = 0
+  }
+
+  process(inputs) {
+    const input = inputs[0]
+    if (!input || input.length === 0) return true
+
+    const channelData = input[0]
+    if (!channelData) return true
+
+    for (let i = 0; i < channelData.length; i++) {
+      this._buffer[this._writeIndex++] = channelData[i]
+      if (this._writeIndex >= this._bufferSize) {
+        this.port.postMessage(this._buffer.slice(0))
+        this._writeIndex = 0
+      }
+    }
+    return true
+  }
+}
+registerProcessor('audio-capture-processor', AudioCaptureProcessor)
+`
 
 // サンプルレート変換（リサンプリング）
 function resampleAudio(inputData: Float32Array, inputSampleRate: number, outputSampleRate: number): Float32Array {
@@ -59,7 +91,7 @@ export function useAudioCapture(): UseAudioCaptureReturn {
   const micStreamRef = useRef<MediaStream | null>(null)
   const systemStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const audioChunkCount = useRef(0)
   const actualSampleRate = useRef<number>(0)
 
@@ -117,13 +149,18 @@ export function useAudioCapture(): UseAudioCaptureReturn {
     log.debug('Requesting system audio access...')
 
     try {
-      // getDisplayMediaでシステム音声をキャプチャ
-      // video: true はAPIの仕様上必須（後で停止）
-      // audio: true でシステム音声（loopbackで設定済み）を取得
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      // getDisplayMediaにタイムアウトを設定（10秒）
+      // ハングアップやChromiumレベルの応答不能を防止
+      const displayMediaPromise = navigator.mediaDevices.getDisplayMedia({
         video: true,  // APIの仕様上必須
-        audio: true,  // システム音声
+        audio: true,  // システム音声（loopbackで設定済み）
       })
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('システム音声キャプチャがタイムアウトしました')), 10000)
+      })
+
+      const stream = await Promise.race([displayMediaPromise, timeoutPromise])
 
       // ビデオトラックは不要なので即座に停止
       stream.getVideoTracks().forEach(track => {
@@ -216,21 +253,30 @@ export function useAudioCapture(): UseAudioCaptureReturn {
         streamCount: streams.length,
       })
 
-      // ScriptProcessorNodeを作成
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
-      processorRef.current = processor
+      // AudioWorkletNodeを使用（ScriptProcessorNodeはChromium 120+でクラッシュするため）
+      const blob = new Blob([AUDIO_WORKLET_CODE], { type: 'application/javascript' })
+      const workletUrl = URL.createObjectURL(blob)
+      try {
+        await audioContext.audioWorklet.addModule(workletUrl)
+      } finally {
+        URL.revokeObjectURL(workletUrl)
+      }
+
+      const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
+      workletNodeRef.current = workletNode
       audioChunkCount.current = 0
 
       // 複数ストリームをミキシング
       const sources = mixAudioStreams(audioContext, streams)
 
-      // すべてのソースをプロセッサーに接続
+      // すべてのソースをワークレットノードに接続
       for (const source of sources) {
-        source.connect(processor)
+        source.connect(workletNode)
       }
 
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0)
+      // ワークレットからの音声データを処理
+      workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        const inputData = e.data
 
         // サンプルレート変換
         const resampledData = resampleAudio(inputData, actualSampleRate.current, TARGET_SAMPLE_RATE)
@@ -248,29 +294,33 @@ export function useAudioCapture(): UseAudioCaptureReturn {
         }
       }
 
-      processor.connect(audioContext.destination)
+      // destinationに接続してオーディオグラフを維持（出力は無音）
+      workletNode.connect(audioContext.destination)
 
       setIsCapturing(true)
-      log.info('Capture started successfully', {
+      log.info('Capture started successfully (AudioWorklet)', {
         audioSource,
         streamCount: streams.length,
         sources: sources.length
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
-      setError(`音声キャプチャに失敗しました: ${message}`)
+      const errorMessage = `音声キャプチャに失敗しました: ${message}`
+      setError(errorMessage)
       log.error('Capture error', { error: message, audioSource })
-      throw err
+      // エラーをError型で統一して再伝播（呼び出し元のhandleStartで安全にキャッチされる）
+      throw new Error(errorMessage)
     }
   }, [audioSource, captureMicAudio, captureSystemAudio, mixAudioStreams])
 
   const stopCapture = useCallback(async () => {
     log.info('Stopping capture...')
 
-    // プロセッサーを切断
-    if (processorRef.current) {
-      processorRef.current.disconnect()
-      processorRef.current = null
+    // ワークレットノードを切断
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.onmessage = null
+      workletNodeRef.current.disconnect()
+      workletNodeRef.current = null
     }
 
     // AudioContextを閉じる

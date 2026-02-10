@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
 import * as fs from 'fs/promises'
 import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse } from '../services/ai.service'
@@ -12,9 +12,12 @@ import type { AppSettings, AudioSource } from '../types/settings'
 const log = createLogger('IPC')
 
 let sttService: STTService | null = null
+let sttUsingProxy = false
 
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
+
+  const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
 
   // 設定サービスを初期化
   settingsService.initialize()
@@ -172,14 +175,48 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声認識開始（APIキーは環境変数から直接取得 - セキュリティ向上）
+  // 音声認識開始（Phase 8: プロキシ経由で一時トークン取得 or カスタムキー直接接続）
   ipcMain.handle('stt:start', async () => {
     log.info('stt:start called')
     try {
-      // APIキーをMain processで直接取得（Rendererを経由しない）
-      const apiKey = process.env.DEEPGRAM_API_KEY
-      if (!apiKey) {
-        return { success: false, error: 'DEEPGRAM_API_KEY not configured in environment' }
+      // カスタムキーを確認（設定 → 環境変数の優先順位）
+      const customKey = settingsService.getEffectiveApiKey('deepgram')
+
+      let apiKey: string
+
+      if (customKey) {
+        // カスタムキーで直接接続
+        apiKey = customKey
+        sttUsingProxy = false
+        log.info('Using custom Deepgram API key')
+      } else {
+        // プロキシ経由で一時トークンを取得
+        log.info('Fetching temporary STT token from API proxy')
+        const response = await authService.authenticatedFetch(
+          `${API_BASE_URL}/api/stt/token`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          if (response.status === 429) {
+            return { success: false, error: 'STT usage limit exceeded. Please upgrade your plan.' }
+          }
+          return { success: false, error: errorData.error || 'Failed to get STT token' }
+        }
+
+        const tokenData = await response.json()
+
+        if (tokenData.useCustomKey) {
+          return { success: false, error: 'Custom API key required but not configured' }
+        }
+
+        apiKey = tokenData.token
+        sttUsingProxy = true
+        log.info('Temporary STT token obtained', { expiresIn: tokenData.expiresIn })
       }
 
       if (sttService) {
@@ -190,7 +227,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       log.debug('Creating STT service...')
       sttService = new STTService(apiKey)
       await sttService.connect((result: TranscriptResult) => {
-        log.debug('Sending transcript to renderer', { text: result.text })
+        log.debug('Sending transcript to renderer', { textLength: result.text.length, isFinal: result.isFinal })
         mainWindow.webContents.send('stt:transcript', result)
       })
 
@@ -202,13 +239,39 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声認識停止
+  // 音声認識停止（Phase 8: プロキシ利用時は使用量を報告）
   ipcMain.handle('stt:stop', async () => {
     log.info('stt:stop called')
     try {
       if (sttService) {
+        const sessionMinutes = sttService.getSessionMinutes()
         await sttService.disconnect()
+
+        // プロキシ利用時は使用量を報告（失敗しても停止をブロックしない）
+        if (sttUsingProxy && sessionMinutes > 0) {
+          try {
+            log.info('Reporting STT usage', { minutes: sessionMinutes })
+            const response = await authService.authenticatedFetch(
+              `${API_BASE_URL}/api/stt/usage`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minutes: sessionMinutes }),
+              }
+            )
+            if (!response.ok) {
+              log.warn('Failed to report STT usage', { status: response.status })
+            } else {
+              const usageData = await response.json()
+              log.info('STT usage reported', { recorded: usageData.recorded, usage: usageData.usage })
+            }
+          } catch (usageError) {
+            log.warn('STT usage report failed (non-blocking)', { error: String(usageError) })
+          }
+        }
+
         sttService = null
+        sttUsingProxy = false
       }
       return { success: true }
     } catch (error) {
@@ -244,17 +307,26 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     return { connected }
   })
 
-  // AI初期化
+  // AI初期化（Phase 8: プロキシモード対応）
   ipcMain.handle('ai:init', async (_event: unknown, apiKey?: string) => {
     log.info('ai:init called')
     try {
-      const key = apiKey || process.env.OPENAI_API_KEY
-      if (!key) {
-        return { success: false, error: 'OpenAI API key not found' }
+      // カスタムキーを確認（引数 → 設定 → 環境変数の優先順位）
+      const customKey = apiKey || settingsService.getEffectiveApiKey('openai')
+
+      if (customKey) {
+        // カスタムキーで直接接続
+        aiService.initialize({ apiKey: customKey })
+        log.info('AI service initialized with custom key')
+      } else {
+        // プロキシモードで初期化（APIキー不要）
+        aiService.initialize({
+          useProxy: true,
+          apiBaseUrl: API_BASE_URL,
+        })
+        log.info('AI service initialized in proxy mode')
       }
 
-      aiService.initialize({ apiKey: key })
-      log.info('AI service initialized')
       return { success: true }
     } catch (error) {
       log.error('Failed to initialize AI', { error: String(error) })
@@ -267,12 +339,12 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     log.info('ai:generate called', { questionLength: question.length })
     try {
       if (!aiService.isInitialized()) {
-        // 自動初期化を試みる
-        const key = process.env.OPENAI_API_KEY
-        if (key) {
-          aiService.initialize({ apiKey: key })
+        // 自動初期化を試みる（カスタムキー or プロキシモード）
+        const customKey = settingsService.getEffectiveApiKey('openai')
+        if (customKey) {
+          aiService.initialize({ apiKey: customKey })
         } else {
-          return { success: false, error: 'AI service not initialized' }
+          aiService.initialize({ useProxy: true, apiBaseUrl: API_BASE_URL })
         }
       }
 
@@ -285,23 +357,24 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // AIストリーム回答生成
+  // AIストリーム回答生成（Phase 8: プロキシ時はサーバー側でRAGコンテキスト取得）
   ipcMain.handle('ai:generateStream', async (_event, question: string, explicitContext?: string) => {
     log.info('ai:generateStream called', { questionLength: question.length })
     try {
       if (!aiService.isInitialized()) {
-        const key = process.env.OPENAI_API_KEY
-        if (key) {
-          aiService.initialize({ apiKey: key })
+        // 自動初期化（カスタムキー or プロキシモード）
+        const customKey = settingsService.getEffectiveApiKey('openai')
+        if (customKey) {
+          aiService.initialize({ apiKey: customKey })
         } else {
-          return { success: false, error: 'AI service not initialized' }
+          aiService.initialize({ useProxy: true, apiBaseUrl: API_BASE_URL })
         }
       }
 
-      // Get relevant context from documents
       let contextString = explicitContext || ''
 
-      if (contextService.isInitialized()) {
+      // プロキシモード時はサーバー側でRAGコンテキストを取得するのでスキップ
+      if (!aiService.isUsingProxy() && contextService.isInitialized()) {
         const contextResults = await contextService.getRelevantContext(question)
 
         if (contextResults.length > 0) {
@@ -419,6 +492,99 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true }
     } catch (error) {
       log.error('Failed to remove document', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ============================================
+  // サブスクリプション関連のIPCハンドラー (Phase 7)
+  // ============================================
+
+  // サブスクリプション情報を取得
+  ipcMain.handle('subscription:getPlans', async () => {
+    log.info('subscription:getPlans called')
+    try {
+      const response = await authService.authenticatedFetch(
+        `${API_BASE_URL}/api/subscription`
+      )
+      if (!response.ok) {
+        const errorData = await response.json()
+        return { success: false, error: errorData.error || 'Failed to fetch subscription' }
+      }
+      const data = await response.json()
+      return { success: true, data }
+    } catch (error) {
+      log.error('Failed to get subscription plans', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // Stripe Checkout セッションを作成してブラウザで開く
+  ipcMain.handle('subscription:checkout', async (_event, priceId: string) => {
+    log.info('subscription:checkout called', { priceId })
+    try {
+      const response = await authService.authenticatedFetch(
+        `${API_BASE_URL}/api/stripe/checkout`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priceId }),
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        return { success: false, error: errorData.error || 'Failed to create checkout session' }
+      }
+
+      const { url } = await response.json()
+      if (url) {
+        await shell.openExternal(url)
+      }
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to create checkout', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // Stripe Customer Portal をブラウザで開く
+  ipcMain.handle('subscription:portal', async () => {
+    log.info('subscription:portal called')
+    try {
+      const response = await authService.authenticatedFetch(
+        `${API_BASE_URL}/api/stripe/portal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        return { success: false, error: errorData.error || 'Failed to create portal session' }
+      }
+
+      const { url } = await response.json()
+      if (url) {
+        await shell.openExternal(url)
+      }
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to open portal', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // サブスクリプション情報を更新（認証情報ごとリフレッシュ）
+  ipcMain.handle('subscription:refresh', async () => {
+    log.info('subscription:refresh called')
+    try {
+      const state = await authService.validateAndRefresh()
+      return { success: true, data: state }
+    } catch (error) {
+      log.error('Failed to refresh subscription', { error: String(error) })
       return { success: false, error: String(error) }
     }
   })

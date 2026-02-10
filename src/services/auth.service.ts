@@ -4,7 +4,7 @@
  */
 
 import Store from 'electron-store'
-import { shell, BrowserWindow } from 'electron'
+import { shell, BrowserWindow, net } from 'electron'
 import { createLogger } from './logger.service'
 import type {
   AuthState,
@@ -134,7 +134,7 @@ class AuthService {
 
     try {
       // 1. セッションを作成
-      const sessionResponse = await fetch(`${API_BASE_URL}/api/auth/session`, {
+      const sessionResponse = await net.fetch(`${API_BASE_URL}/api/auth/session`, {
         method: 'POST',
       })
 
@@ -152,13 +152,17 @@ class AuthService {
       // 3. ポーリングでトークンを取得
       return await this.pollForAuthResult(sessionId)
     } catch (error) {
-      log.error('Failed to start Google login', { error: String(error) })
+      log.error('Failed to start Google login', { error: String(error), apiUrl: API_BASE_URL })
+      const isNetworkError = String(error).includes('fetch failed') || String(error).includes('ENOTFOUND')
+      const errorMessage = isNetworkError
+        ? `APIサーバーに接続できません (${API_BASE_URL})。ネットワーク接続を確認してください。`
+        : String(error)
       const state: AuthState = {
         isAuthenticated: false,
         isLoading: false,
         user: null,
         settings: null,
-        error: String(error),
+        error: errorMessage,
       }
       this.notifyListeners(state)
       return state
@@ -184,7 +188,7 @@ class AuthService {
       }
 
       try {
-        const response = await fetch(
+        const response = await net.fetch(
           `${API_BASE_URL}/api/auth/session?id=${sessionId}`,
           { signal: this.pollingAbortController.signal }
         )
@@ -458,7 +462,7 @@ class AuthService {
    * APIからユーザー情報を取得
    */
   private async fetchUserInfo(token: string): Promise<AuthMeResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+    const response = await net.fetch(`${API_BASE_URL}/api/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -563,7 +567,7 @@ class AuthService {
     const headers = new Headers(options.headers)
     headers.set('Authorization', `Bearer ${token}`)
 
-    return fetch(url, {
+    return net.fetch(url, {
       ...options,
       headers,
     })

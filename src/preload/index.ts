@@ -42,7 +42,7 @@ export interface AppSettings {
 }
 
 // 認証関連の型
-export type SubscriptionTier = 'free' | 'pro' | 'enterprise'
+export type SubscriptionTier = 'free' | 'pro' | 'max'
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
 
 export interface User {
@@ -108,6 +108,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   // 音声キャプチャ関連 (Phase 6.5)
   'audio:setSource',
   'audio:getSource',
+  // サブスクリプション関連 (Phase 7)
+  'subscription:getPlans',
+  'subscription:checkout',
+  'subscription:portal',
+  'subscription:refresh',
 ] as const
 const ALLOWED_ON_CHANNELS = [
   'stt:transcript',
@@ -239,6 +244,18 @@ const electronAPI = {
       ipcRenderer.invoke('audio:setSource', source),
     getSource: (): Promise<{ success: boolean; source: AudioSource; error?: string }> =>
       ipcRenderer.invoke('audio:getSource'),
+  },
+
+  // Subscription API (Phase 7: Stripe 決済)
+  subscription: {
+    getPlans: (): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+      ipcRenderer.invoke('subscription:getPlans'),
+    checkout: (priceId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('subscription:checkout', priceId),
+    portal: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('subscription:portal'),
+    refresh: (): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+      ipcRenderer.invoke('subscription:refresh'),
   },
 
   // 汎用IPC（ホワイトリスト制限付き - セキュリティ向上）

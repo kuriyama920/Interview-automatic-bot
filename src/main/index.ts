@@ -101,8 +101,12 @@ if (!gotTheLock) {
 
     const mainWindow = createWindow()
 
-    // AuthServiceを初期化
-    authService.initialize(mainWindow)
+    // AuthServiceを初期化（失敗してもアプリを継続させる）
+    try {
+      authService.initialize(mainWindow)
+    } catch (error) {
+      console.error('[Main] AuthService initialization failed:', error)
+    }
 
     setupIPC(mainWindow)
 
@@ -113,7 +117,8 @@ if (!gotTheLock) {
         desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
           if (sources.length === 0) {
             console.error('[Main] No desktop sources available')
-            callback({})
+            // 引数なしで呼び出すことでリクエストを正しく拒否
+            callback()
             return
           }
           // video: 画面ソース（APIの仕様上必須だがレンダラーで即停止）
@@ -121,7 +126,8 @@ if (!gotTheLock) {
           callback({ video: sources[0], audio: 'loopback' })
         }).catch((error) => {
           console.error('[Main] Failed to get desktop sources:', error)
-          callback({})
+          // 引数なしで呼び出すことでリクエストを正しく拒否
+          callback()
         })
       },
       { useSystemPicker: false } // ユーザー選択ダイアログを表示しない

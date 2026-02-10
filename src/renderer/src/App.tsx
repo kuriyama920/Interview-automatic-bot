@@ -12,6 +12,7 @@ import { useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
 import DocumentUploadPanel from './components/DocumentUploadPanel'
 import { SettingsModal } from './components/SettingsModal'
+import { SubscriptionModal } from './components/SubscriptionModal'
 import { LoginPage } from './components/LoginPage'
 import {
   Card,
@@ -129,6 +130,7 @@ function AppContent() {
   const [appError, setAppError] = useState<string | null>(null)
   const [isTestMode, setIsTestMode] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSubscription, setShowSubscription] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastProcessedIndex = useRef<number>(-1)
@@ -226,8 +228,8 @@ function AppContent() {
     } catch (err) {
       const message = err instanceof Error ? err.message : '予期しないエラーが発生しました'
       toast.error(message)
-      await stopCapture()
-      await disconnect()
+      try { await stopCapture() } catch { /* cleanup */ }
+      try { await disconnect() } catch { /* cleanup */ }
     } finally {
       setIsLoading(false)
     }
@@ -349,7 +351,7 @@ function AppContent() {
               <MicrophoneIcon />
             </div>
             <h1 className="text-lg font-semibold text-content">Interview Bot</h1>
-            <Badge variant="info" size="sm">Phase 5</Badge>
+            <Badge variant="info" size="sm">Phase 7</Badge>
           </div>
 
           {/* 右側: アクション */}
@@ -379,10 +381,22 @@ function AppContent() {
                       size="sm"
                       className="mt-2"
                     >
-                      {user?.subscriptionTier === 'free' ? 'Free' : user?.subscriptionTier === 'pro' ? 'Pro' : 'Enterprise'}
+                      {user?.subscriptionTier === 'free' ? 'Free' : user?.subscriptionTier === 'pro' ? 'Pro' : 'Max'}
                     </Badge>
                   </div>
-                  <div className="p-2">
+                  <div className="p-2 space-y-1">
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false)
+                        setShowSubscription(true)
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content rounded-lg hover:bg-surface-hover transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                      </svg>
+                      プラン管理
+                    </button>
                     <button
                       onClick={() => {
                         setShowUserMenu(false)
@@ -494,16 +508,6 @@ function AppContent() {
             />
           </div>
         </Card>
-
-        {/* WSL2警告 */}
-        <Alert variant="warning">
-          <div>
-            <p className="font-medium">WSL2環境ではマイクが使用できません</p>
-            <p className="text-sm mt-1">
-              「テスト」ボタンで音声ファイルを使った動作確認ができます。本番利用はWindows側で実行してください。
-            </p>
-          </div>
-        </Alert>
 
         {/* エラー表示 */}
         {error && (
@@ -627,6 +631,12 @@ function AppContent() {
         settings={settings}
         onSave={handleSaveSettings}
         onReset={handleResetSettings}
+      />
+
+      {/* サブスクリプションモーダル (Phase 7) */}
+      <SubscriptionModal
+        isOpen={showSubscription}
+        onClose={() => setShowSubscription(false)}
       />
     </div>
   )
