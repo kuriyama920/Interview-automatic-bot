@@ -14,7 +14,7 @@ function getDeepgramApiKey(): string {
   return key
 }
 
-export interface DeepgramTemporaryToken {
+interface DeepgramTemporaryToken {
   token: string
   expiresIn: number
 }

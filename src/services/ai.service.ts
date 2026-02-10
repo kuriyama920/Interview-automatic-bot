@@ -10,7 +10,7 @@ export interface AIResponse {
   confidence: number
 }
 
-export interface AIServiceConfig {
+interface AIServiceConfig {
   apiKey?: string
   useProxy?: boolean
   apiBaseUrl?: string
@@ -18,6 +18,7 @@ export interface AIServiceConfig {
   maxTokens?: number
 }
 
+// 正規定義: apps/api/lib/prompts.ts（Electronからは直接importできないためコピー）
 const SYSTEM_PROMPT = `あなたは面接支援AIアシスタントです。面接官の質問に対して、候補者が答えるべき最適な回答を提案します。
 
 以下のガイドラインに従ってください：

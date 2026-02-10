@@ -77,13 +77,3 @@ export interface AuthMeResponse {
   settings: UserSettings | null
 }
 
-/**
- * 認証サービスの初期化状態
- */
-export const DEFAULT_AUTH_STATE: AuthState = {
-  isAuthenticated: false,
-  isLoading: true,
-  user: null,
-  settings: null,
-  error: null,
-}

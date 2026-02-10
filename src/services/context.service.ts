@@ -57,7 +57,7 @@ interface ApiSearchResponse {
   error?: string
 }
 
-export class ContextService {
+class ContextService {
   private initialized = false
 
   /**

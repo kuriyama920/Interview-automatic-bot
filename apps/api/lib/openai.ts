@@ -98,7 +98,3 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   return embeddings
 }
 
-/**
- * Embedding次元数を取得（pgvectorスキーマと一致させるため）
- */
-export const EMBEDDING_DIMENSION = 1536

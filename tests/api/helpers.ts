@@ -73,36 +73,3 @@ export function createMockResponse(): VercelResponse & {
 
   return res as unknown as VercelResponse & typeof res
 }
-
-/**
- * 有効な JWT トークンを生成（テスト用）
- */
-export function createTestJWT(payload?: Partial<{
-  sub: string
-  email: string
-  name: string
-  picture: string
-}>): string {
-  const header = { alg: 'HS256', typ: 'JWT' }
-  const now = Math.floor(Date.now() / 1000)
-  const fullPayload = {
-    sub: 'test-user-id',
-    email: 'test@example.com',
-    name: 'Test User',
-    picture: 'https://example.com/pic.jpg',
-    iat: now,
-    exp: now + 3600,
-    ...payload,
-  }
-
-  const crypto = require('crypto')
-  const secret = 'test-jwt-secret'
-  const base64Header = Buffer.from(JSON.stringify(header)).toString('base64url')
-  const base64Payload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url')
-  const signature = crypto
-    .createHmac('sha256', secret)
-    .update(`${base64Header}.${base64Payload}`)
-    .digest('base64url')
-
-  return `${base64Header}.${base64Payload}.${signature}`
-}

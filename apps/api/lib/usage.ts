@@ -10,7 +10,7 @@ import { supabaseAdmin } from './supabase'
 type ResourceType = 'stt' | 'ai_tokens' | 'documents'
 type UsageType = 'stt' | 'ai_completion' | 'embedding' | 'storage'
 
-export interface UsageLimitResult {
+interface UsageLimitResult {
   allowed: boolean
   used: number
   limit: number
