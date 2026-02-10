@@ -7,6 +7,7 @@ dist/
 dist-electron/
 out/
 build/
+.next/
 *.exe
 *.dmg
 *.AppImage
