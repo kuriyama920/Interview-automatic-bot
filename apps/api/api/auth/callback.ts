@@ -82,6 +82,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('id', stateData.sessionId)
         .single()
 
+      // デバッグログ
+      console.log('[OAuth Callback] Session ID:', stateData.sessionId)
+      console.log('[OAuth Callback] return_url:', session?.return_url)
+      console.log('[OAuth Callback] isAllowedOrigin:', session?.return_url ? isAllowedOrigin(session.return_url) : 'N/A')
+
       await supabaseAdmin.from('auth_sessions').update({
         status: 'completed',
         token: jwt,
@@ -94,10 +99,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const redirectUrl = new URL(session.return_url)
         redirectUrl.searchParams.set('session_id', stateData.sessionId)
         res.setHeader('Referrer-Policy', 'no-referrer')
+        console.log('[OAuth Callback] Redirecting to:', redirectUrl.toString())
         return res.redirect(302, redirectUrl.toString())
       }
 
       // Electronフロー: 従来通りHTML成功ページを表示
+      console.log('[OAuth Callback] Showing success page (Electron flow or no return_url)')
       return showSuccessPage(res, user.display_name || user.email)
     }
 
@@ -346,6 +353,36 @@ function showSuccessPage(res: VercelResponse, userName: string) {
       height: 12px;
       color: #3b82f6;
     }
+
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 1.5rem;
+      padding: 0.75rem 1.5rem;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      border: none;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .download-btn:hover {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+    }
+
+    .download-icon {
+      width: 18px;
+      height: 18px;
+    }
   </style>
 </head>
 <body>
@@ -367,7 +404,18 @@ function showSuccessPage(res: VercelResponse, userName: string) {
       このウィンドウを閉じて、アプリに戻ってください
     </div>
 
-    <p class="countdown">このページは自動的に閉じられます...</p>
+    <!-- Download button for Web flow -->
+    <a
+      href="/download"
+      class="download-btn"
+    >
+      <svg class="download-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+      ダウンロードページに移動
+    </a>
+
+    <p class="countdown">Electronアプリをご利用の場合、このページは自動的に閉じられます...</p>
 
     <div class="brand">
       <div class="brand-icon">
@@ -380,7 +428,22 @@ function showSuccessPage(res: VercelResponse, userName: string) {
   </div>
 
   <script>
-    // 5秒後にウィンドウを閉じる試行
+    // リファラーからオリジンを取得してダウンロードページのリンクを設定
+    (function() {
+      const downloadBtn = document.querySelector('.download-btn');
+      if (downloadBtn && document.referrer) {
+        try {
+          const referrerUrl = new URL(document.referrer);
+          const downloadUrl = referrerUrl.origin + '/download';
+          downloadBtn.href = downloadUrl;
+          console.log('[Success Page] Set download link to:', downloadUrl);
+        } catch (e) {
+          console.error('[Success Page] Failed to parse referrer:', e);
+        }
+      }
+    })();
+
+    // 5秒後にウィンドウを閉じる試行（Electronアプリの場合）
     setTimeout(() => {
       window.close();
     }, 5000);

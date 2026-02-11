@@ -3,7 +3,7 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('useDocuments')
 
-type DocumentType = 'resume' | 'job_posting'
+type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
 
 interface DocumentInfo {
   id: string

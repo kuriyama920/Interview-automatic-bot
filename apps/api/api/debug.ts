@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
     hasJwtSecret: !!process.env.JWT_SECRET,
     hasOpenaiApiKey: !!openaiKey,
-    openaiKeyPrefix: openaiKey ? openaiKey.substring(0, 7) + '...' : 'NOT SET',
+    hasOpenaiKeyFormat: openaiKey ? openaiKey.startsWith('sk-') : false,
     hasDeepgramApiKey: !!process.env.DEEPGRAM_API_KEY,
   }
 

@@ -1,8 +1,13 @@
-import Link from 'next/link'
+'use client'
+
+import { useState } from 'react'
+import { SignupModal } from './SignupModal'
 
 export function HeroSection() {
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
+    <section className="relative flex items-center justify-center overflow-hidden pt-16">
       {/* Background decoration */}
       <div className="absolute inset-0 bg-gradient-to-br from-surface via-surface-secondary to-accent-subtle" />
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -28,20 +33,20 @@ export function HeroSection() {
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-content-secondary max-w-2xl mx-auto leading-relaxed animate-slide-up-delay">
-          音声を即座に文字起こしし、GPT-5 Mini が最適な回答を提案。
+          面接官の質問を即座に文字起こしし、最新AIがその場で最適な回答を提案
           <br className="hidden sm:block" />
-          履歴書や求人票の情報を活用した、あなた専用のAI面接コーチ。
+          履歴書や求人票の情報を活用した、あなた専用のAI面接コーチ
         </p>
 
         {/* CTA buttons */}
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4 animate-slide-up-delay-2">
-          <Link
-            href="/download"
-            className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-xl bg-accent text-white font-semibold text-base hover:bg-accent-hover transition-all shadow-elevated hover:shadow-modal"
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-xl bg-accent text-white font-semibold text-base hover:bg-accent-hover transition-all shadow-elevated hover:shadow-modal cursor-pointer"
           >
             <DownloadIcon />
-            無料ダウンロード
-          </Link>
+            無料で始める
+          </button>
           <a
             href="#demo"
             className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-surface text-content font-medium text-base border border-border hover:bg-surface-hover transition-all shadow-soft"
@@ -53,34 +58,20 @@ export function HeroSection() {
 
         {/* Stats */}
         <div className="mt-16 grid grid-cols-3 gap-8 max-w-lg mx-auto animate-slide-up-delay-2">
-          <StatItem value="GPT-5 Mini" label="AI モデル" />
           <StatItem value="リアルタイム" label="音声認識" />
+          <StatItem value="検出不可" label="ステルス動作" />
           <StatItem value="無料" label="基本プラン" />
         </div>
 
-        {/* App screenshot placeholder */}
-        <div className="mt-16 relative max-w-4xl mx-auto animate-slide-up-delay-2">
-          <div className="rounded-2xl border border-border bg-surface shadow-glass overflow-hidden">
-            <div className="h-8 bg-surface-secondary border-b border-border flex items-center px-4 gap-2">
-              <div className="w-3 h-3 rounded-full bg-error/60" />
-              <div className="w-3 h-3 rounded-full bg-warning/60" />
-              <div className="w-3 h-3 rounded-full bg-success/60" />
-              <span className="ml-3 text-xs text-content-tertiary">InterviewBot</span>
-            </div>
-            <div className="aspect-video bg-gradient-to-br from-surface-secondary to-surface-tertiary flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  </svg>
-                </div>
-                <p className="text-sm text-content-tertiary">アプリのスクリーンショット</p>
-                <p className="text-xs text-content-tertiary mt-1">後から実際の画像に差し替え</p>
-              </div>
-            </div>
-          </div>
-        </div>
+
       </div>
+
+      {/* Signup Modal */}
+      <SignupModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        selectedPlan={{ id: 'free', name: 'Free', price: 0 }}
+      />
     </section>
   )
 }

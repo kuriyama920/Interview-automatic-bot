@@ -25,11 +25,13 @@ vi.mock('../../apps/api/lib/cors', () => ({
 }))
 
 // Usage モック
-const mockCheckUsageLimit = vi.fn()
+const mockCheckAndReserveUsage = vi.fn()
+const mockAdjustReservedUsage = vi.fn()
 const mockRecordUsage = vi.fn()
 const mockHasCustomApiKey = vi.fn()
 vi.mock('../../apps/api/lib/usage', () => ({
-  checkUsageLimit: (...args: unknown[]) => mockCheckUsageLimit(...args),
+  checkAndReserveUsage: (...args: unknown[]) => mockCheckAndReserveUsage(...args),
+  adjustReservedUsage: (...args: unknown[]) => mockAdjustReservedUsage(...args),
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
   hasCustomApiKey: (...args: unknown[]) => mockHasCustomApiKey(...args),
 }))
@@ -85,12 +87,13 @@ describe('POST /api/ai/generate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockHasCustomApiKey.mockResolvedValue(false)
-    mockCheckUsageLimit.mockResolvedValue({
+    mockCheckAndReserveUsage.mockResolvedValue({
       allowed: true,
       used: 1000,
       limit: 500000,
       remaining: 499000,
     })
+    mockAdjustReservedUsage.mockResolvedValue(undefined)
     mockRecordUsage.mockResolvedValue(undefined)
   })
 
@@ -157,7 +160,7 @@ describe('POST /api/ai/generate', () => {
     const res = createMockResponse()
     mockGetUserFromRequest.mockReturnValue({ sub: 'user-123' })
     mockHasCustomApiKey.mockResolvedValue(false)
-    mockCheckUsageLimit.mockResolvedValue({
+    mockCheckAndReserveUsage.mockResolvedValue({
       allowed: false,
       used: 500000,
       limit: 500000,
@@ -190,7 +193,7 @@ describe('POST /api/ai/generate', () => {
 
     await handler(req, res)
 
-    expect(mockCheckUsageLimit).not.toHaveBeenCalled()
+    expect(mockCheckAndReserveUsage).not.toHaveBeenCalled()
     // 使用量記録もスキップ
     expect(mockRecordUsage).not.toHaveBeenCalled()
   })
@@ -223,13 +226,14 @@ describe('POST /api/ai/generate', () => {
     expect(written.some((w) => w.includes('"type":"chunk"'))).toBe(true)
     expect(written.some((w) => w.includes('"type":"done"'))).toBe(true)
 
-    // 使用量が記録されている
+    // 使用量が記録されている（skipIncrement=true でログのみ）
     expect(mockRecordUsage).toHaveBeenCalledWith(
       'user-123',
       'ai_completion',
       50,
       'tokens',
-      expect.objectContaining({ model: 'gpt-5-mini' })
+      expect.objectContaining({ model: 'gpt-5-mini' }),
+      true
     )
   })
 

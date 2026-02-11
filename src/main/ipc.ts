@@ -3,16 +3,19 @@ import * as fs from 'fs/promises'
 import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse } from '../services/ai.service'
 import { contextService } from '../services/context.service'
+import { questionsService } from '../services/questions.service'
 import { settingsService } from '../services/settings.service'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
 import type { DocumentType } from '../types/document'
+import type { QuestionInput } from '../types/question'
 import type { AppSettings, AudioSource } from '../types/settings'
 
 const log = createLogger('IPC')
 
 let sttService: STTService | null = null
 let sttUsingProxy = false
+let currentAIAbortController: AbortController | null = null
 
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
@@ -357,9 +360,27 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
+  // AI生成を中断
+  ipcMain.handle('ai:abort', () => {
+    log.info('ai:abort called')
+    if (currentAIAbortController) {
+      currentAIAbortController.abort()
+      currentAIAbortController = null
+    }
+    return { success: true }
+  })
+
   // AIストリーム回答生成（Phase 8: プロキシ時はサーバー側でRAGコンテキスト取得）
   ipcMain.handle('ai:generateStream', async (_event, question: string, explicitContext?: string) => {
     log.info('ai:generateStream called', { questionLength: question.length })
+
+    // 前回の生成を中断
+    if (currentAIAbortController) {
+      currentAIAbortController.abort()
+    }
+    currentAIAbortController = new AbortController()
+    const { signal } = currentAIAbortController
+
     try {
       if (!aiService.isInitialized()) {
         // 自動初期化（カスタムキー or プロキシモード）
@@ -379,7 +400,12 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
         if (contextResults.length > 0) {
           const contextParts = contextResults.map((result) => {
-            const docLabel = result.documentType === 'resume' ? '履歴書' : '求人票'
+            const labelMap: Record<string, string> = {
+              resume: '履歴書',
+              job_posting: '求人票',
+              expected_qa: '想定質問',
+            }
+            const docLabel = labelMap[result.documentType] || result.documentType
             return `【${docLabel}: ${result.documentName}】\n${result.chunks.join('\n')}`
           })
 
@@ -397,17 +423,27 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         question,
         contextString || undefined,
         (chunk: string) => {
-          mainWindow.webContents.send('ai:chunk', chunk)
-        }
+          if (!signal.aborted) {
+            mainWindow.webContents.send('ai:chunk', chunk)
+          }
+        },
+        signal
       )
 
-      mainWindow.webContents.send('ai:complete', response)
-      log.info('AI stream response completed')
+      if (!signal.aborted) {
+        mainWindow.webContents.send('ai:complete', response)
+        log.info('AI stream response completed')
+      }
       return { success: true, response }
     } catch (error) {
-      log.error('Failed to generate AI stream response', { error: String(error) })
-      mainWindow.webContents.send('ai:error', String(error))
-      return { success: false, error: String(error) }
+      const errorStr = String(error)
+      if (signal.aborted || errorStr.includes('aborted')) {
+        log.info('AI generation aborted (intentional)')
+        return { success: false, error: 'aborted' }
+      }
+      log.error('Failed to generate AI stream response', { error: errorStr })
+      mainWindow.webContents.send('ai:error', errorStr)
+      return { success: false, error: errorStr }
     }
   })
 
@@ -585,6 +621,54 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true, data: state }
     } catch (error) {
       log.error('Failed to refresh subscription', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ============================================
+  // 想定質問関連のIPCハンドラー
+  // ============================================
+
+  ipcMain.handle('questions:list', async () => {
+    log.debug('questions:list called')
+    try {
+      const questions = await questionsService.getQuestions()
+      return { success: true, questions }
+    } catch (error) {
+      log.error('Failed to list questions', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('questions:save', async (_event, questions: QuestionInput[]) => {
+    log.info('questions:save called', { count: questions.length })
+    try {
+      const saved = await questionsService.saveQuestions(questions)
+      return { success: true, questions: saved }
+    } catch (error) {
+      log.error('Failed to save questions', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('questions:delete', async (_event, questionId: string) => {
+    log.info('questions:delete called', { id: questionId })
+    try {
+      await questionsService.deleteQuestion(questionId)
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to delete question', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('questions:generate', async (_event, count?: number) => {
+    log.info('questions:generate called', { count })
+    try {
+      const questions = await questionsService.generateQuestions(count)
+      return { success: true, questions }
+    } catch (error) {
+      log.error('Failed to generate questions', { error: String(error) })
       return { success: false, error: String(error) }
     }
   })

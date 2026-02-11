@@ -11,6 +11,7 @@ import { useSettings } from './hooks/useSettings'
 import { useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
 import DocumentUploadPanel from './components/DocumentUploadPanel'
+import InterviewQuestionsPanel from './components/InterviewQuestionsPanel'
 import { SettingsModal } from './components/SettingsModal'
 import { SubscriptionModal } from './components/SubscriptionModal'
 import { LoginPage } from './components/LoginPage'
@@ -163,6 +164,7 @@ function AppContent() {
     isGenerating,
     error: aiError,
     generateStreamResponse,
+    abortGeneration,
     clearResponse,
   } = useAIResponse()
 
@@ -196,9 +198,28 @@ function AppContent() {
     checkApiKey()
   }, [])
 
-  // 新しい確定文字起こしがあったらAI回答を自動生成
+  // interim（途中の文字起こし）からデバウンス付きでAI回答を先行生成
+  const interimTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const INTERIM_DEBOUNCE_MS = 1500 // 1.5秒間テキストが安定したら生成開始
+  const INTERIM_MIN_LENGTH = 15   // 最低15文字以上で生成開始
+
   useEffect(() => {
-    if (!settings.autoGenerateAI || isGenerating) return
+    if (!settings.autoGenerateAI) return
+    if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
+
+    // デバウンス: 1.5秒間テキストが変わらなければAI生成開始
+    interimTimerRef.current = setTimeout(() => {
+      generateStreamResponse(currentText)
+    }, INTERIM_DEBOUNCE_MS)
+
+    return () => {
+      if (interimTimerRef.current) clearTimeout(interimTimerRef.current)
+    }
+  }, [currentText, settings.autoGenerateAI, generateStreamResponse])
+
+  // 確定文字起こしが来たら、interim生成を中断して確定テキストで再生成
+  useEffect(() => {
+    if (!settings.autoGenerateAI) return
 
     const newTranscripts = transcripts.slice(lastProcessedIndex.current + 1)
     if (newTranscripts.length === 0) return
@@ -206,9 +227,12 @@ function AppContent() {
     const latestText = newTranscripts.map((t) => t.text).join(' ')
     if (latestText.trim().length > 10) {
       lastProcessedIndex.current = transcripts.length - 1
+      // interim生成のタイマーをキャンセル
+      if (interimTimerRef.current) clearTimeout(interimTimerRef.current)
+      // 確定テキストで（再）生成（内部で前回を自動abort）
       generateStreamResponse(latestText)
     }
-  }, [transcripts, settings.autoGenerateAI, isGenerating, generateStreamResponse])
+  }, [transcripts, settings.autoGenerateAI, generateStreamResponse])
 
   const handleStart = async () => {
     if (!apiKey) {
@@ -519,8 +543,9 @@ function AppContent() {
         {/* メインコンテンツ: 3カラムレイアウト */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* コンテキスト設定 (サイドバー) */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 space-y-4">
             <DocumentUploadPanel />
+            <InterviewQuestionsPanel />
           </div>
 
           {/* 文字起こし結果 */}

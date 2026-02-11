@@ -1,27 +1,39 @@
 const features = [
   {
     icon: MicIcon,
-    title: 'リアルタイム音声認識',
+    title: '面接官の質問、聞き逃していませんか？',
     description:
-      'Deepgram STT による高精度な音声認識。マイク入力とシステム音声の両方をキャプチャし、面接の会話をリアルタイムで文字起こし。',
+      '緊張で頭が真っ白になり、質問を聞き返す。それだけで印象は大幅ダウン。このアプリは全ての会話をリアルタイムで文字起こしするので、聞き逃しがゼロになります。',
   },
   {
     icon: SparklesIcon,
-    title: 'AI 回答提案',
+    title: '「あの時こう言えば…」その後悔、もう終わりに',
     description:
-      'GPT-5 Mini が質問を分析し、最適な回答をリアルタイムで提案。あなたの経歴や志望動機に合わせたパーソナライズされた回答。',
+      '面接後に完璧な回答を思いつく。誰もが経験するその悔しさ、もう味わう必要はありません。AIが質問の瞬間にベストな回答を提案。準備不足でも、その場で最適解が手に入ります。',
   },
   {
     icon: DocumentIcon,
-    title: 'コンテキスト連携',
+    title: '丸暗記の回答、面接官には見抜かれています',
     description:
-      '履歴書・職務経歴書・求人票をアップロードすると、AIがあなたの情報を理解。pgvector RAG で的確なコンテキストを活用。',
+      '応募先に合わない汎用的な回答では内定は出ません。履歴書と求人票を読み込ませるだけで、AIがあなたの経歴と応募先に完璧にマッチした回答を作成します。',
   },
   {
     icon: SpeakerIcon,
-    title: 'システム音声キャプチャ',
+    title: 'オンライン面接、音声トラブルで落ちてませんか？',
     description:
-      'オンライン面接の相手の音声も自動キャプチャ。面接官の質問を聞き逃さず、正確に文字起こし。',
+      '通信環境が悪くて質問が途切れた。でも聞き返せない。そんな致命的な事故を防ぎます。相手の音声を自動で取得し、聞き取れなかった部分もテキストで即表示。',
+  },
+  {
+    icon: ShieldIcon,
+    title: 'バレたら終わり？大丈夫、100%検出不可です',
+    description:
+      'Teams・Google Meet・Zoomのどれを使っても、このアプリの存在は一切検出されません。通知も画面共有も発生しない完全なステルス設計。使っていることは誰にもわかりません。',
+  },
+  {
+    icon: LockIcon,
+    title: '面接の内容が漏れたら、人生が終わる',
+    description:
+      'だからこそ、音声データはサーバーに一切保存しません。すべての通信は暗号化済み。あなたの面接内容が外部に漏れることは技術的にありえない設計です。',
   },
 ]
 
@@ -31,12 +43,12 @@ export function FeaturesSection() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto">
-          <span className="text-sm font-medium text-accent">機能紹介</span>
+          <span className="text-sm font-medium text-accent">使わないと損する理由</span>
           <h2 className="mt-3 text-3xl sm:text-4xl font-bold text-content tracking-tight">
-            面接の成功率を上げる4つの機能
+            その面接、素手で挑むつもりですか？
           </h2>
           <p className="mt-4 text-content-secondary leading-relaxed">
-            最先端のAI技術を活用し、面接準備から本番まであなたをサポートします
+            他の候補者はもうAIを使っています。準備不足のまま面接に臨んで、また「お祈りメール」を受け取りますか？
           </p>
         </div>
 
@@ -90,6 +102,22 @@ function SpeakerIcon() {
   return (
     <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+    </svg>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+    </svg>
+  )
+}
+
+function LockIcon() {
+  return (
+    <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
     </svg>
   )
 }

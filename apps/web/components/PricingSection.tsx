@@ -1,4 +1,7 @@
-import Link from 'next/link'
+'use client'
+
+import { useState } from 'react'
+import { SignupModal } from './SignupModal'
 
 const plans = [
   {
@@ -44,6 +47,18 @@ const plans = [
 ]
 
 export function PricingSection() {
+  const [selectedPlan, setSelectedPlan] = useState<{
+    id: string
+    name: string
+    price: number
+  } | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  function handlePlanSelect(plan: typeof plans[number]) {
+    setSelectedPlan({ id: plan.id, name: plan.name, price: plan.price })
+    setIsModalOpen(true)
+  }
+
   return (
     <section id="pricing" className="py-24 bg-surface-secondary">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -112,16 +127,16 @@ export function PricingSection() {
                 ))}
               </ul>
 
-              <Link
-                href={plan.price === 0 ? '/download' : `/checkout?plan=${plan.id}`}
-                className={`block w-full py-2.5 rounded-lg text-sm font-medium text-center transition-colors ${
+              <button
+                onClick={() => handlePlanSelect(plan)}
+                className={`block w-full py-2.5 rounded-lg text-sm font-medium text-center transition-colors cursor-pointer ${
                   plan.popular
                     ? 'bg-accent text-white hover:bg-accent-hover'
                     : 'bg-surface-tertiary text-content hover:bg-surface-hover border border-border'
                 }`}
               >
-                {plan.price === 0 ? '無料で始める' : 'ダウンロードして購入'}
-              </Link>
+                {plan.price === 0 ? '無料で始める' : `${plan.name}プランを始める`}
+              </button>
             </div>
           ))}
         </div>
@@ -130,6 +145,13 @@ export function PricingSection() {
           アプリ内でプランのアップグレード・ダウングレードが可能です
         </p>
       </div>
+
+      {/* Signup Modal */}
+      <SignupModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        selectedPlan={selectedPlan}
+      />
     </section>
   )
 }

@@ -127,7 +127,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       .insert(chunkInserts)
 
     if (chunksError) {
-      // ドキュメントを削除してロールバック
+      // ドキュメントを削除してロールバック（CASCADE で chunks も自動削除）
       await supabaseAdmin.from('documents').delete().eq('id', document.id)
       return res.status(500).json({
         success: false,
@@ -145,7 +145,11 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       .eq('id', document.id)
 
     if (updateError) {
-      // ステータス更新失敗は警告レベル（処理自体は成功）
+      // ステータス更新失敗時はエラー状態にして孤立を防止
+      await supabaseAdmin
+        .from('documents')
+        .update({ status: 'error', error_message: 'Failed to update status after processing' })
+        .eq('id', document.id)
     }
 
     return res.status(200).json({

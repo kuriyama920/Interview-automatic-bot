@@ -11,7 +11,7 @@ import { VercelRequest, VercelResponse } from '@vercel/node'
 import OpenAI from 'openai'
 import { getUserFromRequest } from '../../lib/auth'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
-import { checkUsageLimit, recordUsage, hasCustomApiKey } from '../../lib/usage'
+import { checkAndReserveUsage, adjustReservedUsage, recordUsage, hasCustomApiKey } from '../../lib/usage'
 import { supabaseAdmin } from '../../lib/supabase'
 import { generateEmbedding } from '../../lib/openai'
 import { getEnv } from '../../lib/env'
@@ -108,6 +108,7 @@ async function fetchDocumentContext(userId: string, question: string): Promise<s
       .from('documents')
       .select('id, name, type')
       .in('id', documentIds)
+      .eq('user_id', userId)
 
     if (!documents) return ''
 
@@ -121,7 +122,12 @@ async function fetchDocumentContext(userId: string, question: string): Promise<s
       if (!doc) continue
 
       if (!grouped.has(match.document_id)) {
-        const label = doc.type === 'resume' ? '履歴書' : '求人票'
+        const labelMap: Record<string, string> = {
+          resume: '履歴書',
+          job_posting: '求人票',
+          expected_qa: '想定質問',
+        }
+        const label = labelMap[doc.type] || doc.type
         grouped.set(match.document_id, { label: `${label}: ${doc.name}`, chunks: [] })
       }
       grouped.get(match.document_id)!.chunks.push(match.content)
@@ -172,9 +178,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // カスタムキーチェック
     const userHasCustomKey = await hasCustomApiKey(userId, 'openai')
 
-    // カスタムキーがなければ使用量チェック
+    // カスタムキーがなければアトミックに使用量チェック＋予約
+    // maxTokens 分を事前予約し、ストリーミング完了後に実際の使用量に調整
     if (!userHasCustomKey) {
-      const usage = await checkUsageLimit(userId, 'ai_tokens')
+      const usage = await checkAndReserveUsage(userId, 'ai_tokens', maxTokens)
       if (!usage.allowed) {
         return res.status(429).json({
           error: 'AI token monthly limit exceeded',
@@ -234,12 +241,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // トークン使用量を記録（カスタムキーでなければ）
-    if (!userHasCustomKey && totalTokensUsed > 0) {
-      await recordUsage(userId, 'ai_completion', totalTokensUsed, 'tokens', {
-        model,
-        questionLength: question.length,
-      })
+    // トークン使用量を調整＋ログ記録（カスタムキーでなければ）
+    if (!userHasCustomKey) {
+      // 予約量と実際の使用量の差分を調整
+      await adjustReservedUsage(userId, 'ai_tokens', maxTokens, totalTokensUsed)
+      // usage_logs にログを記録（カウンターは予約済みなので skipIncrement=true）
+      if (totalTokensUsed > 0) {
+        await recordUsage(userId, 'ai_completion', totalTokensUsed, 'tokens', {
+          model,
+          questionLength: question.length,
+        }, true)
+      }
     }
 
     // 完了シグナル

@@ -18,7 +18,7 @@ const DEFAULT_TOP_K = 3
 const DEFAULT_MIN_SIMILARITY = 0.7
 const MAX_QUERY_LENGTH = 1000
 const MAX_TOP_K = 10
-const VALID_DOCUMENT_TYPES = ['resume', 'job_posting'] as const
+const VALID_DOCUMENT_TYPES = ['resume', 'job_posting', 'expected_qa'] as const
 
 type DocumentType = (typeof VALID_DOCUMENT_TYPES)[number]
 
@@ -178,6 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('documents')
       .select('id, name, type')
       .in('id', documentIds)
+      .eq('user_id', userId)
 
     if (docError) {
       return res.status(500).json({

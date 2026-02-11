@@ -58,25 +58,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log(`[Webhook] Received event: ${event.type}`)
 
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session)
-        break
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
-        break
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
-        break
-      case 'invoice.payment_failed':
-        await handlePaymentFailed(event.data.object as Stripe.Invoice)
-        break
-      case 'invoice.paid':
-        await handleInvoicePaid(event.data.object as Stripe.Invoice)
-        break
-      default:
-        console.log(`[Webhook] Unhandled event type: ${event.type}`)
+    // 冪等性チェック: 同一イベントの重複処理を防止
+    const { error: claimError } = await supabaseAdmin
+      .from('webhook_events')
+      .insert({ event_id: event.id, event_type: event.type })
+
+    if (claimError) {
+      // UNIQUE 制約違反 = 既に処理済みまたは処理中
+      console.log(`[Webhook] Duplicate event ignored: ${event.id}`)
+      return res.status(200).json({ received: true })
     }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session)
+          break
+        case 'customer.subscription.updated':
+          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
+          break
+        case 'customer.subscription.deleted':
+          await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
+          break
+        case 'invoice.payment_failed':
+          await handlePaymentFailed(event.data.object as Stripe.Invoice)
+          break
+        case 'invoice.paid':
+          await handleInvoicePaid(event.data.object as Stripe.Invoice)
+          break
+        default:
+          console.log(`[Webhook] Unhandled event type: ${event.type}`)
+      }
+    } catch (processingError) {
+      // 処理失敗時はクレームを削除して、Stripe のリトライで再処理可能にする
+      await supabaseAdmin.from('webhook_events').delete().eq('event_id', event.id)
+      throw processingError
+    }
+
+    // 古いイベントのクリーンアップ（非同期）
+    void supabaseAdmin.rpc('cleanup_old_webhook_events')
 
     return res.status(200).json({ received: true })
   } catch (error) {

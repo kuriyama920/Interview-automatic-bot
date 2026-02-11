@@ -72,13 +72,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // チャンクを削除（CASCADEで自動削除されるが、明示的に削除）
-    await supabaseAdmin.from('document_chunks').delete().eq('document_id', documentId)
+    // user_id フィルターで防御の多層化（TOCTOU防止）
+    await supabaseAdmin.from('document_chunks').delete()
+      .eq('document_id', documentId)
+      .eq('user_id', userId)
 
     // ドキュメントを削除（ハード削除）
     const { error: deleteError } = await supabaseAdmin
       .from('documents')
       .delete()
       .eq('id', documentId)
+      .eq('user_id', userId)
 
     if (deleteError) {
       return res.status(500).json({ success: false, error: 'Failed to delete document' })

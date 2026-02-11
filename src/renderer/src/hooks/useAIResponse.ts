@@ -16,6 +16,7 @@ interface UseAIResponseReturn {
   error: string | null
   generateResponse: (question: string, context?: string) => Promise<void>
   generateStreamResponse: (question: string, context?: string) => Promise<void>
+  abortGeneration: () => void
   clearResponse: () => void
 }
 
@@ -26,6 +27,7 @@ export function useAIResponse(): UseAIResponseReturn {
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const listenerSetup = useRef(false)
+  const generationIdRef = useRef(0)
 
   useEffect(() => {
     mountedRef.current = true
@@ -93,11 +95,20 @@ export function useAIResponse(): UseAIResponseReturn {
     }
   }, [])
 
+  const abortGeneration = useCallback(() => {
+    generationIdRef.current++
+    window.electron.ai.abort()
+    setIsGenerating(false)
+    setStreamingText('')
+    log.info('AI generation aborted by user')
+  }, [])
+
   const generateStreamResponse = useCallback(async (question: string, context?: string) => {
     if (!question.trim()) {
       return
     }
 
+    const thisGeneration = ++generationIdRef.current
     setIsGenerating(true)
     setError(null)
     setResponse(null)
@@ -107,13 +118,18 @@ export function useAIResponse(): UseAIResponseReturn {
     try {
       const result = await window.electron.ai.generateStream(question, context)
 
+      // この生成が最新でない場合は無視（abort後に新しい生成が開始された）
+      if (generationIdRef.current !== thisGeneration) return
+
       if (!result.success) {
+        if (result.error === 'aborted') return // 意図的な中断
         setError(result.error || 'Failed to generate response')
         setStreamingText('')
         log.error('AI stream generation failed', { error: result.error })
         setIsGenerating(false)
       }
     } catch (err) {
+      if (generationIdRef.current !== thisGeneration) return
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setError(errorMessage)
       setStreamingText('')
@@ -135,6 +151,7 @@ export function useAIResponse(): UseAIResponseReturn {
     error,
     generateResponse,
     generateStreamResponse,
+    abortGeneration,
     clearResponse,
   }
 }

@@ -23,7 +23,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // 全ユーザーの月次使用量をリセット
+    // 使用量がある行のみリセット（不必要な UPDATE を回避しロック競合を最小化）
+    // Note: PostgreSQL の行ロックにより、同時実行中の increment_column とは
+    // 直列化される。リセット直前のインクリメントが消失する極小のウィンドウ
+    // （ミリ秒単位）は許容範囲として扱う。
     const { error, count } = await supabaseAdmin
       .from('profiles')
       .update({
@@ -31,13 +34,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         monthly_ai_tokens_used: 0,
       })
       .gte('monthly_stt_minutes_used', 0) // 全行にマッチ
-      .select('id', { count: 'exact', head: true })
 
     if (error) {
       throw error
     }
 
     console.log(`[Cron] Monthly usage reset completed. Rows affected: ${count}`)
+
+    // 古い Webhook イベントもクリーンアップ
+    void supabaseAdmin.rpc('cleanup_old_webhook_events')
 
     return res.status(200).json({
       success: true,

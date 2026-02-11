@@ -8,6 +8,7 @@ import { stripe } from './stripe'
 
 /**
  * ユーザーの Stripe Customer を取得または作成
+ * アトミック操作で二重作成を防止
  */
 export async function getOrCreateStripeCustomer(userId: string): Promise<string> {
   const { data: profile, error } = await supabaseAdmin
@@ -31,14 +32,25 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
     metadata: { userId: profile.id },
   })
 
-  // DB に保存
-  const { error: updateError } = await supabaseAdmin
-    .from('profiles')
-    .update({ stripe_customer_id: customer.id })
-    .eq('id', userId)
+  // アトミックに DB に保存（stripe_customer_id が NULL の場合のみ設定）
+  // 同時リクエストで二重作成された場合、先に保存された方が返される
+  const { data: savedId, error: rpcError } = await supabaseAdmin.rpc('set_stripe_customer_id', {
+    p_user_id: userId,
+    p_stripe_customer_id: customer.id,
+  })
 
-  if (updateError) {
-    throw new Error(`Failed to save Stripe customer ID: ${updateError.message}`)
+  if (rpcError) {
+    throw new Error(`Failed to save Stripe customer ID: ${rpcError.message}`)
+  }
+
+  // 別のリクエストが先にセットしていた場合、孤立した Customer を削除
+  if (savedId !== customer.id) {
+    try {
+      await stripe.customers.del(customer.id)
+    } catch {
+      console.warn(`Failed to cleanup orphaned Stripe customer: ${customer.id}`)
+    }
+    return savedId
   }
 
   return customer.id

@@ -9,7 +9,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
 import { getUserFromRequest } from '../../lib/auth'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
-import { checkUsageLimit, recordUsage, hasCustomApiKey } from '../../lib/usage'
+import { checkAndReserveUsage, adjustReservedUsage, recordUsage, hasCustomApiKey } from '../../lib/usage'
 import { generateEmbedding, generateEmbeddings } from '../../lib/openai'
 
 const MAX_TEXTS = 20
@@ -30,6 +30,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  // 予約返還用にスコープ外で宣言
+  let reservedUserId: string | null = null
+  let reservedTokens = 0
 
   try {
     const jwtPayload = getUserFromRequest(req)
@@ -76,14 +80,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // カスタムキーチェック
     const userHasCustomKey = await hasCustomApiKey(userId, 'openai')
 
+    // 使用量を概算で事前予約（1文字 ≈ 0.5トークン）
+    const totalChars = inputTexts.reduce((sum, t) => sum + t.length, 0)
+    const estimatedTokens = Math.ceil(totalChars * 0.5)
+
     if (!userHasCustomKey) {
-      const usage = await checkUsageLimit(userId, 'ai_tokens')
+      const usage = await checkAndReserveUsage(userId, 'ai_tokens', estimatedTokens)
       if (!usage.allowed) {
         return res.status(429).json({
           error: 'AI token monthly limit exceeded',
           usage: { used: usage.used, limit: usage.limit, remaining: 0 },
         })
       }
+      // 失敗時の返還用に記録
+      reservedUserId = userId
+      reservedTokens = estimatedTokens
     }
 
     // Embedding 生成
@@ -96,14 +107,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       embeddings = await generateEmbeddings(inputTexts)
     }
 
-    // 使用量を記録（概算: 1文字 ≈ 0.5トークン）
+    // 予約は使用済みとして確定
+    reservedUserId = null
+
+    // usage_logs にログを記録（カウンターは予約済みなので skipIncrement=true）
     if (!userHasCustomKey) {
-      const totalChars = inputTexts.reduce((sum, t) => sum + t.length, 0)
-      const estimatedTokens = Math.ceil(totalChars * 0.5)
       await recordUsage(userId, 'embedding', estimatedTokens, 'tokens', {
         textCount: inputTexts.length,
         totalChars,
-      })
+      }, true)
     }
 
     return res.status(200).json({
@@ -111,6 +123,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       embeddings,
     })
   } catch (error) {
+    // Embedding生成失敗時、予約済みトークンを返還
+    if (reservedUserId && reservedTokens > 0) {
+      await adjustReservedUsage(reservedUserId, 'ai_tokens', reservedTokens, 0)
+    }
     console.error('Embeddings error:', error)
     return res.status(500).json({ error: 'Failed to generate embeddings' })
   }

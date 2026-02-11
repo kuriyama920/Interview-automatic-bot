@@ -6,7 +6,7 @@
 import { useDocuments } from '../hooks/useDocuments'
 import { Card, CardHeader, Button, Badge, Alert, Spinner } from './ui'
 
-type DocumentType = 'resume' | 'job_posting'
+type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
 
 interface DocumentInfo {
   id: string

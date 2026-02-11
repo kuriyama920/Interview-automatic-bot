@@ -98,10 +98,11 @@ export class AIService {
   async generateStreamResponse(
     question: string,
     context?: string,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<AIResponse> {
     if (this.useProxy) {
-      return this.generateStreamViaProxy(question, context, onChunk)
+      return this.generateStreamViaProxy(question, context, onChunk, signal)
     }
 
     if (!this.client || !this.config) {
@@ -115,19 +116,23 @@ export class AIService {
       : `面接官の質問: ${question}`
 
     try {
-      const stream = await this.client.chat.completions.create({
-        model: this.config.model!,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-        max_completion_tokens: this.config.maxTokens,
-        stream: true,
-      })
+      const stream = await this.client.chat.completions.create(
+        {
+          model: this.config.model!,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userMessage },
+          ],
+          max_completion_tokens: this.config.maxTokens,
+          stream: true,
+        },
+        { signal }
+      )
 
       let fullContent = ''
 
       for await (const chunk of stream) {
+        if (signal?.aborted) break
         const content = chunk.choices[0]?.delta?.content || ''
         fullContent += content
         if (onChunk && content) {
@@ -139,6 +144,9 @@ export class AIService {
 
       return this.parseResponse(fullContent)
     } catch (error) {
+      if (signal?.aborted) {
+        throw new Error('aborted')
+      }
       log.error('Failed to generate AI stream response', { error })
       throw error
     }
@@ -186,7 +194,8 @@ export class AIService {
   private async generateStreamViaProxy(
     question: string,
     context?: string,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<AIResponse> {
     log.debug('Generating stream response via proxy', { questionLength: question.length })
 
@@ -202,6 +211,7 @@ export class AIService {
           model: this.config?.model,
           maxTokens: this.config?.maxTokens,
         }),
+        signal,
       }
     )
 
@@ -210,7 +220,7 @@ export class AIService {
       throw new Error(errorData.error || 'AI generation failed')
     }
 
-    const fullContent = await this.parseSSEResponse(response, onChunk)
+    const fullContent = await this.parseSSEResponse(response, onChunk, signal)
     log.info('AI proxy stream response completed', { responseLength: fullContent.length })
 
     return this.parseResponse(fullContent)
@@ -221,7 +231,8 @@ export class AIService {
    */
   private async parseSSEResponse(
     response: Response,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<string> {
     const reader = response.body?.getReader()
     if (!reader) {
@@ -236,6 +247,7 @@ export class AIService {
 
     try {
       while (true) {
+        if (signal?.aborted) break
         const { done, value } = await reader.read()
         if (done) break
 

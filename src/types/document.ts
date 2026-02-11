@@ -1,4 +1,4 @@
-export type DocumentType = 'resume' | 'job_posting'
+export type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
 
 export interface DocumentMetadata {
   id: string

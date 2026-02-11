@@ -65,6 +65,9 @@ const config: Config = {
         'slide-up': 'slideUp 0.6s ease-out',
         'slide-up-delay': 'slideUp 0.6s ease-out 0.2s both',
         'slide-up-delay-2': 'slideUp 0.6s ease-out 0.4s both',
+        waveform: 'waveform 0.5s ease-in-out infinite alternate',
+        blink: 'blink 0.8s step-end infinite',
+        spin: 'spin 1s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -74,6 +77,14 @@ const config: Config = {
         slideUp: {
           '0%': { opacity: '0', transform: 'translateY(20px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        waveform: {
+          '0%': { height: '3px' },
+          '100%': { height: '14px' },
+        },
+        blink: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
         },
       },
       fontFamily: {

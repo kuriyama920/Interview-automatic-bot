@@ -189,7 +189,7 @@ CRON_SECRET=your-cron-secret
 - [x] Webhook 署名検証 + 5 イベント対応
 - [x] Electron IPC + プラン管理 UI
 - [x] 月次リセット Cron 設定
-- [ ] Stripe ダッシュボードで商品作成 + Price ID 設定
+- [x] Stripe ダッシュボードで商品作成 + Price ID 設定
 - [ ] Stripe テストモードでの E2E 動作確認
 
 ---
