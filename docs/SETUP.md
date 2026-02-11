@@ -10,8 +10,8 @@
 
 以下をインストールしてください：
 
-1. **Node.js v20.x LTS**
-   - 推奨: v20.x以上
+1. **Node.js v22.x LTS**
+   - 推奨: v22.x以上（.nvmrc で指定）
    - インストール確認: `node --version`
 
 2. **pnpm**（推奨パッケージマネージャー）
@@ -35,8 +35,8 @@
 # https://github.com/coreybutler/nvm-windows (Windows)
 
 # プロジェクトで使用するバージョンをインストール
-nvm install 18.19.0
-nvm use 18.19.0
+nvm install 22
+nvm use 22
 
 # チームメンバーは以下を実行するだけでOK
 nvm use
@@ -49,8 +49,8 @@ nvm use
 # https://volta.sh/
 
 # プロジェクトでバージョン固定
-volta pin node@18.19.0
-volta pin pnpm@8.15.0
+volta pin node@22
+volta pin pnpm@9
 ```
 
 ### 推奨VSCode拡張機能
@@ -243,8 +243,9 @@ npm install -g pnpm
 
 **解決策**:
 ```bash
-node --version  # v18.x以上であることを確認
+node --version  # v22.x以上であることを確認
 # 古い場合はNode.jsを再インストール
+nvm install 22 && nvm use 22
 ```
 
 ### 問題3: `Cannot find module '@deepgram/sdk'`
@@ -308,4 +309,4 @@ Error: Unauthorized (401)
 
 ---
 
-**最終更新**: 2026-02-06
+**最終更新**: 2026-02-11

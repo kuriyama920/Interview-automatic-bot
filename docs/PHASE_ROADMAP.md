@@ -151,11 +151,9 @@ Electron [プラン管理] → IPC → /api/stripe/checkout → Checkout Session
 |---------|------|
 | lib/stripe.ts | Stripe クライアント（遅延初期化 Proxy） |
 | lib/subscription.ts | Customer 管理、プラン解決、DB 更新ヘルパー |
-| api/stripe/checkout.ts | POST - Checkout Session 作成 |
+| api/stripe/billing.ts | POST - Checkout Session 作成 + Customer Portal（統合） |
 | api/stripe/webhook.ts | POST - Webhook 受信 + 署名検証 |
-| api/stripe/portal.ts | POST - Customer Portal URL 生成 |
-| api/stripe/success.ts | GET - 決済成功 HTML ページ |
-| api/stripe/cancel.ts | GET - 決済キャンセル HTML ページ |
+| api/stripe/pages.ts | GET - 決済成功/キャンセル HTML ページ（統合） |
 | api/subscription.ts | GET - プラン + 使用量 + 全プラン一覧 |
 | api/cron/reset-usage.ts | GET - 月次使用量リセット（Vercel Cron） |
 
@@ -224,10 +222,8 @@ Electron → POST /api/ai/generate (JWT + SSE)
 |---------|------|
 | lib/usage.ts | 使用量チェック (checkUsageLimit) + 記録 (recordUsage) + カスタムキー確認 |
 | lib/deepgram.ts | Deepgram一時トークン生成（遅延初期化 Proxy パターン） |
-| api/stt/token.ts | POST - Deepgram一時トークン発行（使用量チェック付き） |
-| api/stt/usage.ts | POST - STT使用量報告（上限120分/セッション） |
-| api/ai/generate.ts | POST - AI生成プロキシ（SSEストリーミング + RAGコンテキスト） |
-| api/ai/embeddings.ts | POST - Embeddings生成プロキシ |
+| api/stt/unified.ts | STT統合（token + usage）- __route パラメータで分岐 |
+| api/ai/unified.ts | AI統合（generate + embeddings）- __route パラメータで分岐 |
 
 #### Electron
 | ファイル | 変更内容 |
@@ -269,8 +265,65 @@ Electron → POST /api/ai/generate (JWT + SSE)
 - [x] ai.service.ts プロキシモード + SSEパース
 - [x] ipc.ts プロキシ対応ハンドラー
 - [x] DBマイグレーション 009 (インデックス)
-- [ ] Vercelデプロイ + API動作確認
-- [ ] Deepgram/OpenAI APIキーをVercel環境変数に設定
+- [x] Vercelデプロイ + API動作確認
+- [x] Deepgram/OpenAI APIキーをVercel環境変数に設定
+
+---
+
+## Serverless Functions統合 ✅ 完了
+
+### 目的
+Vercel Hobbyプラン（最大12関数）に収まるよう、23個のServerless Functionsを12個に統合。
+
+### 統合マッピング
+
+| 統合前 | 統合後 | ルーティング |
+|--------|--------|-------------|
+| auth/google.ts, callback.ts, session.ts, me.ts | auth/unified.ts | `?__route=` |
+| stripe/checkout.ts, portal.ts | stripe/billing.ts | `?__route=` |
+| stripe/success.ts, cancel.ts | stripe/pages.ts | `?__route=` |
+| ai/generate.ts, embeddings.ts | ai/unified.ts | `?__route=` |
+| stt/token.ts, usage.ts | stt/unified.ts | `?__route=` |
+| stripe/webhook.ts | stripe/webhook.ts | 変更なし |
+| documents/crud.ts, search.ts | そのまま | 変更なし |
+| questions/crud.ts, generate.ts | そのまま | 変更なし |
+| subscription.ts | そのまま | 変更なし |
+| cron/reset-usage.ts | そのまま | 変更なし |
+
+### 共通ライブラリ抽出
+- `lib/routing.ts` - `getRoute()` ヘルパー（5ファイルの重複を解消）
+- `lib/validation.ts` - `isValidUUID()` ヘルパー（2ファイルの重複を解消）
+
+### vercel.json 設定の注意点
+- `builds`（レガシー）と `routes`（レガシー）の組み合わせで動作
+- `builds` + `rewrites`（モダン）は互換性なし（全404になる）
+- `functions` + `rewrites`（モダン）は `apps/api/` パスを認識しない
+- `dest` パスには `.ts` 拡張子が必要
+
+### セキュリティ改善
+- OAuth `redirectUri` の許可リスト検証を追加（書き込み時 + 読み取り時の二重チェック）
+- Embeddings エラーメッセージのサニタイズ（内部情報の漏洩防止）
+
+### DBマイグレーション（006-012）
+| マイグレーション | 内容 |
+|----------------|------|
+| 006_stripe_price_ids.sql | Stripe Price ID設定 |
+| 007_interview_questions.sql | 想定質問テーブル |
+| 008_consume_auth_session.sql | 認証セッション消費関数 |
+| 009_usage_tracking_index.sql | 使用量追跡インデックス |
+| 010_ai_generate_proxy.sql | AI生成プロキシ用インデックス |
+| 011_security_hardening.sql | セキュリティ強化 |
+| 012_question_generation.sql | AI質問生成用設定 |
+
+### 完了条件
+- [x] 23関数 → 12関数に統合
+- [x] __route クエリパラメータによるルーティング
+- [x] 共通ライブラリ抽出（routing.ts, validation.ts）
+- [x] vercel.json builds + routes 設定
+- [x] Vercelデプロイ成功（12 nodejs functions）
+- [x] 全22エンドポイントの動作確認
+- [x] セキュリティ改善（redirectUri検証、エラーサニタイズ）
+- [x] Supabaseマイグレーション 006-012 適用
 
 ---
 
