@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoGenerateAI: true,
 
   // 音声キャプチャ設定
-  audioSource: 'mic',
+  audioSource: 'system',
 
   // AI設定
   aiModel: 'gpt-5-mini',

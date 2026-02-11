@@ -9,6 +9,7 @@ export interface TranscriptResult {
   isFinal: boolean
   confidence: number
   timestamp: number
+  source?: 'mic' | 'system'
 }
 
 type TranscriptCallback = (result: TranscriptResult) => void
@@ -77,8 +78,9 @@ export class STTService {
       })
 
       this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-        const transcript = data.channel?.alternatives?.[0]?.transcript
-        const confidence = data.channel?.alternatives?.[0]?.confidence ?? 0
+        const alternative = data.channel?.alternatives?.[0]
+        const transcript = alternative?.transcript
+        const confidence = alternative?.confidence ?? 0
 
         if (transcript && this.onTranscript) {
           if (data.is_final) {

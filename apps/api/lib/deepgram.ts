@@ -46,7 +46,7 @@ export async function generateTemporaryToken(
     throw new Error(`Deepgram token generation failed (${response.status}): ${errorText}`)
   }
 
-  const data = await response.json()
+  const data = (await response.json()) as { access_token: string }
 
   return {
     token: data.access_token,

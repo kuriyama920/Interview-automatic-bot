@@ -4,7 +4,7 @@
  */
 
 import { useDocuments } from '../hooks/useDocuments'
-import { Card, CardHeader, Button, Badge, Alert, Spinner } from './ui'
+import { Card, CardHeader, Button, Alert, Spinner } from './ui'
 
 type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
 
@@ -178,7 +178,6 @@ function DocumentUploadPanel() {
         <CardHeader
           title="コンテキスト"
           subtitle="面接用資料"
-          action={<Badge variant="info" size="sm">RAG</Badge>}
           className="mb-0"
         />
       </div>

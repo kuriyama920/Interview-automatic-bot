@@ -49,7 +49,7 @@ Write-Host ""
 # 3. Stripe Checkout (no auth - expect 401)
 Write-Host "[3/5] /api/stripe/checkout (no auth - expect 401)" -ForegroundColor Yellow
 try {
-    $body = '{"priceId":"price_1SxvG5EQOoOtNgU2bxdJTbMr"}'
+    $body = '{"priceId":"price_1SzYTIEFLs3ImTfQeP6B8cbR"}'
     $checkout = Invoke-WebRequest -Uri "$baseUrl/api/stripe/checkout" -Method Post -Body $body -ContentType "application/json" -UseBasicParsing
     Write-Host "  UNEXPECTED: Status $($checkout.StatusCode)" -ForegroundColor Red
 } catch {

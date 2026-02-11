@@ -1,7 +1,10 @@
 /**
- * ドキュメント管理エンドポイント
+ * ドキュメント CRUD 統合エンドポイント
  * POST /api/documents - ドキュメントアップロード + Embedding生成
  * GET /api/documents - ドキュメント一覧取得
+ * DELETE /api/documents/:id - ドキュメント削除
+ *
+ * @requires JWT認証
  */
 
 import { VercelRequest, VercelResponse } from '@vercel/node'
@@ -12,8 +15,9 @@ import { supabaseAdmin } from '../../lib/supabase'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { parseDocument, chunkText, estimateTokens } from '../../lib/document-parser'
 import { generateEmbeddings } from '../../lib/openai'
+import { isValidUUID } from '../../lib/validation'
 
-// Vercel Serverless: body parserを無効化
+// Vercel Serverless: body parserを無効化（multipart対応）
 export const config = {
   api: {
     bodyParser: false,
@@ -27,9 +31,8 @@ interface UploadedFile {
 }
 
 async function handleUpload(req: VercelRequest, res: VercelResponse, userId: string) {
-  // multipart/form-dataをパース
   const form = formidable({
-    maxFileSize: 10 * 1024 * 1024, // 10MB
+    maxFileSize: 10 * 1024 * 1024,
     maxFiles: 1,
   })
 
@@ -43,7 +46,6 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
     return res.status(400).json({ success: false, error: message })
   }
 
-  // ドキュメントタイプを取得
   const typeField = fields.type
   const documentType = Array.isArray(typeField) ? typeField[0] : typeField
 
@@ -54,7 +56,6 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
     })
   }
 
-  // ファイルを取得
   const fileField = files.file
   const uploadedFile = Array.isArray(fileField) ? fileField[0] : fileField
 
@@ -66,13 +67,8 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
   const filename = file.originalFilename || 'unknown'
 
   try {
-    // ファイルを読み込み
     const buffer = await readFile(file.filepath)
-
-    // ドキュメントを解析
     const parsed = await parseDocument(buffer, filename)
-
-    // テキストをチャンクに分割
     const chunks = chunkText(parsed.text)
 
     if (chunks.length === 0) {
@@ -82,13 +78,9 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       })
     }
 
-    // Embeddingを生成
     const chunkTexts = chunks.map((c) => c.content)
     const embeddings = await generateEmbeddings(chunkTexts)
 
-    // ドキュメントをDBに挿入
-    // Note: storage_pathはPhase 6では使用しないがDBスキーマで必須のため、
-    //       マイグレーション003_storage_path_nullable.sql適用後はnull許可
     const { data: document, error: docError } = await supabaseAdmin
       .from('documents')
       .insert({
@@ -96,7 +88,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
         name: filename,
         type: documentType,
         status: 'processing',
-        storage_path: `inline/${userId}/${Date.now()}_${filename}`, // Phase 6: inline処理を示すダミーパス
+        storage_path: `inline/${userId}/${Date.now()}_${filename}`,
         file_size_bytes: file.size,
         page_count: parsed.pageCount || null,
         word_count: parsed.wordCount,
@@ -107,19 +99,15 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       .single()
 
     if (docError || !document) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to save document',
-      })
+      return res.status(500).json({ success: false, error: 'Failed to save document' })
     }
 
-    // チャンクをDBに挿入
     const chunkInserts = chunks.map((chunk, index) => ({
       document_id: document.id,
       user_id: userId,
       content: chunk.content,
       chunk_index: chunk.chunkIndex,
-      embedding: `[${embeddings[index].join(',')}]`, // pgvector形式
+      embedding: `[${embeddings[index].join(',')}]`,
     }))
 
     const { error: chunksError } = await supabaseAdmin
@@ -127,15 +115,10 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       .insert(chunkInserts)
 
     if (chunksError) {
-      // ドキュメントを削除してロールバック（CASCADE で chunks も自動削除）
       await supabaseAdmin.from('documents').delete().eq('id', document.id)
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to save document chunks',
-      })
+      return res.status(500).json({ success: false, error: 'Failed to save document chunks' })
     }
 
-    // ステータスを更新
     const { error: updateError } = await supabaseAdmin
       .from('documents')
       .update({
@@ -145,7 +128,6 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
       .eq('id', document.id)
 
     if (updateError) {
-      // ステータス更新失敗時はエラー状態にして孤立を防止
       await supabaseAdmin
         .from('documents')
         .update({ status: 'error', error_message: 'Failed to update status after processing' })
@@ -170,7 +152,7 @@ async function handleUpload(req: VercelRequest, res: VercelResponse, userId: str
   }
 }
 
-async function handleList(req: VercelRequest, res: VercelResponse, userId: string) {
+async function handleList(_req: VercelRequest, res: VercelResponse, userId: string) {
   const { data: documents, error } = await supabaseAdmin
     .from('documents')
     .select('id, name, type, status, chunk_count, word_count, uploaded_at')
@@ -196,21 +178,63 @@ async function handleList(req: VercelRequest, res: VercelResponse, userId: strin
   })
 }
 
+async function handleDelete(req: VercelRequest, res: VercelResponse, userId: string) {
+  const documentId = req.query.id
+
+  if (!documentId || typeof documentId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Document ID is required' })
+  }
+
+  if (!isValidUUID(documentId)) {
+    return res.status(400).json({ success: false, error: 'Invalid document ID format' })
+  }
+
+  const { data: document, error: fetchError } = await supabaseAdmin
+    .from('documents')
+    .select('id, user_id')
+    .eq('id', documentId)
+    .is('deleted_at', null)
+    .single()
+
+  if (fetchError || !document) {
+    return res.status(404).json({ success: false, error: 'Document not found' })
+  }
+
+  if (document.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Access denied' })
+  }
+
+  await supabaseAdmin
+    .from('document_chunks')
+    .delete()
+    .eq('document_id', documentId)
+    .eq('user_id', userId)
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('documents')
+    .delete()
+    .eq('id', documentId)
+    .eq('user_id', userId)
+
+  if (deleteError) {
+    return res.status(500).json({ success: false, error: 'Failed to delete document' })
+  }
+
+  return res.status(200).json({ success: true })
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin
 
-  // CORS プリフライトリクエスト
   if (req.method === 'OPTIONS') {
     return handlePreflight(res, origin)
   }
 
-  // CORSヘッダーを設定
   const isAllowed = setCorsHeaders(res, origin)
   if (!isAllowed && origin) {
     return res.status(403).json({ error: 'Origin not allowed' })
   }
 
-  // JWT認証
   const jwtPayload = getUserFromRequest(req)
   if (!jwtPayload) {
     return res.status(401).json({ error: 'Unauthorized' })
@@ -218,11 +242,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const userId = jwtPayload.sub
 
-  if (req.method === 'POST') {
-    return handleUpload(req, res, userId)
-  } else if (req.method === 'GET') {
-    return handleList(req, res, userId)
-  } else {
-    return res.status(405).json({ error: 'Method not allowed' })
+  try {
+    if (req.method === 'POST') {
+      return handleUpload(req, res, userId)
+    } else if (req.method === 'GET') {
+      return handleList(req, res, userId)
+    } else if (req.method === 'DELETE') {
+      return handleDelete(req, res, userId)
+    } else {
+      return res.status(405).json({ error: 'Method not allowed' })
+    }
+  } catch {
+    return res.status(500).json({ success: false, error: 'Internal server error' })
   }
 }

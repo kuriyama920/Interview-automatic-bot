@@ -1,7 +1,8 @@
 /**
- * 想定質問 CRUD エンドポイント
+ * 想定質問 CRUD 統合エンドポイント
  * GET /api/questions - Q&A一覧取得
  * POST /api/questions - Q&Aバッチ保存（同期）
+ * DELETE /api/questions/:id - 質問削除
  *
  * @requires JWT認証
  */
@@ -11,6 +12,7 @@ import { getUserFromRequest } from '../../lib/auth'
 import { supabaseAdmin } from '../../lib/supabase'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { generateEmbeddings } from '../../lib/openai'
+import { isValidUUID } from '../../lib/validation'
 
 const MAX_QUESTIONS = 20
 const MAX_QUESTION_LENGTH = 500
@@ -87,11 +89,7 @@ function validateQuestionsInput(body: unknown): QuestionInput[] | { error: strin
   return questions
 }
 
-/**
- * ユーザーの仮想ドキュメント（expected_qa）を取得または作成
- */
 async function getOrCreateVirtualDocument(userId: string): Promise<string> {
-  // 既存の仮想ドキュメントを検索
   const { data: existing } = await supabaseAdmin
     .from('documents')
     .select('id')
@@ -102,7 +100,6 @@ async function getOrCreateVirtualDocument(userId: string): Promise<string> {
 
   if (existing) return existing.id
 
-  // 新規作成
   const { data: created, error } = await supabaseAdmin
     .from('documents')
     .insert({
@@ -124,9 +121,6 @@ async function getOrCreateVirtualDocument(userId: string): Promise<string> {
   return created.id
 }
 
-/**
- * Q&Aペアのembeddingを生成・保存
- */
 async function syncEmbeddings(
   userId: string,
   documentId: string,
@@ -134,11 +128,9 @@ async function syncEmbeddings(
 ): Promise<Map<string, string>> {
   const chunkIdMap = new Map<string, string>()
 
-  // 回答がある質問のみembeddingを生成
   const questionsWithAnswers = questions.filter((q) => q.answer.trim().length > 0)
 
   if (questionsWithAnswers.length === 0) {
-    // 既存のchunksを全削除
     await supabaseAdmin
       .from('document_chunks')
       .delete()
@@ -153,21 +145,18 @@ async function syncEmbeddings(
     return chunkIdMap
   }
 
-  // embedding用テキストを生成
   const texts = questionsWithAnswers.map(
     (q) => `質問: ${q.question}\n回答: ${q.answer}`
   )
 
   const embeddings = await generateEmbeddings(texts)
 
-  // 既存のchunksを全削除して再作成（シンプルな実装）
   await supabaseAdmin
     .from('document_chunks')
     .delete()
     .eq('document_id', documentId)
     .eq('user_id', userId)
 
-  // 新しいchunksを挿入
   const chunkInserts = questionsWithAnswers.map((q, index) => ({
     document_id: documentId,
     user_id: userId,
@@ -185,7 +174,6 @@ async function syncEmbeddings(
     throw new Error('Failed to save Q&A embeddings')
   }
 
-  // chunk_idをマッピング
   if (insertedChunks) {
     for (const chunk of insertedChunks) {
       const question = questionsWithAnswers[chunk.chunk_index]
@@ -195,7 +183,6 @@ async function syncEmbeddings(
     }
   }
 
-  // ドキュメントのchunk_countを更新
   await supabaseAdmin
     .from('documents')
     .update({ chunk_count: questionsWithAnswers.length })
@@ -238,60 +225,16 @@ async function handleSave(req: VercelRequest, res: VercelResponse, userId: strin
 
   const inputQuestions = validation
 
-  try {
-    // 仮想ドキュメントを取得・作成
-    const documentId = await getOrCreateVirtualDocument(userId)
+  const documentId = await getOrCreateVirtualDocument(userId)
 
-    // 既存のQ&A IDを取得（後で安全に削除するため）
-    const { data: existingQuestions } = await supabaseAdmin
-      .from('interview_questions')
-      .select('id')
-      .eq('user_id', userId)
+  const { data: existingQuestions } = await supabaseAdmin
+    .from('interview_questions')
+    .select('id')
+    .eq('user_id', userId)
 
-    const existingIds = (existingQuestions ?? []).map((q) => q.id)
+  const existingIds = (existingQuestions ?? []).map((q) => q.id)
 
-    if (inputQuestions.length === 0) {
-      // 全削除のみ（既存データがある場合のみ）
-      if (existingIds.length > 0) {
-        await supabaseAdmin
-          .from('interview_questions')
-          .delete()
-          .in('id', existingIds)
-      }
-
-      await supabaseAdmin
-        .from('document_chunks')
-        .delete()
-        .eq('document_id', documentId)
-        .eq('user_id', userId)
-
-      await supabaseAdmin
-        .from('documents')
-        .update({ chunk_count: 0 })
-        .eq('id', documentId)
-
-      return res.status(200).json({ success: true, questions: [] })
-    }
-
-    // 新しいQ&Aを先に挿入（失敗してもデータ消失しない）
-    const inserts = inputQuestions.map((q) => ({
-      user_id: userId,
-      question: q.question,
-      answer: q.answer,
-      sort_order: q.sortOrder,
-      is_auto_generated: false,
-    }))
-
-    const { data: savedQuestions, error: insertError } = await supabaseAdmin
-      .from('interview_questions')
-      .insert(inserts)
-      .select('id, question, answer, sort_order, is_auto_generated, created_at, updated_at')
-
-    if (insertError || !savedQuestions) {
-      return res.status(500).json({ success: false, error: 'Failed to save questions' })
-    }
-
-    // 挿入成功後に旧データを削除（データ消失リスクなし）
+  if (inputQuestions.length === 0) {
     if (existingIds.length > 0) {
       await supabaseAdmin
         .from('interview_questions')
@@ -299,42 +242,142 @@ async function handleSave(req: VercelRequest, res: VercelResponse, userId: strin
         .in('id', existingIds)
     }
 
-    // Embeddingを同期
-    const chunkIdMap = await syncEmbeddings(
-      userId,
-      documentId,
-      (savedQuestions as DbQuestion[]).map((q) => ({
-        id: q.id,
-        question: q.question,
-        answer: q.answer,
-      }))
-    )
+    await supabaseAdmin
+      .from('document_chunks')
+      .delete()
+      .eq('document_id', documentId)
+      .eq('user_id', userId)
 
-    // chunk_idを並列更新（N+1クエリ解消）
-    await Promise.all(
-      Array.from(chunkIdMap.entries()).map(([questionId, chunkId]) =>
-        supabaseAdmin
-          .from('interview_questions')
-          .update({ chunk_id: chunkId })
-          .eq('id', questionId)
-      )
-    )
+    await supabaseAdmin
+      .from('documents')
+      .update({ chunk_count: 0 })
+      .eq('id', documentId)
 
-    return res.status(200).json({
-      success: true,
-      questions: (savedQuestions as DbQuestion[]).map((q) => ({
-        id: q.id,
-        question: q.question,
-        answer: q.answer,
-        sortOrder: q.sort_order,
-        isAutoGenerated: q.is_auto_generated,
-        createdAt: q.created_at,
-        updatedAt: q.updated_at,
-      })),
-    })
-  } catch {
+    return res.status(200).json({ success: true, questions: [] })
+  }
+
+  const inserts = inputQuestions.map((q) => ({
+    user_id: userId,
+    question: q.question,
+    answer: q.answer,
+    sort_order: q.sortOrder,
+    is_auto_generated: false,
+  }))
+
+  const { data: savedQuestions, error: insertError } = await supabaseAdmin
+    .from('interview_questions')
+    .insert(inserts)
+    .select('id, question, answer, sort_order, is_auto_generated, created_at, updated_at')
+
+  if (insertError || !savedQuestions) {
     return res.status(500).json({ success: false, error: 'Failed to save questions' })
   }
+
+  if (existingIds.length > 0) {
+    await supabaseAdmin
+      .from('interview_questions')
+      .delete()
+      .in('id', existingIds)
+  }
+
+  const chunkIdMap = await syncEmbeddings(
+    userId,
+    documentId,
+    (savedQuestions as DbQuestion[]).map((q) => ({
+      id: q.id,
+      question: q.question,
+      answer: q.answer,
+    }))
+  )
+
+  await Promise.all(
+    Array.from(chunkIdMap.entries()).map(([questionId, chunkId]) =>
+      supabaseAdmin
+        .from('interview_questions')
+        .update({ chunk_id: chunkId })
+        .eq('id', questionId)
+    )
+  )
+
+  return res.status(200).json({
+    success: true,
+    questions: (savedQuestions as DbQuestion[]).map((q) => ({
+      id: q.id,
+      question: q.question,
+      answer: q.answer,
+      sortOrder: q.sort_order,
+      isAutoGenerated: q.is_auto_generated,
+      createdAt: q.created_at,
+      updatedAt: q.updated_at,
+    })),
+  })
+}
+
+async function handleDeleteQuestion(req: VercelRequest, res: VercelResponse, userId: string) {
+  const questionId = req.query.id
+
+  if (!questionId || typeof questionId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Question ID is required' })
+  }
+
+  if (!isValidUUID(questionId)) {
+    return res.status(400).json({ success: false, error: 'Invalid question ID format' })
+  }
+
+  const { data: question, error: fetchError } = await supabaseAdmin
+    .from('interview_questions')
+    .select('id, user_id, chunk_id')
+    .eq('id', questionId)
+    .single()
+
+  if (fetchError || !question) {
+    return res.status(404).json({ success: false, error: 'Question not found' })
+  }
+
+  if (question.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Access denied' })
+  }
+
+  if (question.chunk_id) {
+    await supabaseAdmin
+      .from('document_chunks')
+      .delete()
+      .eq('id', question.chunk_id)
+      .eq('user_id', userId)
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('interview_questions')
+    .delete()
+    .eq('id', questionId)
+    .eq('user_id', userId)
+
+  if (deleteError) {
+    return res.status(500).json({ success: false, error: 'Failed to delete question' })
+  }
+
+  const { data: virtualDoc } = await supabaseAdmin
+    .from('documents')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('type', 'expected_qa')
+    .is('deleted_at', null)
+    .single()
+
+  if (virtualDoc) {
+    const { count } = await supabaseAdmin
+      .from('document_chunks')
+      .select('id', { count: 'exact', head: true })
+      .eq('document_id', virtualDoc.id)
+      .eq('user_id', userId)
+
+    await supabaseAdmin
+      .from('documents')
+      .update({ chunk_count: count ?? 0 })
+      .eq('id', virtualDoc.id)
+  }
+
+  return res.status(200).json({ success: true })
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -356,11 +399,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const userId = jwtPayload.sub
 
-  if (req.method === 'GET') {
-    return handleList(req, res, userId)
-  } else if (req.method === 'POST') {
-    return handleSave(req, res, userId)
-  } else {
-    return res.status(405).json({ success: false, error: 'Method not allowed' })
+  try {
+    if (req.method === 'GET') {
+      return handleList(req, res, userId)
+    } else if (req.method === 'POST') {
+      return handleSave(req, res, userId)
+    } else if (req.method === 'DELETE') {
+      return handleDeleteQuestion(req, res, userId)
+    } else {
+      return res.status(405).json({ success: false, error: 'Method not allowed' })
+    }
+  } catch {
+    return res.status(500).json({ success: false, error: 'Internal server error' })
   }
 }

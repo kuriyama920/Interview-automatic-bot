@@ -13,8 +13,12 @@ import type { AppSettings, AudioSource } from '../types/settings'
 
 const log = createLogger('IPC')
 
-let sttService: STTService | null = null
+// 音声ソースごとに独立したSTT接続を管理
+// 'both'モード: mic用とsystem用の2つの接続
+// 'mic'/'system'モード: 単一接続
+const sttServices = new Map<string, STTService>()
 let sttUsingProxy = false
+let currentAudioSource: AudioSource = 'system'
 let currentAIAbortController: AbortController | null = null
 
 export function setupIPC(mainWindow: BrowserWindow): void {
@@ -170,18 +174,29 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('audio:getSource', () => {
     log.debug('audio:getSource called')
     try {
-      const source = settingsService.getSetting('audioSource') || 'mic'
+      const source = settingsService.getSetting('audioSource') || 'system'
       return { success: true, source }
     } catch (error) {
       log.error('Failed to get audio source', { error: String(error) })
-      return { success: false, error: String(error), source: 'mic' }
+      return { success: false, error: String(error), source: 'system' }
     }
   })
 
   // 音声認識開始（Phase 8: プロキシ経由で一時トークン取得 or カスタムキー直接接続）
+  // 音声ソースに応じて1つまたは2つのSTT接続を作成
   ipcMain.handle('stt:start', async () => {
     log.info('stt:start called')
     try {
+      // 現在の音声ソース設定を取得
+      const audioSource = (settingsService.getSetting('audioSource') || 'system') as AudioSource
+      currentAudioSource = audioSource
+
+      // 必要なSTT接続のソースを決定
+      const sources: ('mic' | 'system')[] =
+        audioSource === 'both' ? ['mic', 'system'] : [audioSource as 'mic' | 'system']
+
+      log.info('STT sources to connect', { audioSource, sources })
+
       // カスタムキーを確認（設定 → 環境変数の優先順位）
       const customKey = settingsService.getEffectiveApiKey('deepgram')
 
@@ -222,60 +237,84 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         log.info('Temporary STT token obtained', { expiresIn: tokenData.expiresIn })
       }
 
-      if (sttService) {
-        log.debug('Disconnecting existing service')
-        await sttService.disconnect()
+      // 既存の接続をクリーンアップ
+      for (const [key, service] of sttServices) {
+        log.debug('Disconnecting existing service', { source: key })
+        await service.disconnect()
+      }
+      sttServices.clear()
+
+      // ソースごとにSTT接続を作成
+      for (const source of sources) {
+        log.debug('Creating STT service...', { source })
+        const service = new STTService(apiKey)
+        await service.connect((result: TranscriptResult) => {
+          log.debug('Sending transcript to renderer', {
+            textLength: result.text.length,
+            isFinal: result.isFinal,
+            source,
+          })
+          // 音声ソースをタグ付けしてレンダラーに送信
+          mainWindow.webContents.send('stt:transcript', {
+            ...result,
+            source,
+          })
+        })
+        sttServices.set(source, service)
       }
 
-      log.debug('Creating STT service...')
-      sttService = new STTService(apiKey)
-      await sttService.connect((result: TranscriptResult) => {
-        log.debug('Sending transcript to renderer', { textLength: result.text.length, isFinal: result.isFinal })
-        mainWindow.webContents.send('stt:transcript', result)
-      })
-
-      log.info('STT connected successfully')
+      log.info('STT connected successfully', { connections: sources.length })
       return { success: true }
     } catch (error) {
       log.error('Failed to start STT', { error: String(error) })
+      // エラー時は部分的に接続したサービスをクリーンアップ
+      for (const [, service] of sttServices) {
+        try { await service.disconnect() } catch { /* cleanup */ }
+      }
+      sttServices.clear()
       return { success: false, error: String(error) }
     }
   })
 
   // 音声認識停止（Phase 8: プロキシ利用時は使用量を報告）
+  // 複数接続がある場合はすべて停止し、合計使用量を報告
   ipcMain.handle('stt:stop', async () => {
-    log.info('stt:stop called')
+    log.info('stt:stop called', { connections: sttServices.size })
     try {
-      if (sttService) {
-        const sessionMinutes = sttService.getSessionMinutes()
-        await sttService.disconnect()
-
-        // プロキシ利用時は使用量を報告（失敗しても停止をブロックしない）
-        if (sttUsingProxy && sessionMinutes > 0) {
-          try {
-            log.info('Reporting STT usage', { minutes: sessionMinutes })
-            const response = await authService.authenticatedFetch(
-              `${API_BASE_URL}/api/stt/usage`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ minutes: sessionMinutes }),
-              }
-            )
-            if (!response.ok) {
-              log.warn('Failed to report STT usage', { status: response.status })
-            } else {
-              const usageData = await response.json()
-              log.info('STT usage reported', { recorded: usageData.recorded, usage: usageData.usage })
-            }
-          } catch (usageError) {
-            log.warn('STT usage report failed (non-blocking)', { error: String(usageError) })
-          }
-        }
-
-        sttService = null
-        sttUsingProxy = false
+      // 全接続の使用量を集計して停止
+      let totalMinutes = 0
+      for (const [source, service] of sttServices) {
+        const minutes = service.getSessionMinutes()
+        totalMinutes += minutes
+        log.debug('Disconnecting STT service', { source, minutes })
+        await service.disconnect()
       }
+      sttServices.clear()
+
+      // プロキシ利用時は合計使用量を報告（失敗しても停止をブロックしない）
+      if (sttUsingProxy && totalMinutes > 0) {
+        try {
+          log.info('Reporting STT usage', { minutes: totalMinutes })
+          const response = await authService.authenticatedFetch(
+            `${API_BASE_URL}/api/stt/usage`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ minutes: totalMinutes }),
+            }
+          )
+          if (!response.ok) {
+            log.warn('Failed to report STT usage', { status: response.status })
+          } else {
+            const usageData = await response.json()
+            log.info('STT usage reported', { recorded: usageData.recorded, usage: usageData.usage })
+          }
+        } catch (usageError) {
+          log.warn('STT usage report failed (non-blocking)', { error: String(usageError) })
+        }
+      }
+
+      sttUsingProxy = false
       return { success: true }
     } catch (error) {
       log.error('Failed to stop STT', { error: String(error) })
@@ -284,29 +323,44 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   // 音声データ送信（preloadからnumber[]として送信される）
+  // source パラメータで適切なSTT接続にルーティング
   let audioChunkCount = 0
-  ipcMain.on('stt:audio', (_event, audioData: number[]) => {
+  ipcMain.on('stt:audio', (_event, audioData: number[], source?: string) => {
     audioChunkCount++
+
+    // ルーティング: sourceが指定されていればその接続へ、なければ単一接続を使用
+    const targetSource = source || (currentAudioSource === 'both' ? undefined : currentAudioSource)
+    const service = targetSource
+      ? sttServices.get(targetSource)
+      : sttServices.values().next().value // 単一接続のフォールバック
+
     if (audioChunkCount % 50 === 1) {
       log.debug('Audio chunk received', {
         chunk: audioChunkCount,
         size: audioData.length,
-        connected: sttService?.isConnected(),
+        source: targetSource,
+        connected: service?.isConnected(),
       })
     }
-    if (sttService && sttService.isConnected()) {
+    if (service && service.isConnected()) {
       // number[]をBufferに変換してDeepgramに送信
       const buffer = Buffer.from(audioData)
-      sttService.send(buffer)
+      service.send(buffer)
     } else if (audioChunkCount % 50 === 1) {
-      log.warn('Audio received but STT not connected')
+      log.warn('Audio received but STT not connected', { source: targetSource })
     }
   })
 
-  // 接続状態確認
+  // 接続状態確認（いずれかの接続がアクティブならtrue）
   ipcMain.handle('stt:status', () => {
-    const connected = sttService?.isConnected() ?? false
-    log.debug(`stt:status called, connected: ${connected}`)
+    let connected = false
+    for (const [, service] of sttServices) {
+      if (service.isConnected()) {
+        connected = true
+        break
+      }
+    }
+    log.debug(`stt:status called, connected: ${connected}, services: ${sttServices.size}`)
     return { connected }
   })
 
@@ -376,6 +430,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
     // 前回の生成を中断
     if (currentAIAbortController) {
+      log.info('Aborting previous AI generation')
       currentAIAbortController.abort()
     }
     currentAIAbortController = new AbortController()
@@ -386,11 +441,17 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         // 自動初期化（カスタムキー or プロキシモード）
         const customKey = settingsService.getEffectiveApiKey('openai')
         if (customKey) {
+          log.info('AI auto-init with custom key')
           aiService.initialize({ apiKey: customKey })
         } else {
+          log.info('AI auto-init with proxy mode')
           aiService.initialize({ useProxy: true, apiBaseUrl: API_BASE_URL })
         }
       }
+      log.info('AI service config', {
+        initialized: aiService.isInitialized(),
+        useProxy: aiService.isUsingProxy(),
+      })
 
       let contextString = explicitContext || ''
 
@@ -431,8 +492,12 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       )
 
       if (!signal.aborted) {
+        log.info('Sending ai:complete to renderer', {
+          answerLength: response.answer.length,
+          answerPreview: response.answer.substring(0, 80),
+          suggestions: response.suggestions.length,
+        })
         mainWindow.webContents.send('ai:complete', response)
-        log.info('AI stream response completed')
       }
       return { success: true, response }
     } catch (error) {

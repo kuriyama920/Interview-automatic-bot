@@ -44,7 +44,7 @@ export class AIService {
 
     this.config = {
       model: 'gpt-5-mini',
-      maxTokens: 500,
+      maxTokens: 4000,
       ...config,
     }
 
@@ -109,7 +109,11 @@ export class AIService {
       throw new Error('AI service not initialized')
     }
 
-    log.debug('Generating stream response for question', { questionLength: question.length })
+    log.info('Generating stream response', {
+      questionLength: question.length,
+      model: this.config.model,
+      maxTokens: this.config.maxTokens,
+    })
 
     const userMessage = context
       ? `コンテキスト情報:\n${context}\n\n面接官の質問: ${question}`
@@ -130,17 +134,23 @@ export class AIService {
       )
 
       let fullContent = ''
+      let chunkCount = 0
 
       for await (const chunk of stream) {
         if (signal?.aborted) break
         const content = chunk.choices[0]?.delta?.content || ''
         fullContent += content
         if (onChunk && content) {
+          chunkCount++
           onChunk(content)
         }
       }
 
-      log.info('AI stream response completed', { responseLength: fullContent.length })
+      log.info('AI stream response completed', {
+        responseLength: fullContent.length,
+        chunkCount,
+        contentPreview: fullContent.substring(0, 100),
+      })
 
       return this.parseResponse(fullContent)
     } catch (error) {

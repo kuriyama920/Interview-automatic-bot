@@ -3,4 +3,5 @@ export interface TranscriptResult {
   isFinal: boolean
   confidence: number
   timestamp: number
+  source?: 'mic' | 'system'
 }

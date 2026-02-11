@@ -3,7 +3,7 @@
  * Linear Design + Apple Vibrancy スタイル
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSTT } from './hooks/useSTT'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
@@ -16,33 +16,16 @@ import { SettingsModal } from './components/SettingsModal'
 import { SubscriptionModal } from './components/SubscriptionModal'
 import { LoginPage } from './components/LoginPage'
 import {
-  Card,
-  CardHeader,
-  Button,
-  IconButton,
   Badge,
   Alert,
   Spinner,
   Avatar,
-  Toggle,
   WaveformVisualizer,
 } from './components/ui'
 
 // ============================================================
 // アイコンコンポーネント
 // ============================================================
-
-const SettingsIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-    />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-)
 
 const LogoutIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -66,13 +49,6 @@ const MicrophoneIcon = () => (
   </svg>
 )
 
-const StopIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-  </svg>
-)
-
 const SparklesIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -84,22 +60,23 @@ const SparklesIcon = () => (
   </svg>
 )
 
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-    />
+const FolderIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
   </svg>
 )
 
-const UploadIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+const ChevronLeftIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
   </svg>
 )
+
+const AUDIO_SOURCE_LABELS = {
+  mic: 'マイク',
+  system: 'システム音声',
+  both: 'マイク＋システム音声',
+} as const
 
 // ============================================================
 // スケルトンコンポーネント
@@ -129,11 +106,10 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true)
   const [appError, setAppError] = useState<string | null>(null)
-  const [isTestMode, setIsTestMode] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSubscription, setShowSubscription] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showSidebar, setShowSidebar] = useState(false)
   const lastProcessedIndex = useRef<number>(-1)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
@@ -150,13 +126,14 @@ function AppContent() {
     isConnected,
     transcripts,
     currentText,
+    currentSpeaker,
     error: sttError,
     connect,
     disconnect,
     clearTranscripts,
   } = useSTT()
 
-  const { isCapturing, error: captureError, startCapture, stopCapture } = useAudioCapture()
+  const { isCapturing, error: captureError, audioSource, setAudioSource, startCapture, stopCapture } = useAudioCapture()
 
   const {
     response: aiResponse,
@@ -275,56 +252,6 @@ function AppContent() {
     }
   }
 
-  // テストモード: 音声ファイルをアップロードして送信
-  const handleTestFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file || !apiKey) return
-
-    setIsLoading(true)
-    setAppError(null)
-    setIsTestMode(true)
-    lastProcessedIndex.current = -1
-    clearResponse()
-
-    toast.info(`テストファイルを処理中: ${file.name}`)
-
-    try {
-      await connect()
-
-      const arrayBuffer = await file.arrayBuffer()
-      const audioData = new Uint8Array(arrayBuffer)
-
-      const chunkSize = 4096
-      for (let i = 0; i < audioData.length; i += chunkSize) {
-        const chunk = audioData.slice(i, i + chunkSize)
-        window.electron.stt.sendAudio(chunk.buffer)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-      await disconnect()
-      toast.success('テストファイルの処理が完了しました')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'テスト中にエラーが発生しました'
-      toast.error(message)
-      await disconnect()
-    } finally {
-      setIsLoading(false)
-      setIsTestMode(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    }
-  }
-
-  // 手動でAI回答を生成
-  const handleManualGenerate = useCallback(() => {
-    const allText = transcripts.map((t) => t.text).join(' ')
-    if (allText.trim()) {
-      generateStreamResponse(allText)
-    }
-  }, [transcripts, generateStreamResponse])
-
   const handleClear = () => {
     clearTranscripts()
     clearResponse()
@@ -365,289 +292,273 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-secondary" data-theme="interview-light">
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-50 bg-translucent-white backdrop-blur-glass border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
-          {/* 左側: ロゴ */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
-              <MicrophoneIcon />
-            </div>
-            <h1 className="text-lg font-semibold text-content">Interview Bot</h1>
-            <Badge variant="info" size="sm">Phase 7</Badge>
-          </div>
-
-          {/* 右側: アクション */}
-          <div className="flex items-center gap-2">
-            <IconButton
-              icon={<SettingsIcon />}
-              label="設定"
-              onClick={() => setShowSettings(true)}
-            />
-
-            {/* ユーザーメニュー */}
-            <div className="relative" ref={userMenuRef}>
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface-hover transition-colors"
-              >
-                <Avatar src={user?.picture} name={user?.name || user?.email} size="sm" />
-              </button>
-
-              {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-56 bg-surface rounded-xl border border-border shadow-modal animate-fade-in">
-                  <div className="p-3 border-b border-border">
-                    <p className="text-sm font-medium text-content truncate">{user?.name || user?.email}</p>
-                    <p className="text-xs text-content-secondary truncate">{user?.email}</p>
-                    <Badge
-                      variant={user?.subscriptionTier === 'free' ? 'default' : 'success'}
-                      size="sm"
-                      className="mt-2"
-                    >
-                      {user?.subscriptionTier === 'free' ? 'Free' : user?.subscriptionTier === 'pro' ? 'Pro' : 'Max'}
-                    </Badge>
-                  </div>
-                  <div className="p-2 space-y-1">
-                    <button
-                      onClick={() => {
-                        setShowUserMenu(false)
-                        setShowSubscription(true)
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content rounded-lg hover:bg-surface-hover transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                      プラン管理
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowUserMenu(false)
-                        logout()
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-error rounded-lg hover:bg-error-subtle transition-colors"
-                    >
-                      <LogoutIcon />
-                      ログアウト
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* メインコンテンツ */}
-      <main className="max-w-7xl mx-auto p-4 space-y-4">
-        {/* コントロールパネル */}
-        <Card variant="default" padding="md">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            {/* ステータスバッジ */}
-            <div className="flex items-center gap-2">
-              <Badge variant={isConnected ? 'success' : 'default'}>
-                {isConnected ? '接続中' : '未接続'}
-              </Badge>
-              <Badge variant={isCapturing ? 'success' : 'default'}>
-                {isCapturing ? '録音中' : '停止'}
-              </Badge>
-              {isTestMode && <Badge variant="warning">テスト中</Badge>}
-              {isGenerating && <Badge variant="info">AI生成中</Badge>}
-            </div>
-
-            {/* コントロールボタン */}
-            <div className="flex items-center gap-2">
-              {!isConnected && !isTestMode ? (
-                <>
-                  <Button
-                    variant="primary"
-                    leftIcon={<MicrophoneIcon />}
-                    onClick={handleStart}
-                    disabled={!apiKey || isLoading}
-                    isLoading={isLoading}
-                  >
-                    録音開始
-                  </Button>
-                  <label>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="audio/*,.wav,.mp3,.webm,.ogg"
-                      className="hidden"
-                      onChange={handleTestFile}
-                      disabled={!apiKey || isLoading}
-                    />
-                    <Button
-                      as="span"
-                      variant="secondary"
-                      leftIcon={<UploadIcon />}
-                      className="cursor-pointer"
-                    >
-                      テスト
-                    </Button>
-                  </label>
-                </>
-              ) : isConnected ? (
-                <Button
-                  variant="danger"
-                  leftIcon={<StopIcon />}
-                  onClick={handleStop}
-                  disabled={isLoading}
-                  isLoading={isLoading}
-                >
-                  録音停止
-                </Button>
-              ) : null}
-
-              {transcripts.length > 0 && (
-                <>
-                  <Button
-                    variant="primary"
-                    leftIcon={<SparklesIcon />}
-                    onClick={handleManualGenerate}
-                    disabled={isLoading || isGenerating}
-                    isLoading={isGenerating}
-                  >
-                    AI回答生成
-                  </Button>
-                  <IconButton
-                    icon={<TrashIcon />}
-                    variant="secondary"
-                    label="クリア"
-                    onClick={handleClear}
-                    disabled={isLoading}
-                  />
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* 自動生成トグル */}
-          <div className="mt-4 pt-4 border-t border-border">
-            <Toggle
-              checked={settings.autoGenerateAI}
-              onChange={(checked) => saveSettings({ autoGenerateAI: checked })}
-              label="文字起こし後に自動でAI回答を生成"
-            />
-          </div>
-        </Card>
-
-        {/* エラー表示 */}
-        {error && (
+    <div className="h-screen flex flex-col bg-surface-secondary overflow-hidden" data-theme="interview-light">
+      {/* エラー表示 */}
+      {error && (
+        <div className="px-4 pt-2">
           <Alert variant="error" onClose={() => setAppError(null)}>
             {error}
           </Alert>
-        )}
+        </div>
+      )}
 
-        {/* メインコンテンツ: 3カラムレイアウト */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* コンテキスト設定 (サイドバー) */}
-          <div className="lg:col-span-3 space-y-4">
-            <DocumentUploadPanel />
-            <InterviewQuestionsPanel />
-          </div>
-
-          {/* 文字起こし結果 */}
-          <div className="lg:col-span-4">
-            <Card variant="default" padding="none" className="h-full">
-              <div className="p-4 border-b border-border">
-                <CardHeader
-                  title="文字起こし"
-                  subtitle="面接官の質問"
-                  className="mb-0"
-                />
-              </div>
-
-              {/* 音声波形 */}
-              {isCapturing && (
-                <div className="px-4 py-3 bg-accent-subtle border-b border-border">
-                  <WaveformVisualizer isActive={isCapturing} />
-                </div>
-              )}
-
-              <div className="p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
-                {transcripts.length === 0 && !currentText ? (
-                  <p className="text-content-tertiary text-center py-8">
-                    録音を開始すると、ここに文字起こしが表示されます
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {transcripts.map((t, i) => (
-                      <div key={i} className="p-3 bg-surface-secondary rounded-lg">
-                        <p className="text-sm text-content">{t.text}</p>
-                        <p className="text-xs text-content-tertiary mt-1">
-                          確信度: {(t.confidence * 100).toFixed(1)}%
-                        </p>
-                      </div>
-                    ))}
-                    {currentText && (
-                      <div className="p-3 bg-accent-subtle rounded-lg border border-accent/20">
-                        <p className="text-sm text-accent animate-pulse-subtle">{currentText}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-
-          {/* AI回答 */}
-          <div className="lg:col-span-5">
-            <Card variant="default" padding="none" className="h-full">
-              <div className="p-4 border-b border-border flex items-center justify-between">
-                <CardHeader
-                  title="AI推奨回答"
-                  className="mb-0"
-                />
-                {isGenerating && <Spinner size="sm" className="text-accent" />}
-              </div>
-
-              <div className="p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
-                {isGenerating && !streamingText ? (
-                  <AIResponseSkeleton />
-                ) : !aiResponse && !streamingText ? (
-                  <p className="text-content-tertiary text-center py-8">
-                    面接官の質問に対するAI推奨回答がここに表示されます
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {/* メイン回答 */}
-                    <div className="p-4 bg-success-subtle rounded-lg border border-success/20">
-                      <h4 className="text-sm font-medium text-success-text mb-2">回答例</h4>
-                      <p className="text-sm text-content whitespace-pre-wrap">
-                        {aiResponse?.answer || streamingText}
-                      </p>
-                    </div>
-
-                    {/* 補足ポイント */}
-                    {aiResponse?.suggestions && aiResponse.suggestions.length > 0 && (
-                      <div className="p-4 bg-info-subtle rounded-lg border border-info/20">
-                        <h4 className="text-sm font-medium text-info-text mb-2">補足ポイント</h4>
-                        <ul className="text-sm text-content space-y-1">
-                          {aiResponse.suggestions.map((suggestion, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-info mt-0.5">•</span>
-                              <span>{suggestion}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* 信頼度 */}
-                    {aiResponse?.confidence && (
-                      <p className="text-xs text-content-tertiary text-right">
-                        AI信頼度: {(aiResponse.confidence * 100).toFixed(0)}%
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Card>
+      {/* メインコンテンツ: 2カラム */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* サイドバー（ドキュメント） */}
+        <div
+          className={`${
+            showSidebar ? 'w-80' : 'w-0'
+          } transition-all duration-300 overflow-hidden border-r border-border bg-surface flex-shrink-0`}
+        >
+          <div className="w-80 h-full flex flex-col">
+            <div className="p-3 border-b border-border flex items-center justify-between">
+              <span className="text-sm font-medium text-content">資料管理</span>
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="p-1 rounded-md hover:bg-surface-hover text-content-secondary transition-colors"
+              >
+                <ChevronLeftIcon />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-4 p-2">
+              <DocumentUploadPanel />
+              <InterviewQuestionsPanel />
+            </div>
           </div>
         </div>
-      </main>
+
+        {/* 左パネル: 文字起こし */}
+        <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+          {/* 上部: 録音コントロール */}
+          <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* サイドバートグル */}
+              {!showSidebar && (
+                <button
+                  onClick={() => setShowSidebar(true)}
+                  className="p-1.5 rounded-lg hover:bg-surface-hover text-content-secondary transition-colors"
+                  title="資料管理"
+                >
+                  <FolderIcon />
+                </button>
+              )}
+
+              {/* 録音ステータス + 波形 */}
+              {isCapturing ? (
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                  </span>
+                  <span className="text-sm font-medium text-content">録音中</span>
+                  <WaveformVisualizer isActive={isCapturing} />
+                </div>
+              ) : (
+                <span className="text-sm text-content-secondary">待機中</span>
+              )}
+            </div>
+
+            {/* 録音ボタン */}
+            <div className="flex items-center gap-2">
+              {!isConnected ? (
+                <button
+                  onClick={handleStart}
+                  disabled={!apiKey || isLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isLoading ? <Spinner size="sm" /> : <MicrophoneIcon />}
+                  録音開始
+                </button>
+              ) : (
+                <button
+                  onClick={handleStop}
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+                >
+                  録音停止
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 文字起こし本文 */}
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {transcripts.length === 0 && !currentText ? (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-content-tertiary text-sm">
+                  録音を開始すると、ここに文字起こしが表示されます
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {transcripts.map((t, i) => {
+                  const prevSpeaker = i > 0 ? transcripts[i - 1].speaker : undefined
+                  const showLabel = t.speaker !== undefined && t.speaker !== prevSpeaker
+                  const isInterviewer = t.speaker === 0
+                  return (
+                    <div key={i}>
+                      {showLabel && (
+                        <span className={`inline-block text-xs font-medium mb-1 ${
+                          isInterviewer ? 'text-green-600' : 'text-orange-500'
+                        }`}>
+                          {isInterviewer ? '面接官' : 'あなた'}
+                        </span>
+                      )}
+                      <p className={`text-sm leading-relaxed ${
+                        t.speaker === 1 ? 'text-accent' : 'text-content'
+                      }`}>{t.text}</p>
+                    </div>
+                  )
+                })}
+                {currentText && (
+                  <div>
+                    {(() => {
+                      const lastSpeaker = transcripts.length > 0
+                        ? transcripts[transcripts.length - 1].speaker
+                        : undefined
+                      const showLabel = currentSpeaker !== undefined && currentSpeaker !== lastSpeaker
+                      const isInterviewer = currentSpeaker === 0
+                      return showLabel ? (
+                        <span className={`inline-block text-xs font-medium mb-1 ${
+                          isInterviewer ? 'text-green-600' : 'text-orange-500'
+                        }`}>
+                          {isInterviewer ? '面接官' : 'あなた'}
+                        </span>
+                      ) : null
+                    })()}
+                    <p className={`text-sm leading-relaxed ${
+                      currentSpeaker === 1 ? 'text-accent' : 'text-accent'
+                    } animate-pulse-subtle`}>{currentText}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 下部: 音声ソース */}
+          <div className="px-5 py-2.5 border-t border-border flex items-center justify-between">
+            <div className="flex items-center gap-2 text-content-tertiary">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              <span className="text-xs">{AUDIO_SOURCE_LABELS[audioSource]}</span>
+            </div>
+            {/* 音声ソース切り替え */}
+            {!isCapturing && (
+              <div className="flex items-center bg-surface-secondary rounded-md p-0.5">
+                {(['system', 'mic', 'both'] as const).map((value) => (
+                  <button
+                    key={value}
+                    onClick={() => setAudioSource(value)}
+                    className={`px-2.5 py-1 text-xs rounded transition-all ${
+                      audioSource === value
+                        ? 'bg-surface text-accent shadow-sm font-medium'
+                        : 'text-content-tertiary hover:text-content'
+                    }`}
+                  >
+                    {value === 'system' ? 'システム' : value === 'mic' ? 'マイク' : '両方'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 右パネル: AI回答 */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* 上部: タイトル + ステータス */}
+          <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SparklesIcon />
+              <span className="text-sm font-medium text-content">AI 回答提案</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {isGenerating ? (
+                <span className="text-xs text-accent flex items-center gap-1.5">
+                  <Spinner size="sm" className="text-accent" />
+                  生成中
+                </span>
+              ) : aiResponse ? (
+                <span className="text-xs text-accent font-medium">完了</span>
+              ) : null}
+
+              {/* ユーザーメニュー */}
+              <div className="relative ml-2" ref={userMenuRef}>
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="p-1 rounded-lg hover:bg-surface-hover transition-colors"
+                >
+                  <Avatar src={user?.picture} name={user?.name || user?.email} size="sm" />
+                </button>
+
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-56 bg-surface rounded-xl border border-border shadow-modal animate-fade-in z-50">
+                    <div className="p-3 border-b border-border">
+                      <p className="text-sm font-medium text-content truncate">{user?.name || user?.email}</p>
+                      <p className="text-xs text-content-secondary truncate">{user?.email}</p>
+                      <Badge
+                        variant={user?.subscriptionTier === 'free' ? 'default' : 'success'}
+                        size="sm"
+                        className="mt-2"
+                      >
+                        {user?.subscriptionTier === 'free' ? 'Free' : user?.subscriptionTier === 'pro' ? 'Pro' : 'Max'}
+                      </Badge>
+                    </div>
+                    <div className="p-2 space-y-1">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false)
+                          setShowSubscription(true)
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content rounded-lg hover:bg-surface-hover transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                        </svg>
+                        プラン管理
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false)
+                          logout()
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-error rounded-lg hover:bg-error-subtle transition-colors"
+                      >
+                        <LogoutIcon />
+                        ログアウト
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* AI回答本文 */}
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {isGenerating && !streamingText ? (
+              <AIResponseSkeleton />
+            ) : !aiResponse && !streamingText ? (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-content-tertiary text-sm">
+                  面接官の質問に対するAI推奨回答がここに表示されます
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* 回答提案ラベル */}
+                <p className="text-xs text-content-tertiary">回答提案：</p>
+
+                {/* メイン回答 */}
+                <p className="text-sm leading-relaxed text-content whitespace-pre-wrap">
+                  {aiResponse?.answer || streamingText}
+                </p>
+
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* 設定モーダル */}
       <SettingsModal

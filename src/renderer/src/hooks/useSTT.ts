@@ -8,6 +8,7 @@ interface UseSTTReturn {
   isConnected: boolean
   transcripts: TranscriptResult[]
   currentText: string
+  currentSpeaker: number | undefined
   error: string | null
   connect: () => Promise<void>
   disconnect: () => Promise<void>
@@ -20,6 +21,7 @@ export function useSTT(): UseSTTReturn {
   const [isConnected, setIsConnected] = useState(false)
   const [transcripts, setTranscripts] = useState<TranscriptResult[]>([])
   const [currentText, setCurrentText] = useState('')
+  const [currentSpeaker, setCurrentSpeaker] = useState<number | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const listenerSetup = useRef(false)
@@ -51,9 +53,11 @@ export function useSTT(): UseSTTReturn {
             return newTranscripts
           })
           setCurrentText('')
+          setCurrentSpeaker(undefined)
         } else {
           log.debug('Setting interim text')
           setCurrentText(result.text)
+          setCurrentSpeaker(result.speaker)
         }
       })
       listenerSetup.current = true
@@ -104,12 +108,14 @@ export function useSTT(): UseSTTReturn {
   const clearTranscripts = useCallback(() => {
     setTranscripts([])
     setCurrentText('')
+    setCurrentSpeaker(undefined)
   }, [])
 
   return {
     isConnected,
     transcripts,
     currentText,
+    currentSpeaker,
     error,
     connect,
     disconnect,

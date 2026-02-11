@@ -85,7 +85,7 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
 export function useAudioCapture(): UseAudioCaptureReturn {
   const [isCapturing, setIsCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [audioSource, setAudioSourceState] = useState<AudioSource>('mic')
+  const [audioSource, setAudioSourceState] = useState<AudioSource>('system')
 
   // ストリーム参照
   const micStreamRef = useRef<MediaStream | null>(null)
