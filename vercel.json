@@ -5,33 +5,35 @@
   "builds": [
     { "src": "apps/api/api/**/*.ts", "use": "@vercel/node@3.2.29" }
   ],
-  "rewrites": [
-    { "source": "/api/auth/google", "destination": "/apps/api/api/auth/unified?__route=google" },
-    { "source": "/api/auth/callback", "destination": "/apps/api/api/auth/unified?__route=callback" },
-    { "source": "/api/auth/session", "destination": "/apps/api/api/auth/unified?__route=session" },
-    { "source": "/api/auth/me", "destination": "/apps/api/api/auth/unified?__route=me" },
+  "routes": [
+    { "handle": "filesystem" },
 
-    { "source": "/api/stripe/checkout", "destination": "/apps/api/api/stripe/billing?__route=checkout" },
-    { "source": "/api/stripe/portal", "destination": "/apps/api/api/stripe/billing?__route=portal" },
-    { "source": "/api/stripe/webhook", "destination": "/apps/api/api/stripe/webhook" },
-    { "source": "/api/stripe/success", "destination": "/apps/api/api/stripe/pages?__route=success" },
-    { "source": "/api/stripe/cancel", "destination": "/apps/api/api/stripe/pages?__route=cancel" },
+    { "src": "/api/auth/google", "dest": "/apps/api/api/auth/unified.ts?__route=google" },
+    { "src": "/api/auth/callback", "dest": "/apps/api/api/auth/unified.ts?__route=callback" },
+    { "src": "/api/auth/session", "dest": "/apps/api/api/auth/unified.ts?__route=session" },
+    { "src": "/api/auth/me", "dest": "/apps/api/api/auth/unified.ts?__route=me" },
 
-    { "source": "/api/ai/generate", "destination": "/apps/api/api/ai/unified?__route=generate" },
-    { "source": "/api/ai/embeddings", "destination": "/apps/api/api/ai/unified?__route=embeddings" },
+    { "src": "/api/stripe/checkout", "dest": "/apps/api/api/stripe/billing.ts?__route=checkout" },
+    { "src": "/api/stripe/portal", "dest": "/apps/api/api/stripe/billing.ts?__route=portal" },
+    { "src": "/api/stripe/webhook", "dest": "/apps/api/api/stripe/webhook.ts" },
+    { "src": "/api/stripe/success", "dest": "/apps/api/api/stripe/pages.ts?__route=success" },
+    { "src": "/api/stripe/cancel", "dest": "/apps/api/api/stripe/pages.ts?__route=cancel" },
 
-    { "source": "/api/stt/token", "destination": "/apps/api/api/stt/unified?__route=token" },
-    { "source": "/api/stt/usage", "destination": "/apps/api/api/stt/unified?__route=usage" },
+    { "src": "/api/ai/generate", "dest": "/apps/api/api/ai/unified.ts?__route=generate" },
+    { "src": "/api/ai/embeddings", "dest": "/apps/api/api/ai/unified.ts?__route=embeddings" },
 
-    { "source": "/api/documents/search", "destination": "/apps/api/api/documents/search" },
-    { "source": "/api/documents/:id", "destination": "/apps/api/api/documents/crud?id=:id" },
-    { "source": "/api/documents", "destination": "/apps/api/api/documents/crud" },
+    { "src": "/api/stt/token", "dest": "/apps/api/api/stt/unified.ts?__route=token" },
+    { "src": "/api/stt/usage", "dest": "/apps/api/api/stt/unified.ts?__route=usage" },
 
-    { "source": "/api/questions/generate", "destination": "/apps/api/api/questions/generate" },
-    { "source": "/api/questions/:id", "destination": "/apps/api/api/questions/crud?id=:id" },
-    { "source": "/api/questions", "destination": "/apps/api/api/questions/crud" },
+    { "src": "/api/documents/search", "dest": "/apps/api/api/documents/search.ts" },
+    { "src": "/api/documents/(?<id>[^/]+)", "dest": "/apps/api/api/documents/crud.ts?id=$id" },
+    { "src": "/api/documents", "dest": "/apps/api/api/documents/crud.ts" },
 
-    { "source": "/api/subscription", "destination": "/apps/api/api/subscription" },
-    { "source": "/api/cron/reset-usage", "destination": "/apps/api/api/cron/reset-usage" }
+    { "src": "/api/questions/generate", "dest": "/apps/api/api/questions/generate.ts" },
+    { "src": "/api/questions/(?<id>[^/]+)", "dest": "/apps/api/api/questions/crud.ts?id=$id" },
+    { "src": "/api/questions", "dest": "/apps/api/api/questions/crud.ts" },
+
+    { "src": "/api/subscription", "dest": "/apps/api/api/subscription.ts" },
+    { "src": "/api/cron/reset-usage", "dest": "/apps/api/api/cron/reset-usage.ts" }
   ]
 }
