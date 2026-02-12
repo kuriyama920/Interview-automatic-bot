@@ -24,8 +24,8 @@ export function Footer() {
           <div>
             <h3 className="text-sm font-semibold text-content mb-3">プロダクト</h3>
             <ul className="space-y-2 text-sm text-content-secondary">
-              <li><a href="#features" className="hover:text-content transition-colors">機能紹介</a></li>
-              <li><a href="#pricing" className="hover:text-content transition-colors">料金プラン</a></li>
+              <li><a href="/#features" className="hover:text-content transition-colors">機能紹介</a></li>
+              <li><a href="/#pricing" className="hover:text-content transition-colors">料金プラン</a></li>
               <li><Link href="/download" className="hover:text-content transition-colors">ダウンロード</Link></li>
             </ul>
           </div>
@@ -34,9 +34,8 @@ export function Footer() {
           <div>
             <h3 className="text-sm font-semibold text-content mb-3">その他</h3>
             <ul className="space-y-2 text-sm text-content-secondary">
-              <li><a href="https://github.com/kuriyama920/Interview-automatic-bot" target="_blank" rel="noopener noreferrer" className="hover:text-content transition-colors">GitHub</a></li>
-              <li><span className="text-content-tertiary">プライバシーポリシー（準備中）</span></li>
-              <li><span className="text-content-tertiary">利用規約（準備中）</span></li>
+              <li><Link href="/privacy" className="hover:text-content transition-colors">プライバシーポリシー</Link></li>
+              <li><Link href="/terms" className="hover:text-content transition-colors">利用規約</Link></li>
             </ul>
           </div>
         </div>

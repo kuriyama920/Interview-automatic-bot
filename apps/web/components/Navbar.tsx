@@ -4,10 +4,10 @@ import { useState } from 'react'
 import Link from 'next/link'
 
 const navLinks = [
-  { href: '#features', label: '機能' },
-  { href: '#demo', label: 'デモ' },
-  { href: '#pricing', label: '料金' },
-  { href: '#faq', label: 'FAQ' },
+  { href: '/#demo', label: 'デモ' },
+  { href: '/#features', label: '機能' },
+  { href: '/#pricing', label: '料金' },
+  { href: '/#faq', label: 'FAQ' },
 ]
 
 export function Navbar() {
