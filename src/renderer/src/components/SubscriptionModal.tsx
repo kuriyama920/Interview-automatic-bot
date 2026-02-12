@@ -6,7 +6,7 @@
 
 import { useEffect } from 'react'
 import { useSubscription } from '../hooks/useSubscription'
-import { Button, Badge, Spinner, Alert } from './ui'
+import { Button, Badge, Spinner, ErrorAlert } from './ui'
 
 interface SubscriptionModalProps {
   isOpen: boolean
@@ -222,9 +222,7 @@ export function SubscriptionModal({ isOpen, onClose }: SubscriptionModalProps) {
 
         <div className="p-6 space-y-6">
           {/* エラー表示 */}
-          {error && (
-            <Alert variant="error">{error}</Alert>
-          )}
+          {error && <ErrorAlert error={error} />}
 
           {/* ローディング */}
           {isLoading ? (

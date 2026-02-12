@@ -229,50 +229,79 @@ function AppContent() {
     checkApiKey()
   }, [])
 
-  // interim（途中の文字起こし）からデバウンス付きでAI回答を先行生成
-  // 面接官の発言（system音声）のみをトリガーとする
-  const interimTimerRef = useRef<ReturnType<typeof setTimeout>>()
-  const INTERIM_DEBOUNCE_MS = 1500 // 1.5秒間テキストが安定したら生成開始
-  const INTERIM_MIN_LENGTH = 15   // 最低15文字以上で生成開始
+  // Progressive AI Generation: 面接官の発言中にリアルタイムでAI回答を生成
+  // デバウンスなし - interim到着時に即座に生成開始、テキスト成長時に再生成
+  const lastGeneratedTextRef = useRef<string>('')
+  const INTERIM_MIN_LENGTH = 10    // 最低10文字以上で生成開始
+  const FINAL_MIN_LENGTH = 10      // 確定テキストの最低文字数
+  const REGROWTH_THRESHOLD = 0.3   // 前回より30%以上成長したら再生成
+  const SIMILARITY_THRESHOLD = 0.6 // 60%以上類似なら再生成スキップ
 
   useEffect(() => {
     if (!settings.autoGenerateAI) return
     if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
-    // 自分の発言（mic）ではAI生成しない
     if (currentSource === 'mic') return
 
-    // デバウンス: 1.5秒間テキストが変わらなければAI生成開始
-    interimTimerRef.current = setTimeout(() => {
-      generateStreamResponse(currentText)
-    }, INTERIM_DEBOUNCE_MS)
+    const trimmed = currentText.trim()
+    const lastText = lastGeneratedTextRef.current
 
-    return () => {
-      if (interimTimerRef.current) clearTimeout(interimTimerRef.current)
+    // 初回: まだAI生成していない → 即座に生成開始
+    if (!lastText) {
+      lastGeneratedTextRef.current = trimmed
+      generateStreamResponse(trimmed)
+      return
+    }
+
+    // テキストが前回より十分成長 or 大幅に変化した場合に再生成
+    const lengthChange = (trimmed.length - lastText.length) / lastText.length
+    if (lengthChange >= REGROWTH_THRESHOLD) {
+      lastGeneratedTextRef.current = trimmed
+      generateStreamResponse(trimmed)
+    } else if (lengthChange <= -REGROWTH_THRESHOLD) {
+      // テキストが大幅に縮小（Deepgramの修正）→ 再生成
+      lastGeneratedTextRef.current = trimmed
+      generateStreamResponse(trimmed)
     }
   }, [currentText, currentSource, settings.autoGenerateAI, generateStreamResponse])
 
-  // 確定文字起こしが来たら、interim生成を中断して確定テキストで再生成
-  // 面接官の発言（system音声）のみをトリガーとする
+  // 確定文字起こし: 面接官の発言のみ
+  // 前回interim生成と類似なら再生成をスキップ（ストリーミング中の回答を維持）
   useEffect(() => {
     if (!settings.autoGenerateAI) return
 
     const newTranscripts = transcripts.slice(lastProcessedIndex.current + 1)
     if (newTranscripts.length === 0) return
 
-    // 面接官の発言（system or sourceなし）のみフィルタリング
     const interviewerTranscripts = newTranscripts.filter((t) => t.source !== 'mic')
     if (interviewerTranscripts.length === 0) {
-      // 自分の発言だけの場合はインデックスだけ進める
       lastProcessedIndex.current = transcripts.length - 1
       return
     }
 
     const latestText = interviewerTranscripts.map((t) => t.text).join(' ')
-    if (latestText.trim().length > 10) {
+    if (latestText.trim().length > FINAL_MIN_LENGTH) {
       lastProcessedIndex.current = transcripts.length - 1
-      // interim生成のタイマーをキャンセル
-      if (interimTimerRef.current) clearTimeout(interimTimerRef.current)
-      // 確定テキストで（再）生成（内部で前回を自動abort）
+
+      // 前回interim生成テキストと類似度を比較
+      const lastGen = lastGeneratedTextRef.current
+      const finalTrimmed = latestText.trim()
+      if (lastGen) {
+        const shorter = lastGen.length <= finalTrimmed.length ? lastGen : finalTrimmed
+        const longer = lastGen.length > finalTrimmed.length ? lastGen : finalTrimmed
+        let matches = 0
+        for (let i = 0; i < shorter.length; i++) {
+          if (shorter[i] === longer[i]) matches++
+        }
+        const similarity = longer.length > 0 ? matches / longer.length : 0
+        if (similarity >= SIMILARITY_THRESHOLD) {
+          // 十分類似 → 既存ストリーミングを継続
+          lastGeneratedTextRef.current = finalTrimmed
+          return
+        }
+      }
+
+      // 大きく異なる場合のみ確定テキストで再生成
+      lastGeneratedTextRef.current = finalTrimmed
       generateStreamResponse(latestText)
     }
   }, [transcripts, settings.autoGenerateAI, generateStreamResponse])
@@ -286,6 +315,7 @@ function AppContent() {
     setIsLoading(true)
     setAppError(null)
     lastProcessedIndex.current = -1
+    lastGeneratedTextRef.current = ''
     clearResponse()
 
     try {
@@ -322,6 +352,7 @@ function AppContent() {
     clearTranscripts()
     clearResponse()
     lastProcessedIndex.current = -1
+    lastGeneratedTextRef.current = ''
     toast.info('クリアしました')
   }
 

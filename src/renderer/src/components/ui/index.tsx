@@ -4,6 +4,7 @@
  */
 
 import { ReactNode, ButtonHTMLAttributes, forwardRef } from 'react'
+import { formatErrorMessage } from '../../utils/errorMessages'
 
 // ============================================================
 // Card コンポーネント
@@ -548,6 +549,46 @@ export function Slider({
           [&::-webkit-slider-thumb]:hover:scale-110
           disabled:opacity-50 disabled:cursor-not-allowed"
       />
+    </div>
+  )
+}
+
+// ============================================================
+// ErrorAlert コンポーネント（日本語エラー表示）
+// ============================================================
+
+interface ErrorAlertProps {
+  error: string
+  onClose?: () => void
+  className?: string
+}
+
+export function ErrorAlert({ error, onClose, className = '' }: ErrorAlertProps) {
+  const { message, hint } = formatErrorMessage(error)
+
+  return (
+    <div className={`rounded-lg border border-warning/30 bg-warning-subtle p-3 ${className}`}>
+      <div className="flex items-start gap-2">
+        <svg className="w-4 h-4 shrink-0 text-warning-text mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-warning-text">{message}</p>
+          {hint && (
+            <p className="text-[11px] text-content-secondary mt-0.5">{hint}</p>
+          )}
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="shrink-0 p-0.5 rounded hover:bg-black/5 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5 text-warning-text" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
     </div>
   )
 }

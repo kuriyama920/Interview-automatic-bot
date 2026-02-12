@@ -3,7 +3,7 @@
  * Linear Design + Apple Vibrancy スタイル
  */
 
-import { Card, Button, Alert } from './ui'
+import { Card, Button, ErrorAlert } from './ui'
 
 interface LoginPageProps {
   onLogin: () => Promise<void>
@@ -67,7 +67,7 @@ export function LoginPage({ onLogin, isLoading, error }: LoginPageProps) {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-surface via-surface-secondary to-accent-subtle flex items-center justify-center p-4"
+      className="h-full bg-gradient-to-br from-surface via-surface-secondary to-accent-subtle flex items-center justify-center p-4"
       data-theme="interview-light"
     >
       {/* 背景の装飾 */}
@@ -93,7 +93,7 @@ export function LoginPage({ onLogin, isLoading, error }: LoginPageProps) {
           {/* エラー表示 */}
           {error && (
             <div className="mb-6">
-              <Alert variant="error">{error}</Alert>
+              <ErrorAlert error={error} />
             </div>
           )}
 

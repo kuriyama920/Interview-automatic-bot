@@ -137,6 +137,11 @@ const ALLOWED_INVOKE_CHANNELS = [
   // 音声キャプチャ関連 (Phase 6.5)
   'audio:setSource',
   'audio:getSource',
+  // ウィンドウ操作
+  'window:minimize',
+  'window:maximize',
+  'window:close',
+  'window:isMaximized',
   // サブスクリプション関連 (Phase 7)
   'subscription:getPlans',
   'subscription:checkout',
@@ -290,6 +295,14 @@ const electronAPI = {
       count?: number
     ): Promise<{ success: boolean; questions?: GeneratedQuestion[]; error?: string }> =>
       ipcRenderer.invoke('questions:generate', count),
+  },
+
+  // Window API (カスタムタイトルバー)
+  window: {
+    minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
+    maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
+    close: (): Promise<void> => ipcRenderer.invoke('window:close'),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
   },
 
   // Subscription API (Phase 7: Stripe 決済)

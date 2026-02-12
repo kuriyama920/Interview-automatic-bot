@@ -261,6 +261,116 @@ export function DocumentDemo() {
   )
 }
 
+/* ─── 4. QuestionsDemo ─────────────────────────────────────────────── */
+
+const SAMPLE_QUESTIONS = [
+  { q: '志望動機を教えてください', a: '御社の"お客様第一"という理念に深く共感し...' },
+  { q: '前職を退職された理由は？', a: '企画寄りの仕事に挑戦したいと考え...' },
+  { q: '5年後のキャリアプランは？', a: 'マネジメントと専門性の両軸で成長し...' },
+  { q: 'あなたの強みと弱みは？', a: '強みは傾聴力、弱みは完璧主義な点...' },
+  { q: '困難を乗り越えた経験は？', a: 'クレーム対応で売上120%回復を達成...' },
+]
+
+export function QuestionsDemo() {
+  const [visibleCount, setVisibleCount] = useState(0)
+  const [generatingIdx, setGeneratingIdx] = useState(-1)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    if (visibleCount < SAMPLE_QUESTIONS.length) {
+      timerRef.current = setTimeout(() => {
+        setGeneratingIdx(visibleCount)
+        setTimeout(() => {
+          setGeneratingIdx(-1)
+          setVisibleCount((v) => v + 1)
+        }, 1000)
+      }, 600)
+    } else {
+      timerRef.current = setTimeout(() => {
+        setVisibleCount(0)
+        setGeneratingIdx(-1)
+      }, 5000)
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [visibleCount])
+
+  return (
+    <div className="h-full flex flex-col p-4">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <ListIcon className="w-3.5 h-3.5 text-accent" />
+        <span className="text-[10px] font-medium text-content-secondary">
+          想定質問 & AI回答
+        </span>
+        {generatingIdx >= 0 && (
+          <span className="ml-auto text-[9px] text-accent animate-pulse">生成中...</span>
+        )}
+      </div>
+
+      {/* Questions list */}
+      <div className="flex-1 space-y-1.5 overflow-hidden">
+        {SAMPLE_QUESTIONS.map((item, i) => {
+          const isVisible = i < visibleCount || generatingIdx === i
+          const isGenerating = generatingIdx === i
+          const isDone = i < visibleCount
+
+          if (!isVisible) return null
+
+          return (
+            <div
+              key={i}
+              className="p-1.5 rounded-md bg-surface-secondary/80 border border-border/30 animate-fade-in"
+            >
+              <div className="flex items-start gap-1.5">
+                <span className="text-[8px] font-bold text-accent/70 mt-0.5 shrink-0">
+                  Q{i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-medium text-content leading-tight truncate">
+                    {item.q}
+                  </p>
+                  {isDone && (
+                    <p className="text-[9px] text-content-tertiary leading-tight mt-0.5 truncate">
+                      → {item.a}
+                    </p>
+                  )}
+                  {isGenerating && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <div className="w-2.5 h-2.5 border border-accent/30 border-t-accent rounded-full animate-spin" />
+                      <span className="text-[8px] text-accent/60">回答生成中...</span>
+                    </div>
+                  )}
+                </div>
+                {isDone && (
+                  <CheckCircle className="w-3 h-3 text-success shrink-0 mt-0.5" />
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Progress */}
+      <div className="mt-auto pt-2 border-t border-border/20">
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] text-content-tertiary">
+            {visibleCount >= SAMPLE_QUESTIONS.length
+              ? '全20問の回答準備完了'
+              : generatingIdx >= 0
+                ? 'AI回答を生成中...'
+                : '質問を分析中...'}
+          </span>
+          <span className="text-[9px] font-medium text-accent">
+            {Math.min(visibleCount * 4, 20)}/20
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Shared mini icons ─────────────────────────────────────────────── */
 
 function MiniWaveform() {
@@ -328,6 +438,18 @@ function FileIcon({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+      />
+    </svg>
+  )
+}
+
+function ListIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
       />
     </svg>
   )

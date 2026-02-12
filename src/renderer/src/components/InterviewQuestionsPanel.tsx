@@ -10,7 +10,7 @@ import {
   MAX_QUESTIONS,
   type LocalQuestion,
 } from '../hooks/useInterviewQuestions'
-import { Card, CardHeader, Button, Badge, Alert, Spinner } from './ui'
+import { Card, CardHeader, Button, Badge, Spinner, ErrorAlert } from './ui'
 
 // アイコンコンポーネント
 const SparklesIcon = () => (
@@ -228,11 +228,7 @@ function InterviewQuestionsPanel() {
       </div>
 
       <div className="p-4 space-y-3">
-        {error && (
-          <Alert variant="error" className="text-xs">
-            {error}
-          </Alert>
-        )}
+        {error && <ErrorAlert error={error} />}
 
         {/* 自動生成ボタン */}
         <Button

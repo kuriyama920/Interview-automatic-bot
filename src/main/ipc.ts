@@ -26,6 +26,24 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
   const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
 
+  // ウィンドウ操作
+  ipcMain.handle('window:minimize', () => {
+    mainWindow.minimize()
+  })
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow.maximize()
+    }
+  })
+  ipcMain.handle('window:close', () => {
+    mainWindow.close()
+  })
+  ipcMain.handle('window:isMaximized', () => {
+    return mainWindow.isMaximized()
+  })
+
   // 設定サービスを初期化
   settingsService.initialize()
 

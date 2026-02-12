@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -54,9 +54,14 @@ function CheckoutContent() {
   const planInfo = PLAN_INFO[plan]
   const priceId = getPriceIdForPlan(plan)
 
+  // React StrictMode二重実行防止: devモードでuseEffectが2回実行されるのを防ぐ
+  const checkoutStartedRef = useRef(false)
+
   // session_id がURLにある場合: ポーリング → JWT取得 → Stripe Checkout 作成
   useEffect(() => {
     if (!sessionId || !planInfo || !priceId) return
+    if (checkoutStartedRef.current) return
+    checkoutStartedRef.current = true
 
     let cancelled = false
 
@@ -64,37 +69,52 @@ function CheckoutContent() {
       try {
         setState('authenticating')
 
-        // リトライループ: DBの更新がリダイレクトに追いつくまで待機
-        const maxAttempts = 5
-        const pollInterval = 1000
+        // リトライループ: OAuthコールバック→DB更新の遅延を吸収
+        // 初回は短い間隔で、徐々に伸ばす（1s, 1.5s, 2s, 2.5s, 3s...）
+        const maxAttempts = 12
+        const baseInterval = 1000
+        const intervalStep = 500
 
         let token: string | undefined
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (cancelled) return
 
-          const result = await pollAuthSession(sessionId!)
+          try {
+            const result = await pollAuthSession(sessionId!)
 
-          if (result.status === 'completed' && result.token) {
-            token = result.token
-            break
+            if (
+              (result.status === 'completed' || result.status === 'consumed') &&
+              result.token
+            ) {
+              token = result.token
+              break
+            }
+
+            if (result.status === 'error') {
+              setError(result.error || '認証に失敗しました')
+              setState('error')
+              return
+            }
+
+            if (result.status === 'expired') {
+              setError('セッションが期限切れです。もう一度お試しください。')
+              setState('error')
+              return
+            }
+          } catch (fetchError) {
+            // ネットワークエラーはリトライ（最終試行なら投げる）
+            if (attempt === maxAttempts - 1) {
+              throw fetchError instanceof Error
+                ? fetchError
+                : new Error('認証の確認に失敗しました')
+            }
           }
 
-          if (result.status === 'error') {
-            setError(result.error || '認証に失敗しました')
-            setState('error')
-            return
-          }
-
-          if (result.status === 'expired') {
-            setError('セッションが期限切れです。もう一度お試しください。')
-            setState('error')
-            return
-          }
-
-          // pending の場合はリトライ
+          // pending / fetch失敗の場合はリトライ（段階的にインターバルを伸ばす）
           if (attempt < maxAttempts - 1) {
-            await new Promise((resolve) => setTimeout(resolve, pollInterval))
+            const interval = baseInterval + intervalStep * attempt
+            await new Promise((resolve) => setTimeout(resolve, interval))
           }
         }
 

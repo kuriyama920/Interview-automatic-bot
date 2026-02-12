@@ -14,7 +14,7 @@ export interface AuthSessionResponse {
 }
 
 export interface AuthPollResponse {
-  status: 'pending' | 'completed' | 'error' | 'expired'
+  status: 'pending' | 'completed' | 'consumed' | 'error' | 'expired'
   token?: string
   user?: {
     id: string

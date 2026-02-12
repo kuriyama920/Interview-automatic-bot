@@ -1,5 +1,5 @@
 import { AppDemo } from './demos/AppDemo'
-import { TranscriptionDemo, AIResponseDemo, DocumentDemo } from './demos/FeatureDemos'
+import { AIResponseDemo, DocumentDemo, QuestionsDemo } from './demos/FeatureDemos'
 
 export function DemoSection() {
   return (
@@ -31,13 +31,7 @@ export function DemoSection() {
           </div>
 
           {/* Feature highlight cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <FeatureCard
-              title="聞き逃しゼロの文字起こし"
-              description="緊張で頭が真っ白でも大丈夫。全ての会話がリアルタイムでテキスト表示"
-            >
-              <TranscriptionDemo />
-            </FeatureCard>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <FeatureCard
               title="答えに詰まらないAI提案"
               description="質問された瞬間にベストな回答が表示。沈黙の恐怖から解放"
@@ -49,6 +43,12 @@ export function DemoSection() {
               description="履歴書を読み込むだけ。丸暗記ではない、あなただけの回答が手に入る"
             >
               <DocumentDemo />
+            </FeatureCard>
+            <FeatureCard
+              title="想定質問20問 × AI最適解"
+              description="履歴書と求人票からAIが質問を予測。あなた専用の模範回答を自動作成"
+            >
+              <QuestionsDemo />
             </FeatureCard>
           </div>
         </div>

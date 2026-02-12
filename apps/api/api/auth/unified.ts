@@ -305,9 +305,10 @@ async function handlePollSession(req: VercelRequest, res: VercelResponse) {
     })
   }
 
+  // RPC失敗時のフォールバック: セッションを直接確認
   const { data: session, error: sessionError } = await supabaseAdmin
     .from('auth_sessions')
-    .select('status, expires_at, error')
+    .select('status, token, user_data, expires_at, error')
     .eq('id', id)
     .single()
 
@@ -321,6 +322,15 @@ async function handlePollSession(req: VercelRequest, res: VercelResponse) {
 
   if (session.status === 'pending') {
     return res.status(200).json({ status: 'pending' })
+  }
+
+  // completed / consumed: RPCが失敗してもトークンを返せるようにする
+  if ((session.status === 'completed' || session.status === 'consumed') && session.token) {
+    return res.status(200).json({
+      status: 'completed',
+      token: session.token,
+      user: session.user_data,
+    })
   }
 
   return res.status(200).json({
