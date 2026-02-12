@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell, session, desktopCapturer } from 'electron'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { config } from 'dotenv'
 import { setupIPC } from './ipc'
 import { authService } from '../services/auth.service'
@@ -16,14 +16,12 @@ const PROTOCOL = 'interview-bot'
 
 // デフォルトプロトコルクライアントとして登録
 if (!app.isPackaged) {
-  // 開発環境でのプロトコル設定
-  if (process.platform === 'win32') {
+  // 開発環境: コンパイル済みメインスクリプトを引数として渡す
+  // process.argv[1] = electron-viteが生成した out/main/index.js のパス
+  if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
-      join(process.cwd(), 'node_modules', 'electron', 'dist', 'electron.exe'),
+      resolve(process.argv[1]),
     ])
-  } else if (process.platform === 'linux') {
-    // Linux: 開発環境ではelectronのパスを指定
-    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.cwd()])
   }
 } else {
   app.setAsDefaultProtocolClient(PROTOCOL)
@@ -133,6 +131,12 @@ if (!gotTheLock) {
       { useSystemPicker: false } // ユーザー選択ダイアログを表示しない
     )
     console.log('[Main] System audio capture (loopback) enabled')
+
+    // Windows: 初回起動時のDeep Link処理（process.argvからURLを取得）
+    const deepLinkUrl = process.argv.find((arg) => arg.startsWith(`${PROTOCOL}://`))
+    if (deepLinkUrl) {
+      handleDeepLink(deepLinkUrl)
+    }
 
     // macOS: open-urlイベントでDeep Linkを処理
     app.on('open-url', (_event, url) => {
