@@ -23,7 +23,7 @@ export const config = {
 const DEFAULT_COUNT = 20
 const MAX_COUNT = 20
 const GENERATION_MODEL = 'gpt-5-mini'
-const ESTIMATED_TOKENS = 8000
+const ESTIMATED_TOKENS = 12000
 
 interface GeneratedQuestion {
   question: string
@@ -159,12 +159,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       messages: [
         {
           role: 'system',
-          content: '面接通過率を最大化する戦略的面接コーチとして、候補者の履歴書と求人票を徹底分析し、提示された固定質問リストに対する最適な模範回答を生成してください。質問文はリストのものをそのまま使用し、回答のみを候補者の実績に基づいて生成してください。',
+          content: '面接通過率を最大化する戦略的面接コーチとして、候補者の履歴書と求人票を徹底分析し、固定質問リストに対する模範回答のみを生成してください。質問文は絶対に変更・追加せず、回答の配列だけを返してください。',
         },
         { role: 'user', content: prompt },
       ],
       response_format: { type: 'json_object' },
-      max_completion_tokens: 6000,
+      max_completion_tokens: 10000,
     })
 
     const totalTokensUsed = completion.usage?.total_tokens ?? 0
@@ -181,31 +181,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // レスポンスをパース
+    // レスポンスをパース（回答配列のみ）
     const content = completion.choices[0]?.message?.content
     if (!content) {
       return res.status(500).json({ success: false, error: 'AI returned empty response' })
     }
 
-    let parsed: { questions: GeneratedQuestion[] }
+    let parsed: { answers: string[] }
     try {
-      parsed = JSON.parse(content) as { questions: GeneratedQuestion[] }
+      parsed = JSON.parse(content) as { answers: string[] }
     } catch {
       return res.status(500).json({ success: false, error: 'Failed to parse AI response' })
     }
 
-    if (!Array.isArray(parsed.questions)) {
+    if (!Array.isArray(parsed.answers)) {
       return res.status(500).json({ success: false, error: 'Invalid AI response format' })
     }
 
-    // バリデーション済みの質問を返却
-    const questions = parsed.questions
-      .slice(0, count)
-      .map((q) => ({
-        question: typeof q.question === 'string' ? q.question.trim() : '',
-        answer: typeof q.answer === 'string' ? q.answer.trim() : '',
-      }))
-      .filter((q) => q.question.length > 0)
+    // 固定質問と回答をサーバー側で結合
+    const questions = selectedQuestions.map((q, i) => ({
+      question: q,
+      answer: typeof parsed.answers[i] === 'string' ? parsed.answers[i].trim() : '',
+    }))
 
     return res.status(200).json({
       success: true,
