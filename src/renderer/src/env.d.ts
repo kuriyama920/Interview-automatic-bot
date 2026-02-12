@@ -5,6 +5,7 @@ interface TranscriptResult {
   isFinal: boolean
   confidence: number
   timestamp: number
+  source?: 'mic' | 'system'
 }
 
 interface AIResponse {
@@ -70,7 +71,7 @@ interface Window {
     stt: {
       start: () => Promise<{ success: boolean; error?: string }>
       stop: () => Promise<{ success: boolean; error?: string }>
-      sendAudio: (audioData: ArrayBuffer) => void
+      sendAudio: (audioData: ArrayBuffer, source?: 'mic' | 'system') => void
       status: () => Promise<{ connected: boolean }>
       onTranscript: (callback: (result: TranscriptResult) => void) => void
       removeTranscriptListener: () => void

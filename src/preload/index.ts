@@ -5,6 +5,7 @@ export interface TranscriptResult {
   isFinal: boolean
   confidence: number
   timestamp: number
+  source?: 'mic' | 'system'
 }
 
 export interface AIResponse {
@@ -192,11 +193,11 @@ const electronAPI = {
       audioSendCount = 0 // カウンターをリセット
       return ipcRenderer.invoke('stt:stop')
     },
-    sendAudio: (audioData: ArrayBuffer) => {
+    sendAudio: (audioData: ArrayBuffer, source?: 'mic' | 'system') => {
       // ArrayBufferをUint8Arrayに変換してからIPC送信
       const uint8Array = new Uint8Array(audioData)
       audioSendCount++
-      ipcRenderer.send('stt:audio', Array.from(uint8Array))
+      ipcRenderer.send('stt:audio', Array.from(uint8Array), source)
     },
     status: () => ipcRenderer.invoke('stt:status'),
     onTranscript: (callback: (result: TranscriptResult) => void) => {

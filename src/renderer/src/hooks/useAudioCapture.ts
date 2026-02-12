@@ -3,9 +3,6 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('AudioCapture')
 
-// 音声ソースの種類
-export type AudioSource = 'mic' | 'system' | 'both'
-
 interface UseAudioCaptureReturn {
   isCapturing: boolean
   error: string | null
@@ -91,7 +88,7 @@ export function useAudioCapture(): UseAudioCaptureReturn {
   const micStreamRef = useRef<MediaStream | null>(null)
   const systemStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
-  const workletNodeRef = useRef<AudioWorkletNode | null>(null)
+  const workletNodesRef = useRef<AudioWorkletNode[]>([])
   const audioChunkCount = useRef(0)
   const actualSampleRate = useRef<number>(0)
 
@@ -187,57 +184,72 @@ export function useAudioCapture(): UseAudioCaptureReturn {
     }
   }, [])
 
-  // 複数のオーディオストリームをミキシング
-  const mixAudioStreams = useCallback((
+  // ソースごとにAudioWorkletを作成し、タグ付きで音声送信
+  const createTaggedWorklet = useCallback((
     audioContext: AudioContext,
-    streams: MediaStream[]
-  ): MediaStreamAudioSourceNode[] => {
-    const sources: MediaStreamAudioSourceNode[] = []
+    stream: MediaStream,
+    sourceTag: 'mic' | 'system',
+  ): AudioWorkletNode => {
+    const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
+    const audioSource = audioContext.createMediaStreamSource(stream)
+    audioSource.connect(workletNode)
 
-    for (const stream of streams) {
-      if (stream.getAudioTracks().length > 0) {
-        const source = audioContext.createMediaStreamSource(stream)
-        sources.push(source)
-        log.debug('Created audio source', {
-          tracks: stream.getAudioTracks().length,
-          label: stream.getAudioTracks()[0]?.label
-        })
+    workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+      const inputData = e.data
+
+      // サンプルレート変換
+      const resampledData = resampleAudio(inputData, actualSampleRate.current, TARGET_SAMPLE_RATE)
+
+      // Float32をInt16に変換
+      const int16Data = float32ToInt16(resampledData)
+
+      // ソースタグ付きでメインプロセスに送信
+      window.electron.stt.sendAudio(int16Data.buffer as ArrayBuffer, sourceTag)
+      audioChunkCount.current++
+
+      // 100チャンクごとにログ
+      if (audioChunkCount.current % 100 === 0) {
+        log.debug(`Sent ${audioChunkCount.current} audio chunks`, { source: sourceTag })
       }
     }
 
-    return sources
+    // destinationに接続してオーディオグラフを維持
+    workletNode.connect(audioContext.destination)
+
+    return workletNode
   }, [])
 
   const startCapture = useCallback(async () => {
     log.info('Starting capture...', { audioSource })
     try {
       setError(null)
-      const streams: MediaStream[] = []
 
       // 音声ソースに応じてストリームを取得
       // 途中で失敗した場合は取得済みストリームをクリーンアップ
+      let micStream: MediaStream | null = null
+      let systemStream: MediaStream | null = null
+
       try {
         if (audioSource === 'mic' || audioSource === 'both') {
-          const micStream = await captureMicAudio()
+          micStream = await captureMicAudio()
           micStreamRef.current = micStream
-          streams.push(micStream)
         }
 
         if (audioSource === 'system' || audioSource === 'both') {
-          const systemStream = await captureSystemAudio()
+          systemStream = await captureSystemAudio()
           systemStreamRef.current = systemStream
-          streams.push(systemStream)
         }
       } catch (err) {
         // 部分的に取得したストリームをクリーンアップ
         log.warn('Cleaning up partially acquired streams due to error')
-        streams.forEach(stream => stream.getTracks().forEach(track => track.stop()))
+        if (micStream) micStream.getTracks().forEach(track => track.stop())
+        if (systemStream) systemStream.getTracks().forEach(track => track.stop())
         micStreamRef.current = null
         systemStreamRef.current = null
         throw err
       }
 
-      if (streams.length === 0) {
+      if (!micStream && !systemStream) {
         throw new Error('音声ソースが選択されていません')
       }
 
@@ -248,12 +260,10 @@ export function useAudioCapture(): UseAudioCaptureReturn {
       log.debug('AudioContext created', {
         sampleRate: audioContext.sampleRate,
         targetSampleRate: TARGET_SAMPLE_RATE,
-        resamplingRatio: audioContext.sampleRate / TARGET_SAMPLE_RATE,
         audioSource,
-        streamCount: streams.length,
       })
 
-      // AudioWorkletNodeを使用（ScriptProcessorNodeはChromium 120+でクラッシュするため）
+      // AudioWorkletプロセッサを登録
       const blob = new Blob([AUDIO_WORKLET_CODE], { type: 'application/javascript' })
       const workletUrl = URL.createObjectURL(blob)
       try {
@@ -262,66 +272,57 @@ export function useAudioCapture(): UseAudioCaptureReturn {
         URL.revokeObjectURL(workletUrl)
       }
 
-      const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
-      workletNodeRef.current = workletNode
       audioChunkCount.current = 0
+      const nodes: AudioWorkletNode[] = []
 
-      // 複数ストリームをミキシング
-      const sources = mixAudioStreams(audioContext, streams)
-
-      // すべてのソースをワークレットノードに接続
-      for (const source of sources) {
-        source.connect(workletNode)
-      }
-
-      // ワークレットからの音声データを処理
-      workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
-        const inputData = e.data
-
-        // サンプルレート変換
-        const resampledData = resampleAudio(inputData, actualSampleRate.current, TARGET_SAMPLE_RATE)
-
-        // Float32をInt16に変換
-        const int16Data = float32ToInt16(resampledData)
-
-        // メインプロセスに送信
-        window.electron.stt.sendAudio(int16Data.buffer)
-        audioChunkCount.current++
-
-        // 50チャンクごとにログ（約5秒ごと）
-        if (audioChunkCount.current % 50 === 0) {
-          log.debug(`Sent ${audioChunkCount.current} audio chunks`, { audioSource })
+      // ソースごとに独立したAudioWorkletを作成（話者分離のため）
+      if (audioSource === 'both') {
+        // 両方モード: マイクとシステム音声を別々のパイプラインで処理
+        if (micStream) {
+          const micNode = createTaggedWorklet(audioContext, micStream, 'mic')
+          nodes.push(micNode)
+          log.debug('Created mic AudioWorklet pipeline')
+        }
+        if (systemStream) {
+          const systemNode = createTaggedWorklet(audioContext, systemStream, 'system')
+          nodes.push(systemNode)
+          log.debug('Created system AudioWorklet pipeline')
+        }
+      } else {
+        // 単一ソースモード: 1つのパイプラインで処理
+        const stream = micStream || systemStream
+        const sourceTag = audioSource as 'mic' | 'system'
+        if (stream) {
+          const node = createTaggedWorklet(audioContext, stream, sourceTag)
+          nodes.push(node)
         }
       }
 
-      // destinationに接続してオーディオグラフを維持（出力は無音）
-      workletNode.connect(audioContext.destination)
+      workletNodesRef.current = nodes
 
       setIsCapturing(true)
-      log.info('Capture started successfully (AudioWorklet)', {
+      log.info('Capture started successfully', {
         audioSource,
-        streamCount: streams.length,
-        sources: sources.length
+        pipelines: nodes.length,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const errorMessage = `音声キャプチャに失敗しました: ${message}`
       setError(errorMessage)
       log.error('Capture error', { error: message, audioSource })
-      // エラーをError型で統一して再伝播（呼び出し元のhandleStartで安全にキャッチされる）
       throw new Error(errorMessage)
     }
-  }, [audioSource, captureMicAudio, captureSystemAudio, mixAudioStreams])
+  }, [audioSource, captureMicAudio, captureSystemAudio, createTaggedWorklet])
 
   const stopCapture = useCallback(async () => {
     log.info('Stopping capture...')
 
-    // ワークレットノードを切断
-    if (workletNodeRef.current) {
-      workletNodeRef.current.port.onmessage = null
-      workletNodeRef.current.disconnect()
-      workletNodeRef.current = null
+    // すべてのワークレットノードを切断
+    for (const node of workletNodesRef.current) {
+      node.port.onmessage = null
+      node.disconnect()
     }
+    workletNodesRef.current = []
 
     // AudioContextを閉じる
     if (audioContextRef.current) {
