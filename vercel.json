@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "installCommand": "cd apps/api && npm install",
   "framework": null,
   "builds": [
     { "src": "apps/api/api/**/*.ts", "use": "@vercel/node@3.2.29" }
