@@ -43,10 +43,11 @@ export function SignupModal({ isOpen, onClose, selectedPlan }: SignupModalProps)
       setState('loading')
       setError(null)
 
-      // 全てのプラン: ログイン後はダウンロードページへ
-      // プランIDをクエリパラメータで渡す（ダウンロードページで利用可能）
-      const returnUrl = selectedPlan
-        ? `${window.location.origin}/download?plan=${selectedPlan.id}`
+      // 有料プラン: 認証後にcheckoutページでStripe決済へ
+      // 無料プラン/未選択: ダウンロードページへ
+      const isPaidPlan = selectedPlan && selectedPlan.price > 0
+      const returnUrl = isPaidPlan
+        ? `${window.location.origin}/checkout?plan=${encodeURIComponent(selectedPlan.id)}`
         : `${window.location.origin}/download`
 
       const session = await createAuthSession(returnUrl)
@@ -146,37 +147,12 @@ export function SignupModal({ isOpen, onClose, selectedPlan }: SignupModalProps)
             )}
           </div>
 
-          {/* Divider */}
-          <div className="mt-5 border-t border-border" />
-
-          {/* Trust badges */}
-          <div className="mt-4 flex items-center justify-center gap-5 text-xs text-content-tertiary">
-            <span className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-              </svg>
-              安全・安心
-            </span>
-            <span className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-              </svg>
-              高速生成
-            </span>
-            <span className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-              </svg>
-              無料でお試し
-            </span>
-          </div>
-
           {/* Terms */}
           <p className="mt-4 text-center text-[11px] text-content-tertiary leading-relaxed">
             アカウント作成により、
-            <span className="text-content-secondary underline underline-offset-2 cursor-pointer hover:text-content">利用規約</span>
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-content-secondary underline underline-offset-2 hover:text-content">利用規約</a>
             と
-            <span className="text-content-secondary underline underline-offset-2 cursor-pointer hover:text-content">プライバシーポリシー</span>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-content-secondary underline underline-offset-2 hover:text-content">プライバシーポリシー</a>
             に同意したものとみなされます
           </p>
         </div>
