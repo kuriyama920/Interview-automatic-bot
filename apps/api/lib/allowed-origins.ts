@@ -6,6 +6,7 @@
 export const ALLOWED_ORIGINS = [
   // 本番環境
   'https://interview-bot.vercel.app',
+  'https://interviewbot.vercel.app',
   'https://interview-bot-dashboard.vercel.app',
   // 開発環境
   'http://localhost:3000',

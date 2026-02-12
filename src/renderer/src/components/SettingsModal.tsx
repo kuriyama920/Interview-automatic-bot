@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect } from 'react'
-import type { AppSettings } from '../hooks/useSettings'
 import { Button, IconButton, Input, Select, Toggle, Slider, Alert } from './ui'
 
 interface SettingsModalProps {

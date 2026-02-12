@@ -68,9 +68,3 @@ export function getEnv<K extends keyof EnvConfig>(key: K): EnvConfig[K] {
   return value as EnvConfig[K]
 }
 
-/**
- * 環境変数を取得（デフォルト値あり）
- */
-export function getEnvOrDefault<K extends keyof EnvConfig>(key: K, defaultValue: string): string {
-  return process.env[key] || defaultValue
-}

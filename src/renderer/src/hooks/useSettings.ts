@@ -4,24 +4,6 @@
 
 import { useState, useCallback, useEffect } from 'react'
 
-// 音声ソースの種類
-export type AudioSource = 'mic' | 'system' | 'both'
-
-export interface AppSettings {
-  deepgramApiKey: string
-  openaiApiKey: string
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  audioSource: AudioSource
-  aiModel: 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-  lastUpdated: number
-  version: string
-}
-
 const DEFAULT_SETTINGS: AppSettings = {
   deepgramApiKey: '',
   openaiApiKey: '',

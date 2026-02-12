@@ -57,17 +57,4 @@ describe('Env Library', () => {
     })
   })
 
-  describe('getEnvOrDefault', () => {
-    it('should return env var value when set', async () => {
-      process.env.JWT_SECRET = 'actual-secret'
-      const { getEnvOrDefault } = await import('../../apps/api/lib/env')
-      expect(getEnvOrDefault('JWT_SECRET', 'default')).toBe('actual-secret')
-    })
-
-    it('should return default when env var is not set', async () => {
-      delete process.env.JWT_SECRET
-      const { getEnvOrDefault } = await import('../../apps/api/lib/env')
-      expect(getEnvOrDefault('JWT_SECRET', 'default-value')).toBe('default-value')
-    })
-  })
 })
