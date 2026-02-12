@@ -22,6 +22,8 @@ if (!app.isPackaged) {
     app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
       resolve(process.argv[1]),
     ])
+  } else {
+    console.warn('[Main] Cannot register protocol: no main script in argv')
   }
 } else {
   app.setAsDefaultProtocolClient(PROTOCOL)
@@ -46,6 +48,7 @@ function createWindow(): typeof BrowserWindow.prototype {
     width: 900,
     height: 670,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     icon: join(__dirname, '../../resources/icon.ico'),
     webPreferences: {
