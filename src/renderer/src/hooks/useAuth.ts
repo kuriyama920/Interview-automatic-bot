@@ -53,17 +53,13 @@ export function useAuth(): UseAuthResult {
     initAuth()
   }, [])
 
-  // 認証状態変更リスナー
+  // 認証状態変更リスナー（各インスタンスが独自のリスナーを管理）
   useEffect(() => {
-    const handleStateChanged = (state: AuthState) => {
+    const cleanup = window.electron.auth.onStateChanged((state: AuthState) => {
       setAuthState(state)
-    }
+    })
 
-    window.electron.auth.onStateChanged(handleStateChanged)
-
-    return () => {
-      window.electron.auth.removeStateChangedListener()
-    }
+    return cleanup
   }, [])
 
   // Google OAuthログイン

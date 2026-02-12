@@ -171,11 +171,11 @@ const electronAPI = {
       ipcRenderer.invoke('auth:logout'),
     getToken: (): Promise<{ success: boolean; token?: string | null; error?: string }> =>
       ipcRenderer.invoke('auth:getToken'),
-    onStateChanged: (callback: (state: AuthState) => void) => {
-      ipcRenderer.on('auth:stateChanged', (_event, state) => callback(state))
-    },
-    removeStateChangedListener: () => {
-      ipcRenderer.removeAllListeners('auth:stateChanged')
+    onStateChanged: (callback: (state: AuthState) => void): (() => void) => {
+      const handler = (_event: unknown, state: AuthState) => callback(state)
+      ipcRenderer.on('auth:stateChanged', handler)
+      // 個別リスナーの解除関数を返す（removeAllListenersは他のインスタンスのリスナーも消すため使わない）
+      return () => ipcRenderer.removeListener('auth:stateChanged', handler)
     },
   },
 
