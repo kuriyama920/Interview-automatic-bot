@@ -19,18 +19,19 @@ interface AIServiceConfig {
 }
 
 // 正規定義: apps/api/lib/prompts.ts（Electronからは直接importできないためコピー）
-const SYSTEM_PROMPT = `あなたは面接支援AIアシスタントです。面接官の質問に対して、候補者が答えるべき最適な回答を提案します。
+const SYSTEM_PROMPT = `あなたは面接通過率を最大化する戦略的面接コーチです。面接官の質問に対して、候補者が「この人を採りたい」と思わせる最適な回答を提案します。
 
 以下のガイドラインに従ってください：
-1. 簡潔で明確な回答を提供する
-2. STAR法（Situation, Task, Action, Result）を意識した構造的な回答
-3. 具体的なエピソードや数値を含める提案
-4. ポジティブな表現を使用
-5. 日本語で回答する
+1. 面接官の質問の「裏の意図」を読み取り、それに直接応える回答を提供する
+2. 結論→根拠→具体例の構造で、最初の一文で面接官の心を掴む
+3. 数値・固有名詞・具体的エピソードを必ず含め、説得力を高める
+4. 「御社だからこそ」という志望度の高さを自然に織り込む
+5. ポジティブな表現を使い、ネガティブな内容も成長ストーリーに変換する
+6. 日本語で回答する
 
 回答形式：
-- メインの回答（2-3文）
-- 補足ポイント（箇条書き2-3個）`
+- 面接で実際に話す想定の回答を簡潔に提供（2-4文、話すと30秒-1分程度）
+- 「」で囲んだ話し言葉調で提示する`
 
 export class AIService {
   private client: OpenAI | null = null
@@ -304,21 +305,9 @@ export class AIService {
   }
 
   private parseResponse(content: string): AIResponse {
-    const lines = content.split('\n').filter((line) => line.trim())
-
-    const mainAnswer = lines
-      .filter((line) => !line.startsWith('-') && !line.startsWith('•'))
-      .join(' ')
-      .trim()
-
-    const suggestions = lines
-      .filter((line) => line.startsWith('-') || line.startsWith('•'))
-      .map((line) => line.replace(/^[-•]\s*/, '').trim())
-      .slice(0, 5)
-
     return {
-      answer: mainAnswer || content,
-      suggestions: suggestions.length > 0 ? suggestions : [],
+      answer: content.trim(),
+      suggestions: [],
       confidence: 0.85,
     }
   }

@@ -14,16 +14,16 @@ import { supabaseAdmin } from '../../lib/supabase'
 import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { checkAndReserveUsage, adjustReservedUsage, recordUsage, hasCustomApiKey } from '../../lib/usage'
 import { getEnv } from '../../lib/env'
-import { QUESTION_GENERATION_PROMPT } from '../../lib/prompts'
+import { QUESTION_GENERATION_PROMPT, STANDARD_INTERVIEW_QUESTIONS } from '../../lib/prompts'
 
 export const config = {
   maxDuration: 60,
 }
 
-const DEFAULT_COUNT = 10
+const DEFAULT_COUNT = 20
 const MAX_COUNT = 20
 const GENERATION_MODEL = 'gpt-5-mini'
-const ESTIMATED_TOKENS = 5000
+const ESTIMATED_TOKENS = 8000
 
 interface GeneratedQuestion {
   question: string
@@ -142,19 +142,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // 固定質問リストから指定数を取得
+    const selectedQuestions = STANDARD_INTERVIEW_QUESTIONS.slice(0, count)
+    const questionsText = selectedQuestions
+      .map((q, i) => `${i + 1}. ${q}`)
+      .join('\n')
+
     // OpenAI呼び出し
     const openai = new OpenAI({ apiKey: getEnv('OPENAI_API_KEY') })
     const prompt = QUESTION_GENERATION_PROMPT
-      .replace('{count}', String(count))
+      .replace('{questions}', questionsText)
       .replace('{documentContext}', documentContext)
 
     const completion = await openai.chat.completions.create({
       model: GENERATION_MODEL,
       messages: [
+        {
+          role: 'system',
+          content: '面接通過率を最大化する戦略的面接コーチとして、候補者の履歴書と求人票を徹底分析し、提示された固定質問リストに対する最適な模範回答を生成してください。質問文はリストのものをそのまま使用し、回答のみを候補者の実績に基づいて生成してください。',
+        },
         { role: 'user', content: prompt },
       ],
       response_format: { type: 'json_object' },
-      max_completion_tokens: 4000,
+      max_completion_tokens: 6000,
     })
 
     const totalTokensUsed = completion.usage?.total_tokens ?? 0
