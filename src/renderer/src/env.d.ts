@@ -63,8 +63,54 @@ interface AppSettings {
   version: string
 }
 
+type SubscriptionTier = 'free' | 'pro' | 'max'
+type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
+
+interface User {
+  id: string
+  email: string
+  name: string | null
+  picture: string | null
+  subscriptionTier: SubscriptionTier
+  subscriptionStatus: SubscriptionStatus
+  subscriptionPeriodEnd: string | null
+  usage: {
+    sttMinutes: number
+    aiTokens: number
+    storageBytes: number
+  }
+}
+
+interface UserSettings {
+  theme: 'dark' | 'light'
+  autoGenerateAI: boolean
+  aiModel: string
+  aiTemperature: number
+  aiMaxTokens: number
+  contextMinSimilarity: number
+  contextTopK: number
+  hasCustomDeepgramKey: boolean
+  hasCustomOpenaiKey: boolean
+}
+
+interface AuthState {
+  isAuthenticated: boolean
+  isLoading: boolean
+  user: User | null
+  settings: UserSettings | null
+  error: string | null
+}
+
 interface Window {
   electron: {
+    auth: {
+      getState: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
+      loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
+      validate: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
+      logout: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
+      getToken: () => Promise<{ success: boolean; token?: string | null; error?: string }>
+      onStateChanged: (callback: (state: AuthState) => void) => () => void
+    }
     config: {
       getApiKey: (keyName: string) => Promise<string | null>
     }
@@ -86,6 +132,7 @@ interface Window {
         question: string,
         context?: string
       ) => Promise<{ success: boolean; response?: AIResponse; error?: string }>
+      abort: () => Promise<void>
       status: () => Promise<{ initialized: boolean }>
       onChunk: (callback: (chunk: string) => void) => void
       onComplete: (callback: (response: AIResponse) => void) => void
@@ -125,6 +172,18 @@ interface Window {
       generate: (
         count?: number
       ) => Promise<{ success: boolean; questions?: GeneratedQuestion[]; error?: string }>
+    }
+    window: {
+      minimize: () => Promise<void>
+      maximize: () => Promise<void>
+      close: () => Promise<void>
+      isMaximized: () => Promise<boolean>
+    }
+    subscription: {
+      getPlans: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      checkout: (priceId: string) => Promise<{ success: boolean; error?: string }>
+      portal: () => Promise<{ success: boolean; error?: string }>
+      refresh: () => Promise<{ success: boolean; data?: unknown; error?: string }>
     }
     send: (channel: string, data: unknown) => void
     on: (channel: string, callback: (...args: unknown[]) => void) => void

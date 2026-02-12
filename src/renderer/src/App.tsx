@@ -8,7 +8,7 @@ import { useSTT } from './hooks/useSTT'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
 import { useSettings } from './hooks/useSettings'
-import { useAuth } from './hooks/useAuth'
+import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
 import DocumentUploadPanel from './components/DocumentUploadPanel'
 import InterviewQuestionsPanel from './components/InterviewQuestionsPanel'
@@ -16,11 +16,67 @@ import { SubscriptionModal } from './components/SubscriptionModal'
 import { LoginPage } from './components/LoginPage'
 import {
   Badge,
-  Alert,
   Spinner,
   Avatar,
   WaveformVisualizer,
+  ErrorAlert,
 } from './components/ui'
+
+// ============================================================
+// カスタムタイトルバー
+// ============================================================
+
+import appIcon from './assets/icon.svg'
+
+function TitleBar() {
+  const handleMinimize = () => window.electron.window.minimize()
+  const handleMaximize = () => window.electron.window.maximize()
+  const handleClose = () => window.electron.window.close()
+
+  return (
+    <div className="flex items-center h-8 bg-surface border-b border-border/50 select-none drag-region shrink-0">
+      {/* アプリアイコン + タイトル */}
+      <div className="flex items-center gap-1.5 px-3">
+        <img src={appIcon} alt="" className="w-4 h-4 no-drag" />
+        <span className="text-[11px] font-medium text-content-secondary">Interview Bot</span>
+      </div>
+
+      {/* スペーサー */}
+      <div className="flex-1" />
+
+      {/* ウィンドウコントロール */}
+      <div className="flex h-full no-drag">
+        <button
+          onClick={handleMinimize}
+          className="w-11 h-full flex items-center justify-center hover:bg-surface-hover transition-colors"
+          aria-label="最小化"
+        >
+          <svg className="w-3 h-3 text-content-secondary" viewBox="0 0 12 12">
+            <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
+          </svg>
+        </button>
+        <button
+          onClick={handleMaximize}
+          className="w-11 h-full flex items-center justify-center hover:bg-surface-hover transition-colors"
+          aria-label="最大化"
+        >
+          <svg className="w-3 h-3 text-content-secondary" viewBox="0 0 12 12">
+            <rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
+          </svg>
+        </button>
+        <button
+          onClick={handleClose}
+          className="w-11 h-full flex items-center justify-center hover:bg-red-500 hover:text-white text-content-secondary transition-colors"
+          aria-label="閉じる"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 12 12">
+            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // ============================================================
 // アイコンコンポーネント
@@ -274,7 +330,7 @@ function AppContent() {
   // APIキー読み込み中
   if (isLoadingApiKey) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center" data-theme="interview-light">
+      <div className="h-full bg-surface flex items-center justify-center" data-theme="interview-light">
         <div className="text-center space-y-4">
           <Spinner size="lg" className="text-accent mx-auto" />
           <p className="text-content-secondary">アプリケーションを初期化中...</p>
@@ -284,13 +340,11 @@ function AppContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-surface-secondary overflow-hidden" data-theme="interview-light">
+    <div className="h-full flex flex-col bg-surface-secondary overflow-hidden" data-theme="interview-light">
       {/* エラー表示 */}
       {error && (
         <div className="px-4 pt-2">
-          <Alert variant="error" onClose={() => setAppError(null)}>
-            {error}
-          </Alert>
+          <ErrorAlert error={error} onClose={() => setAppError(null)} />
         </div>
       )}
 
@@ -594,7 +648,7 @@ function AuthContainer() {
   // 認証状態読み込み中
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center" data-theme="interview-light">
+      <div className="h-full bg-surface flex items-center justify-center" data-theme="interview-light">
         <div className="text-center space-y-4">
           <Spinner size="lg" className="text-accent mx-auto" />
           <p className="text-content-secondary">認証状態を確認中...</p>
@@ -618,9 +672,16 @@ function AuthContainer() {
 
 function App() {
   return (
-    <ToastProvider>
-      <AuthContainer />
-    </ToastProvider>
+    <div className="h-screen flex flex-col overflow-hidden">
+      <TitleBar />
+      <div className="flex-1 overflow-hidden">
+        <ToastProvider>
+          <AuthProvider>
+            <AuthContainer />
+          </AuthProvider>
+        </ToastProvider>
+      </div>
+    </div>
   )
 }
 

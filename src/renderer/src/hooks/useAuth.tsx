@@ -1,10 +1,14 @@
 /**
- * 認証管理フック
- * Electron AuthServiceとの連携
+ * 認証管理 (Context-based)
+ *
+ * 単一のAuthProviderが認証状態を管理し、
+ * useAuth()はContextから共有stateを返す。
+ * これにより複数コンポーネント間の状態不整合を防ぐ。
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import type { AuthState, User, UserSettings } from '../../../../preload/index'
+import { useState, useEffect, useCallback, useContext, createContext } from 'react'
+
+// AuthState, User, UserSettings はenv.d.tsでグローバル宣言済み
 
 const DEFAULT_AUTH_STATE: AuthState = {
   isAuthenticated: false,
@@ -14,7 +18,7 @@ const DEFAULT_AUTH_STATE: AuthState = {
   error: null,
 }
 
-interface UseAuthResult {
+interface AuthContextValue {
   isAuthenticated: boolean
   isLoading: boolean
   user: User | null
@@ -25,10 +29,16 @@ interface UseAuthResult {
   validateSession: () => Promise<void>
 }
 
-export function useAuth(): UseAuthResult {
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+/**
+ * 認証プロバイダー（アプリのルートに配置）
+ * 単一のstateとIPCリスナーを管理
+ */
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>(DEFAULT_AUTH_STATE)
 
-  // 初期化: 認証状態を検証
+  // 初期化: 認証状態を検証（1回だけ）
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -53,7 +63,7 @@ export function useAuth(): UseAuthResult {
     initAuth()
   }, [])
 
-  // 認証状態変更リスナー（各インスタンスが独自のリスナーを管理）
+  // 認証状態変更リスナー（1つだけ）
   useEffect(() => {
     const cleanup = window.electron.auth.onStateChanged((state: AuthState) => {
       setAuthState(state)
@@ -115,7 +125,7 @@ export function useAuth(): UseAuthResult {
     }
   }, [])
 
-  return {
+  const value: AuthContextValue = {
     isAuthenticated: authState.isAuthenticated,
     isLoading: authState.isLoading,
     user: authState.user,
@@ -125,4 +135,18 @@ export function useAuth(): UseAuthResult {
     logout,
     validateSession,
   }
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+/**
+ * 認証状態を使用するフック
+ * AuthProvider配下でのみ使用可能
+ */
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
 }

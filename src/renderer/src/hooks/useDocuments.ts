@@ -3,15 +3,7 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('useDocuments')
 
-type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
-
-interface DocumentInfo {
-  id: string
-  name: string
-  type: DocumentType
-  uploadedAt: number
-  chunkCount: number
-}
+// DocumentType, DocumentInfo はenv.d.tsでグローバル宣言済み
 
 interface UseDocumentsReturn {
   documents: DocumentInfo[]

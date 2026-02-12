@@ -4,17 +4,9 @@
  */
 
 import { useDocuments } from '../hooks/useDocuments'
-import { Card, CardHeader, Button, Alert, Spinner } from './ui'
+import { Card, CardHeader, Button, Spinner, ErrorAlert } from './ui'
 
-type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
-
-interface DocumentInfo {
-  id: string
-  name: string
-  type: DocumentType
-  uploadedAt: number
-  chunkCount: number
-}
+// DocumentType, DocumentInfo はenv.d.tsでグローバル宣言済み
 
 // アイコンコンポーネント
 const PlusIcon = () => (
@@ -183,11 +175,7 @@ function DocumentUploadPanel() {
       </div>
 
       <div className="p-4 space-y-4">
-        {error && (
-          <Alert variant="error" className="text-xs">
-            {error}
-          </Alert>
-        )}
+        {error && <ErrorAlert error={error} />}
 
         <DocumentSection
           title="履歴書"
