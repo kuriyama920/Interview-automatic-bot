@@ -79,6 +79,7 @@ module.exports = {
         'slide-up': 'slideUp 0.3s ease-out',
         'pulse-subtle': 'pulseSubtle 2s infinite',
         'wave': 'wave 1s ease-in-out infinite',
+        'blink': 'blink 0.8s step-end infinite',
       },
       keyframes: {
         fadeIn: {
@@ -96,6 +97,10 @@ module.exports = {
         wave: {
           '0%, 100%': { transform: 'scaleY(0.5)' },
           '50%': { transform: 'scaleY(1)' },
+        },
+        blink: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
         },
       },
       // フォント

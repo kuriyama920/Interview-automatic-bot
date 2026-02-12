@@ -12,7 +12,6 @@ import { useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
 import DocumentUploadPanel from './components/DocumentUploadPanel'
 import InterviewQuestionsPanel from './components/InterviewQuestionsPanel'
-import { SettingsModal } from './components/SettingsModal'
 import { SubscriptionModal } from './components/SubscriptionModal'
 import { LoginPage } from './components/LoginPage'
 import {
@@ -106,7 +105,6 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true)
   const [appError, setAppError] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [showSubscription, setShowSubscription] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
@@ -117,7 +115,7 @@ function AppContent() {
   const { user, logout } = useAuth()
 
   // 設定管理
-  const { settings, saveSettings, resetSettings } = useSettings()
+  const { settings } = useSettings()
 
   // トースト通知
   const toast = useToast()
@@ -126,7 +124,7 @@ function AppContent() {
     isConnected,
     transcripts,
     currentText,
-    currentSpeaker,
+    currentSource,
     error: sttError,
     connect,
     disconnect,
@@ -176,6 +174,7 @@ function AppContent() {
   }, [])
 
   // interim（途中の文字起こし）からデバウンス付きでAI回答を先行生成
+  // 面接官の発言（system音声）のみをトリガーとする
   const interimTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const INTERIM_DEBOUNCE_MS = 1500 // 1.5秒間テキストが安定したら生成開始
   const INTERIM_MIN_LENGTH = 15   // 最低15文字以上で生成開始
@@ -183,6 +182,8 @@ function AppContent() {
   useEffect(() => {
     if (!settings.autoGenerateAI) return
     if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
+    // 自分の発言（mic）ではAI生成しない
+    if (currentSource === 'mic') return
 
     // デバウンス: 1.5秒間テキストが変わらなければAI生成開始
     interimTimerRef.current = setTimeout(() => {
@@ -192,16 +193,25 @@ function AppContent() {
     return () => {
       if (interimTimerRef.current) clearTimeout(interimTimerRef.current)
     }
-  }, [currentText, settings.autoGenerateAI, generateStreamResponse])
+  }, [currentText, currentSource, settings.autoGenerateAI, generateStreamResponse])
 
   // 確定文字起こしが来たら、interim生成を中断して確定テキストで再生成
+  // 面接官の発言（system音声）のみをトリガーとする
   useEffect(() => {
     if (!settings.autoGenerateAI) return
 
     const newTranscripts = transcripts.slice(lastProcessedIndex.current + 1)
     if (newTranscripts.length === 0) return
 
-    const latestText = newTranscripts.map((t) => t.text).join(' ')
+    // 面接官の発言（system or sourceなし）のみフィルタリング
+    const interviewerTranscripts = newTranscripts.filter((t) => t.source !== 'mic')
+    if (interviewerTranscripts.length === 0) {
+      // 自分の発言だけの場合はインデックスだけ進める
+      lastProcessedIndex.current = transcripts.length - 1
+      return
+    }
+
+    const latestText = interviewerTranscripts.map((t) => t.text).join(' ')
     if (latestText.trim().length > 10) {
       lastProcessedIndex.current = transcripts.length - 1
       // interim生成のタイマーをキャンセル
@@ -259,24 +269,6 @@ function AppContent() {
     toast.info('クリアしました')
   }
 
-  // 設定保存のラッパー
-  const handleSaveSettings = async (newSettings: Parameters<typeof saveSettings>[0]) => {
-    const result = await saveSettings(newSettings)
-    if (result) {
-      toast.success('設定を保存しました')
-    }
-    return result
-  }
-
-  // 設定リセットのラッパー
-  const handleResetSettings = async () => {
-    const result = await resetSettings()
-    if (result) {
-      toast.info('設定をリセットしました')
-    }
-    return result
-  }
-
   const error = appError || sttError || captureError || aiError
 
   // APIキー読み込み中
@@ -308,14 +300,14 @@ function AppContent() {
         <div
           className={`${
             showSidebar ? 'w-80' : 'w-0'
-          } transition-all duration-300 overflow-hidden border-r border-border bg-surface flex-shrink-0`}
+          } transition-all duration-300 overflow-hidden border-r border-border/50 bg-surface flex-shrink-0`}
         >
           <div className="w-80 h-full flex flex-col">
-            <div className="p-3 border-b border-border flex items-center justify-between">
-              <span className="text-sm font-medium text-content">資料管理</span>
+            <div className="p-3 border-b border-border/50 flex items-center justify-between">
+              <span className="text-xs font-semibold text-content-secondary uppercase tracking-wider">資料管理</span>
               <button
                 onClick={() => setShowSidebar(false)}
-                className="p-1 rounded-md hover:bg-surface-hover text-content-secondary transition-colors"
+                className="p-1 rounded-md hover:bg-surface-hover text-content-tertiary transition-colors"
               >
                 <ChevronLeftIcon />
               </button>
@@ -328,33 +320,39 @@ function AppContent() {
         </div>
 
         {/* 左パネル: 文字起こし */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-border">
-          {/* 上部: 録音コントロール */}
-          <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <div className="flex-[5] flex flex-col min-w-0 border-r border-border/50">
+          {/* 上部: ステータス + 録音コントロール */}
+          <div className="px-5 py-3 border-b border-border/50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
               {/* サイドバートグル */}
               {!showSidebar && (
                 <button
                   onClick={() => setShowSidebar(true)}
-                  className="p-1.5 rounded-lg hover:bg-surface-hover text-content-secondary transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-surface-hover text-content-tertiary hover:text-content-secondary transition-colors"
                   title="資料管理"
                 >
                   <FolderIcon />
                 </button>
               )}
 
-              {/* 録音ステータス + 波形 */}
               {isCapturing ? (
-                <div className="flex items-center gap-2.5">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-error" />
                   </span>
-                  <span className="text-sm font-medium text-content">録音中</span>
-                  <WaveformVisualizer isActive={isCapturing} />
-                </div>
+                  <span className="text-[11px] font-medium text-content-secondary">録音中</span>
+                  <WaveformVisualizer isActive={isCapturing} barCount={10} className="ml-1" />
+                </>
+              ) : transcripts.length > 0 ? (
+                <>
+                  <span className="flex h-2 w-2">
+                    <span className="inline-flex rounded-full h-2 w-2 bg-success" />
+                  </span>
+                  <span className="text-[11px] font-medium text-content-secondary">完了</span>
+                </>
               ) : (
-                <span className="text-sm text-content-secondary">待機中</span>
+                <span className="text-[11px] text-content-tertiary">待機中</span>
               )}
             </div>
 
@@ -364,19 +362,27 @@ function AppContent() {
                 <button
                   onClick={handleStart}
                   disabled={!apiKey || isLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-soft"
                 >
                   {isLoading ? <Spinner size="sm" /> : <MicrophoneIcon />}
                   録音開始
                 </button>
               ) : (
-                <button
-                  onClick={handleStop}
-                  disabled={isLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
-                >
-                  録音停止
-                </button>
+                <>
+                  <button
+                    onClick={handleClear}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-content-secondary rounded-lg hover:bg-surface-hover border border-border/50 transition-colors"
+                  >
+                    クリア
+                  </button>
+                  <button
+                    onClick={handleStop}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-error text-white text-xs font-medium rounded-lg hover:bg-error/90 disabled:opacity-50 transition-colors shadow-soft"
+                  >
+                    録音停止
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -385,50 +391,52 @@ function AppContent() {
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {transcripts.length === 0 && !currentText ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-content-tertiary text-sm">
-                  録音を開始すると、ここに文字起こしが表示されます
-                </p>
+                <div className="text-center">
+                  <MicrophoneIcon />
+                  <p className="text-content-tertiary text-xs mt-2">
+                    録音を開始すると、ここに文字起こしが表示されます
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {transcripts.map((t, i) => {
-                  const prevSpeaker = i > 0 ? transcripts[i - 1].speaker : undefined
-                  const showLabel = t.speaker !== undefined && t.speaker !== prevSpeaker
-                  const isInterviewer = t.speaker === 0
+                  const prevSource = i > 0 ? transcripts[i - 1].source : undefined
+                  const showLabel = t.source !== undefined && t.source !== prevSource
+                  const isInterviewer = t.source === 'system'
                   return (
                     <div key={i}>
                       {showLabel && (
-                        <span className={`inline-block text-xs font-medium mb-1 ${
-                          isInterviewer ? 'text-green-600' : 'text-orange-500'
+                        <div className={`text-[10px] font-semibold mb-1 ${
+                          isInterviewer ? 'text-error' : 'text-accent'
                         }`}>
                           {isInterviewer ? '面接官' : 'あなた'}
-                        </span>
+                        </div>
                       )}
-                      <p className={`text-sm leading-relaxed ${
-                        t.speaker === 1 ? 'text-accent' : 'text-content'
-                      }`}>{t.text}</p>
+                      <p className="text-[13px] leading-relaxed text-content">{t.text}</p>
                     </div>
                   )
                 })}
                 {currentText && (
                   <div>
                     {(() => {
-                      const lastSpeaker = transcripts.length > 0
-                        ? transcripts[transcripts.length - 1].speaker
+                      const lastSource = transcripts.length > 0
+                        ? transcripts[transcripts.length - 1].source
                         : undefined
-                      const showLabel = currentSpeaker !== undefined && currentSpeaker !== lastSpeaker
-                      const isInterviewer = currentSpeaker === 0
+                      const showLabel = currentSource !== undefined && currentSource !== lastSource
+                      const isInterviewer = currentSource === 'system'
                       return showLabel ? (
-                        <span className={`inline-block text-xs font-medium mb-1 ${
-                          isInterviewer ? 'text-green-600' : 'text-orange-500'
+                        <div className={`text-[10px] font-semibold mb-1 ${
+                          isInterviewer ? 'text-error' : 'text-accent'
                         }`}>
                           {isInterviewer ? '面接官' : 'あなた'}
-                        </span>
+                        </div>
                       ) : null
                     })()}
-                    <p className={`text-sm leading-relaxed ${
-                      currentSpeaker === 1 ? 'text-accent' : 'text-accent'
-                    } animate-pulse-subtle`}>{currentText}</p>
+                    <p className="text-[13px] leading-relaxed text-content">
+                      {currentText}
+                      <span className="inline-block w-0.5 h-3.5 bg-accent ml-0.5 animate-pulse" />
+                    </p>
                   </div>
                 )}
               </div>
@@ -436,24 +444,24 @@ function AppContent() {
           </div>
 
           {/* 下部: 音声ソース */}
-          <div className="px-5 py-2.5 border-t border-border flex items-center justify-between">
+          <div className="px-5 py-2.5 border-t border-border/30 flex items-center justify-between">
             <div className="flex items-center gap-2 text-content-tertiary">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
-              <span className="text-xs">{AUDIO_SOURCE_LABELS[audioSource]}</span>
+              <span className="text-[10px]">{AUDIO_SOURCE_LABELS[audioSource]}</span>
             </div>
             {/* 音声ソース切り替え */}
             {!isCapturing && (
-              <div className="flex items-center bg-surface-secondary rounded-md p-0.5">
+              <div className="flex items-center bg-surface-tertiary/50 rounded-md p-0.5">
                 {(['system', 'mic', 'both'] as const).map((value) => (
                   <button
                     key={value}
                     onClick={() => setAudioSource(value)}
-                    className={`px-2.5 py-1 text-xs rounded transition-all ${
+                    className={`px-2.5 py-1 text-[10px] rounded transition-all ${
                       audioSource === value
                         ? 'bg-surface text-accent shadow-sm font-medium'
-                        : 'text-content-tertiary hover:text-content'
+                        : 'text-content-tertiary hover:text-content-secondary'
                     }`}
                   >
                     {value === 'system' ? 'システム' : value === 'mic' ? 'マイク' : '両方'}
@@ -465,28 +473,28 @@ function AppContent() {
         </div>
 
         {/* 右パネル: AI回答 */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-[7] flex flex-col min-w-0 bg-accent/[0.02]">
           {/* 上部: タイトル + ステータス */}
-          <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-border/50 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <SparklesIcon />
-              <span className="text-sm font-medium text-content">AI 回答提案</span>
+              <span className="text-[11px] font-medium text-content-secondary">AI 回答提案</span>
             </div>
             <div className="flex items-center gap-2">
               {isGenerating ? (
-                <span className="text-xs text-accent flex items-center gap-1.5">
+                <span className="text-[10px] text-accent flex items-center gap-1.5 animate-pulse">
                   <Spinner size="sm" className="text-accent" />
-                  生成中
+                  生成中...
                 </span>
               ) : aiResponse ? (
-                <span className="text-xs text-accent font-medium">完了</span>
+                <span className="text-[10px] text-success font-medium">完了</span>
               ) : null}
 
               {/* ユーザーメニュー */}
               <div className="relative ml-2" ref={userMenuRef}>
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="p-1 rounded-lg hover:bg-surface-hover transition-colors"
+                  className="p-0.5 rounded-full hover:ring-2 hover:ring-accent/20 transition-all"
                 >
                   <Avatar src={user?.picture} name={user?.name || user?.email} size="sm" />
                 </button>
@@ -540,34 +548,27 @@ function AppContent() {
               <AIResponseSkeleton />
             ) : !aiResponse && !streamingText ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-content-tertiary text-sm">
-                  面接官の質問に対するAI推奨回答がここに表示されます
-                </p>
+                <div className="text-center">
+                  <SparklesIcon />
+                  <p className="text-content-tertiary text-xs mt-2">
+                    面接官の質問に対するAI推奨回答がここに表示されます
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-5">
-                {/* 回答提案ラベル */}
-                <p className="text-xs text-content-tertiary">回答提案：</p>
-
-                {/* メイン回答 */}
-                <p className="text-sm leading-relaxed text-content whitespace-pre-wrap">
+              <div className="space-y-3">
+                <div className="text-[10px] text-content-secondary">おすすめの回答：</div>
+                <p className="text-[13px] leading-relaxed text-content whitespace-pre-wrap font-medium">
                   {aiResponse?.answer || streamingText}
+                  {isGenerating && streamingText && (
+                    <span className="inline-block w-0.5 h-3.5 bg-accent ml-0.5 animate-pulse" />
+                  )}
                 </p>
-
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {/* 設定モーダル */}
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-        onReset={handleResetSettings}
-      />
 
       {/* サブスクリプションモーダル (Phase 7) */}
       <SubscriptionModal

@@ -239,7 +239,7 @@ function InterviewQuestionsPanel() {
           variant="secondary"
           size="sm"
           leftIcon={isGenerating ? undefined : <SparklesIcon />}
-          onClick={() => generateQuestions(10)}
+          onClick={() => generateQuestions(20)}
           disabled={isGenerating || questions.length >= MAX_QUESTIONS}
           isLoading={isGenerating}
           className="w-full"
