@@ -26,7 +26,7 @@ const MATCH_THRESHOLD = 0.65
 const MIN_QUERY_LENGTH = 6
 
 /** テキストからビグラムセットを生成（日本語対応） */
-function computeBigrams(text: string): Set<string> {
+export function computeBigrams(text: string): Set<string> {
   const normalized = text.replace(/[\s、。？！「」（）\u3000]/g, '')
   const set = new Set<string>()
   for (let i = 0; i <= normalized.length - 2; i++) {
@@ -36,7 +36,7 @@ function computeBigrams(text: string): Set<string> {
 }
 
 /** Jaccard 類似度（ビグラム） */
-function bigramSimilarity(a: Set<string>, b: Set<string>): number {
+export function bigramSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   let intersectionSize = 0
   for (const item of a) {
@@ -110,5 +110,12 @@ export function useQuestionCache() {
     return bestMatch
   }, [])
 
-  return { findMatch, refreshCache: loadCache }
+  /** キャッシュをクリア（ログアウト時等） */
+  const clearCache = useCallback(() => {
+    cacheRef.current = []
+    loadedRef.current = false
+    log.info('Question cache cleared')
+  }, [])
+
+  return { findMatch, refreshCache: loadCache, clearCache }
 }

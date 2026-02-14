@@ -28,10 +28,13 @@ export function isAllowedOrigin(url: string): boolean {
     )
     if (isExplicitlyAllowed) return true
 
-    // Vercelデプロイメント（*.vercel.app）を許可
-    // 例: kuriyama-natos-projects.vercel.app, xxx-git-branch-yyy.vercel.app
+    // プロジェクト固有のVercelデプロイメントのみ許可
     const hostname = parsed.hostname
-    if (hostname.endsWith('.vercel.app')) {
+    if (
+      hostname.endsWith('.vercel.app') &&
+      (hostname.includes('interview-bot') ||
+       hostname.includes('kuriyama-nato'))
+    ) {
       return true
     }
 

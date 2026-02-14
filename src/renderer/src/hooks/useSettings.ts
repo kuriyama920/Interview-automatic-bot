@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   openaiApiKey: '',
   theme: 'dark',
   autoGenerateAI: true,
-  audioSource: 'mic',
+  audioSource: 'system',
   aiModel: 'gpt-5-nano',
   aiTemperature: 0.7,
   aiMaxTokens: 2000,

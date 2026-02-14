@@ -120,8 +120,13 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // 環境変数・設定関連のIPCハンドラー
   // ============================================
 
-  // 環境変数からAPIキーを取得
+  // 環境変数からAPIキーを取得（許可リスト制限）
+  const ALLOWED_ENV_KEYS = new Set(['DEEPGRAM_API_KEY', 'API_BASE_URL', 'OPENAI_API_KEY'])
   ipcMain.handle('config:getApiKey', (_event: unknown, keyName: string) => {
+    if (!ALLOWED_ENV_KEYS.has(keyName)) {
+      log.warn(`config:getApiKey blocked access to ${keyName}`)
+      return null
+    }
     const value = process.env[keyName]
     log.debug(`config:getApiKey called for ${keyName}, found: ${!!value}`)
     return value || null

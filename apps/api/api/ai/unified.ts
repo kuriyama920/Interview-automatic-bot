@@ -142,6 +142,21 @@ async function fetchDocumentContext(userId: string, question: string): Promise<s
   }
 }
 
+const RATE_LIMIT_WINDOW_MS = 60_000  // 1分
+const RATE_LIMIT_MAX_REQUESTS = 20   // 1分あたり最大20リクエスト
+
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString()
+  const { count } = await supabaseAdmin
+    .from('usage_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('usage_type', 'ai_completion')
+    .gte('created_at', since)
+
+  return (count ?? 0) < RATE_LIMIT_MAX_REQUESTS
+}
+
 async function handleGenerate(req: VercelRequest, res: VercelResponse) {
   const jwtPayload = getUserFromRequest(req)
   if (!jwtPayload) {
@@ -149,6 +164,15 @@ async function handleGenerate(req: VercelRequest, res: VercelResponse) {
   }
 
   const userId = jwtPayload.sub
+
+  // レート制限チェック（1分あたり20リクエスト）
+  const withinLimit = await checkRateLimit(userId)
+  if (!withinLimit) {
+    return res.status(429).json({
+      error: 'Too many requests. Please wait a moment.',
+      retryAfter: 60,
+    })
+  }
 
   const validation = validateGenerateRequest(req.body)
   if ('error' in validation) {
