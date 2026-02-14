@@ -10,6 +10,9 @@ import { useAIResponse } from './hooks/useAIResponse'
 import { useSettings } from './hooks/useSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
+import { createLogger } from './utils/logger'
+
+const log = createLogger('App')
 import DocumentUploadPanel from './components/DocumentUploadPanel'
 import InterviewQuestionsPanel from './components/InterviewQuestionsPanel'
 import { SubscriptionModal } from './components/SubscriptionModal'
@@ -230,42 +233,35 @@ function AppContent() {
   }, [])
 
   // Progressive AI Generation: 面接官の発言中にリアルタイムでAI回答を生成
-  // デバウンスなし - interim到着時に即座に生成開始、テキスト成長時に再生成
+  // 戦略: interimで即座に生成開始、finalで必要時のみ再生成
   const lastGeneratedTextRef = useRef<string>('')
-  const INTERIM_MIN_LENGTH = 10    // 最低10文字以上で生成開始
-  const FINAL_MIN_LENGTH = 10      // 確定テキストの最低文字数
-  const REGROWTH_THRESHOLD = 0.3   // 前回より30%以上成長したら再生成
-  const SIMILARITY_THRESHOLD = 0.6 // 60%以上類似なら再生成スキップ
+  const INTERIM_MIN_LENGTH = 3     // 最低3文字以上で生成開始（日本語は1文字=情報量大）
+  const FINAL_MIN_LENGTH = 3       // 確定テキストの最低文字数
+  const SIMILARITY_THRESHOLD = 0.5 // 50%以上類似なら再生成スキップ
 
+  // Interim: 面接官発言でAI生成を即座に開始（1回だけ）
   useEffect(() => {
-    if (!settings.autoGenerateAI) return
+    if (!settings.autoGenerateAI) {
+      log.debug('[Interim] autoGenerateAI is OFF')
+      return
+    }
     if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
     if (currentSource === 'mic') return
 
+    // 既にこの発話でAI生成済みなら何もしない（finalまで待つ）
+    if (lastGeneratedTextRef.current) return
+
     const trimmed = currentText.trim()
-    const lastText = lastGeneratedTextRef.current
-
-    // 初回: まだAI生成していない → 即座に生成開始
-    if (!lastText) {
-      lastGeneratedTextRef.current = trimmed
-      generateStreamResponse(trimmed)
-      return
-    }
-
-    // テキストが前回より十分成長 or 大幅に変化した場合に再生成
-    const lengthChange = (trimmed.length - lastText.length) / lastText.length
-    if (lengthChange >= REGROWTH_THRESHOLD) {
-      lastGeneratedTextRef.current = trimmed
-      generateStreamResponse(trimmed)
-    } else if (lengthChange <= -REGROWTH_THRESHOLD) {
-      // テキストが大幅に縮小（Deepgramの修正）→ 再生成
-      lastGeneratedTextRef.current = trimmed
-      generateStreamResponse(trimmed)
-    }
+    log.info('[Interim] Triggering AI generation', {
+      text: trimmed,
+      length: trimmed.length,
+      source: currentSource,
+    })
+    lastGeneratedTextRef.current = trimmed
+    generateStreamResponse(trimmed)
   }, [currentText, currentSource, settings.autoGenerateAI, generateStreamResponse])
 
-  // 確定文字起こし: 面接官の発言のみ
-  // 前回interim生成と類似なら再生成をスキップ（ストリーミング中の回答を維持）
+  // Final: 確定テキストがinterim生成と大きく異なる場合のみ再生成
   useEffect(() => {
     if (!settings.autoGenerateAI) return
 
@@ -279,12 +275,22 @@ function AppContent() {
     }
 
     const latestText = interviewerTranscripts.map((t) => t.text).join(' ')
-    if (latestText.trim().length > FINAL_MIN_LENGTH) {
+    log.debug('[Final] New interviewer transcripts', {
+      count: interviewerTranscripts.length,
+      text: latestText.trim(),
+      length: latestText.trim().length,
+      threshold: FINAL_MIN_LENGTH,
+    })
+
+    if (latestText.trim().length >= FINAL_MIN_LENGTH) {
       lastProcessedIndex.current = transcripts.length - 1
+      const finalTrimmed = latestText.trim()
+
+      // 次のinterim発話に備えてリセット
+      const lastGen = lastGeneratedTextRef.current
+      lastGeneratedTextRef.current = ''
 
       // 前回interim生成テキストと類似度を比較
-      const lastGen = lastGeneratedTextRef.current
-      const finalTrimmed = latestText.trim()
       if (lastGen) {
         const shorter = lastGen.length <= finalTrimmed.length ? lastGen : finalTrimmed
         const longer = lastGen.length > finalTrimmed.length ? lastGen : finalTrimmed
@@ -293,16 +299,25 @@ function AppContent() {
           if (shorter[i] === longer[i]) matches++
         }
         const similarity = longer.length > 0 ? matches / longer.length : 0
+        log.debug('[Final] Similarity check', {
+          lastGen,
+          finalText: finalTrimmed,
+          similarity: similarity.toFixed(2),
+          skip: similarity >= SIMILARITY_THRESHOLD,
+        })
         if (similarity >= SIMILARITY_THRESHOLD) {
-          // 十分類似 → 既存ストリーミングを継続
-          lastGeneratedTextRef.current = finalTrimmed
+          // 十分類似 → 既存ストリーミングを継続、再生成不要
           return
         }
       }
 
-      // 大きく異なる場合のみ確定テキストで再生成
-      lastGeneratedTextRef.current = finalTrimmed
-      generateStreamResponse(latestText)
+      // 大きく異なる場合、またはinterim生成がなかった場合に生成
+      log.info('[Final] Triggering AI generation', {
+        text: finalTrimmed,
+        length: finalTrimmed.length,
+        hadInterimGen: !!lastGen,
+      })
+      generateStreamResponse(finalTrimmed)
     }
   }, [transcripts, settings.autoGenerateAI, generateStreamResponse])
 

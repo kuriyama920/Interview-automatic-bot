@@ -6,7 +6,9 @@
       "Bash(npx vitest:*)",
       "Bash(npx electron-vite build:*)",
       "Bash(npx vercel logs:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "mcp__supabase__execute_sql",
+      "mcp__vercel__get_runtime_logs"
     ]
   },
   "enabledMcpjsonServers": [
