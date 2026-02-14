@@ -54,7 +54,7 @@ function CheckoutContent() {
   const planInfo = PLAN_INFO[plan]
   const priceId = getPriceIdForPlan(plan)
 
-  // React StrictMode二重実行防止: devモードでuseEffectが2回実行されるのを防ぐ
+  // React StrictMode対応: cleanup時にrefをリセットし、再マウント時に正しく実行
   const checkoutStartedRef = useRef(false)
 
   // session_id がURLにある場合: ポーリング → JWT取得 → Stripe Checkout 作成
@@ -158,6 +158,8 @@ function CheckoutContent() {
     completeCheckout()
     return () => {
       cancelled = true
+      // StrictMode: cleanup後の再マウントで再実行を許可するためリセット
+      checkoutStartedRef.current = false
     }
   }, [sessionId, plan, planInfo, priceId])
 
