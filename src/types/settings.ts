@@ -18,7 +18,7 @@ export interface AppSettings {
   audioSource: AudioSource
 
   // AI設定
-  aiModel: 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
+  aiModel: 'gpt-5-nano' | 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
   aiTemperature: number
   aiMaxTokens: number
 
@@ -44,9 +44,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   audioSource: 'system',
 
   // AI設定
-  aiModel: 'gpt-5-mini',
+  aiModel: 'gpt-5-nano',
   aiTemperature: 0.7,
-  aiMaxTokens: 1000,
+  aiMaxTokens: 2000,
 
   // RAG設定
   contextMinSimilarity: 0.7,

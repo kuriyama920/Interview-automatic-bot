@@ -23,6 +23,9 @@ const SYSTEM_PROMPT = `あなたは面接コーチです。面接官の質問に
 質問が途中や断片的でも、意図を推測して回答してください。
 回答形式：結論→根拠→具体例の順。数値・固有名詞で説得力を高める。日本語で簡潔に（3-5文）。`
 
+// reasoning_effort をサポートするモデル（GPT-5系推論モデル）
+const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']
+
 export class AIService {
   private client: OpenAI | null = null
   private config: AIServiceConfig | null = null
@@ -34,8 +37,8 @@ export class AIService {
     this.apiBaseUrl = config.apiBaseUrl || ''
 
     this.config = {
-      model: 'gpt-5-mini',
-      maxTokens: 800,
+      model: 'gpt-5-nano',
+      maxTokens: 2000,
       ...config,
     }
 
@@ -74,6 +77,7 @@ export class AIService {
           { role: 'user', content: userMessage },
         ],
         max_completion_tokens: this.config.maxTokens,
+        ...(MODELS_WITH_REASONING.includes(this.config.model!) && { reasoning_effort: 'minimal' as const }),
       })
 
       const content = response.choices[0]?.message?.content || ''
@@ -111,6 +115,12 @@ export class AIService {
       : `面接官の質問: ${question}`
 
     try {
+      log.debug('Creating OpenAI stream', {
+        model: this.config.model,
+        maxTokens: this.config.maxTokens,
+        messageCount: 2,
+        userMessageLength: userMessage.length,
+      })
       const stream = await this.client.chat.completions.create(
         {
           model: this.config.model!,
@@ -119,6 +129,7 @@ export class AIService {
             { role: 'user', content: userMessage },
           ],
           max_completion_tokens: this.config.maxTokens,
+          ...(MODELS_WITH_REASONING.includes(this.config.model!) && { reasoning_effort: 'minimal' as const }),
           stream: true,
         },
         { signal }
@@ -126,10 +137,30 @@ export class AIService {
 
       let fullContent = ''
       let chunkCount = 0
+      let totalChunks = 0
 
       for await (const chunk of stream) {
-        if (signal?.aborted) break
-        const content = chunk.choices[0]?.delta?.content || ''
+        totalChunks++
+        if (signal?.aborted) {
+          log.info('Stream aborted mid-iteration', { totalChunks })
+          break
+        }
+
+        const choice = chunk.choices[0]
+        const content = choice?.delta?.content || ''
+        const finishReason = choice?.finish_reason
+
+        // 最初の数チャンクと完了理由をログ
+        if (totalChunks <= 3 || finishReason) {
+          log.debug('Stream chunk', {
+            n: totalChunks,
+            hasContent: !!content,
+            contentLen: content.length,
+            finishReason,
+            delta: JSON.stringify(choice?.delta),
+          })
+        }
+
         fullContent += content
         if (onChunk && content) {
           chunkCount++
@@ -140,6 +171,7 @@ export class AIService {
       log.info('AI stream response completed', {
         responseLength: fullContent.length,
         chunkCount,
+        totalChunks,
         contentPreview: fullContent.substring(0, 100),
       })
 
@@ -285,6 +317,30 @@ export class AIService {
             if (parseError instanceof SyntaxError) continue
             throw parseError
           }
+        }
+      }
+
+      // ストリーム終了後にバッファに残ったデータを処理
+      // （最後のSSEイベントに末尾の改行がない場合の防御策）
+      if (buffer.trim() && buffer.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(buffer.slice(6))
+          if (data.type === 'chunk' && data.content) {
+            fullContent += data.content
+            if (fullContent.length > MAX_CONTENT_SIZE) {
+              throw new Error('SSE content exceeds maximum size')
+            }
+            if (onChunk) {
+              onChunk(data.content)
+            }
+          } else if (data.type === 'error') {
+            throw new Error(data.error || 'AI generation failed')
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && !parseError.message.includes('JSON')) {
+            throw parseError
+          }
+          // 不完全なJSONは無視
         }
       }
     } finally {

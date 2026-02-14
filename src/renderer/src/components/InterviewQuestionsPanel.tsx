@@ -165,7 +165,7 @@ const QuestionItem = memo(function QuestionItem({
 })
 
 // メインコンポーネント
-function InterviewQuestionsPanel() {
+function InterviewQuestionsPanel({ onQuestionsUpdated }: { onQuestionsUpdated?: () => void }) {
   const {
     questions,
     isLoading,
@@ -235,7 +235,7 @@ function InterviewQuestionsPanel() {
           variant="secondary"
           size="sm"
           leftIcon={isGenerating ? undefined : <SparklesIcon />}
-          onClick={() => generateQuestions(20)}
+          onClick={async () => { await generateQuestions(20); onQuestionsUpdated?.() }}
           disabled={isGenerating || questions.length >= MAX_QUESTIONS}
           isLoading={isGenerating}
           className="w-full"
@@ -286,7 +286,7 @@ function InterviewQuestionsPanel() {
             variant="primary"
             size="sm"
             leftIcon={isSaving ? undefined : <SaveIcon />}
-            onClick={saveQuestions}
+            onClick={async () => { await saveQuestions(); onQuestionsUpdated?.() }}
             disabled={isSaving}
             isLoading={isSaving}
             className="w-full"

@@ -474,10 +474,16 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       let contextString = explicitContext || ''
 
       // プロキシモード時はサーバー側でRAGコンテキストを取得するのでスキップ
+      // 直接モード時は200msタイムアウトでコンテキスト取得（遅延防止）
       if (!aiService.isUsingProxy() && contextService.isInitialized()) {
-        const contextResults = await contextService.getRelevantContext(question)
+        const RAG_TIMEOUT_MS = 200
+        const contextPromise = contextService.getRelevantContext(question)
+        const timeoutPromise = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), RAG_TIMEOUT_MS)
+        )
+        const contextResults = await Promise.race([contextPromise, timeoutPromise])
 
-        if (contextResults.length > 0) {
+        if (contextResults && contextResults.length > 0) {
           const contextParts = contextResults.map((result) => {
             const labelMap: Record<string, string> = {
               resume: '履歴書',
@@ -494,6 +500,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
           log.debug('Context added to query', {
             documentsUsed: contextResults.length,
             contextLength: contextString.length,
+          })
+        } else if (!contextResults) {
+          log.debug('RAG context fetch timed out, proceeding without context', {
+            timeoutMs: RAG_TIMEOUT_MS,
           })
         }
       }
@@ -641,6 +651,9 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // Stripe Checkout セッションを作成してブラウザで開く
   ipcMain.handle('subscription:checkout', async (_event, priceId: string) => {
     log.info('subscription:checkout called', { priceId })
+    if (!priceId || typeof priceId !== 'string' || !priceId.startsWith('price_')) {
+      return { success: false, error: 'Invalid priceId format' }
+    }
     try {
       const response = await authService.authenticatedFetch(
         `${API_BASE_URL}/api/stripe/checkout`,

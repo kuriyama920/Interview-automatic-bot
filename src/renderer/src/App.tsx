@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useSTT } from './hooks/useSTT'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
+import { useQuestionCache, type QuestionMatch } from './hooks/useQuestionCache'
 import { useSettings } from './hooks/useSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
@@ -202,6 +203,16 @@ function AppContent() {
     clearResponse,
   } = useAIResponse()
 
+  // 想定質問キャッシュ（即時マッチング用）
+  const { findMatch, refreshCache: refreshQuestionCache } = useQuestionCache()
+  const [cachedMatch, setCachedMatch] = useState<QuestionMatch | null>(null)
+  const cachedMatchRef = useRef<QuestionMatch | null>(null)
+
+  const updateCachedMatch = useCallback((match: QuestionMatch | null) => {
+    cachedMatchRef.current = match
+    setCachedMatch(match)
+  }, [])
+
   // ユーザーメニュー外クリックで閉じる
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -233,33 +244,83 @@ function AppContent() {
   }, [])
 
   // Progressive AI Generation: 面接官の発言中にリアルタイムでAI回答を生成
-  // 戦略: interimで即座に生成開始、finalで必要時のみ再生成
+  // 戦略: interimで即座に生成開始、テキスト変化時にデバウンス再生成、finalで必要時のみ再生成
   const lastGeneratedTextRef = useRef<string>('')
+  const interimDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentTextRef = useRef<string | null>(null)
+  currentTextRef.current = currentText
   const INTERIM_MIN_LENGTH = 3     // 最低3文字以上で生成開始（日本語は1文字=情報量大）
+  const INTERIM_DEBOUNCE_MS = 700  // 再生成のデバウンス間隔
   const FINAL_MIN_LENGTH = 3       // 確定テキストの最低文字数
   const SIMILARITY_THRESHOLD = 0.5 // 50%以上類似なら再生成スキップ
 
-  // Interim: 面接官発言でAI生成を即座に開始（1回だけ）
+  // Interim: 面接官発言で即座にマッチング→AI生成
+  // Layer 1: ローカルQ&Aキャッシュで即時マッチング（<1ms）
+  // Layer 2: マッチなしの場合、AI生成（gpt-5-nano minimal streaming）
   useEffect(() => {
     if (!settings.autoGenerateAI) {
       log.debug('[Interim] autoGenerateAI is OFF')
       return
     }
     if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
-    if (currentSource === 'mic') return
-
-    // 既にこの発話でAI生成済みなら何もしない（finalまで待つ）
-    if (lastGeneratedTextRef.current) return
+    // bothモードのみsource分離（mic=自分の声をスキップ）
+    if (currentSource === 'mic' && audioSource === 'both') return
 
     const trimmed = currentText.trim()
-    log.info('[Interim] Triggering AI generation', {
-      text: trimmed,
-      length: trimmed.length,
-      source: currentSource,
-    })
-    lastGeneratedTextRef.current = trimmed
-    generateStreamResponse(trimmed)
-  }, [currentText, currentSource, settings.autoGenerateAI, generateStreamResponse])
+
+    // Layer 1: 想定質問キャッシュで即時マッチング
+    const match = findMatch(trimmed)
+    if (match) {
+      log.info('[Interim] Instant Q&A match found', {
+        query: trimmed.substring(0, 30),
+        matched: match.question.substring(0, 30),
+        similarity: match.similarity.toFixed(3),
+      })
+      // AI生成を中断し、保存済み回答を即座に表示
+      abortGeneration()
+      updateCachedMatch(match)
+      lastGeneratedTextRef.current = trimmed
+      return
+    }
+
+    // マッチなし → キャッシュクリア（ref経由で依存ループを回避）
+    if (cachedMatchRef.current) {
+      updateCachedMatch(null)
+    }
+
+    // Layer 2: AI生成（初回は即座に、以降はデバウンスで）
+    if (!lastGeneratedTextRef.current) {
+      log.info('[Interim] Triggering AI generation (initial)', {
+        text: trimmed,
+        length: trimmed.length,
+        source: currentSource,
+      })
+      lastGeneratedTextRef.current = trimmed
+      generateStreamResponse(trimmed)
+      return
+    }
+
+    // 2回目以降: テキストが50%以上長くなった場合、デバウンスで再生成
+    if (trimmed.length > lastGeneratedTextRef.current.length * 1.5) {
+      if (interimDebounceRef.current) clearTimeout(interimDebounceRef.current)
+      interimDebounceRef.current = setTimeout(() => {
+        // 最新のテキストを使用（stale closure回避）
+        const latestText = currentTextRef.current?.trim() || ''
+        if (latestText.length < INTERIM_MIN_LENGTH) return
+        log.info('[Interim] Triggering AI re-generation (text grew)', {
+          text: latestText,
+          length: latestText.length,
+          prevLength: lastGeneratedTextRef.current.length,
+        })
+        lastGeneratedTextRef.current = latestText
+        generateStreamResponse(latestText)
+      }, INTERIM_DEBOUNCE_MS)
+    }
+
+    return () => {
+      if (interimDebounceRef.current) clearTimeout(interimDebounceRef.current)
+    }
+  }, [currentText, currentSource, audioSource, settings.autoGenerateAI, generateStreamResponse, findMatch, abortGeneration, updateCachedMatch])
 
   // Final: 確定テキストがinterim生成と大きく異なる場合のみ再生成
   useEffect(() => {
@@ -268,7 +329,10 @@ function AppContent() {
     const newTranscripts = transcripts.slice(lastProcessedIndex.current + 1)
     if (newTranscripts.length === 0) return
 
-    const interviewerTranscripts = newTranscripts.filter((t) => t.source !== 'mic')
+    // bothモードのみsource分離（mic=自分の声をスキップ）、単一ソースではフィルタなし
+    const interviewerTranscripts = audioSource === 'both'
+      ? newTranscripts.filter((t) => t.source !== 'mic')
+      : newTranscripts
     if (interviewerTranscripts.length === 0) {
       lastProcessedIndex.current = transcripts.length - 1
       return
@@ -289,6 +353,24 @@ function AppContent() {
       // 次のinterim発話に備えてリセット
       const lastGen = lastGeneratedTextRef.current
       lastGeneratedTextRef.current = ''
+
+      // Layer 1: 想定質問キャッシュで最終確認
+      const match = findMatch(finalTrimmed)
+      if (match) {
+        log.info('[Final] Instant Q&A match confirmed', {
+          query: finalTrimmed.substring(0, 30),
+          matched: match.question.substring(0, 30),
+          similarity: match.similarity.toFixed(3),
+        })
+        abortGeneration()
+        updateCachedMatch(match)
+        return
+      }
+
+      // マッチなし → キャッシュクリア（ref経由で依存ループを回避）
+      if (cachedMatchRef.current) {
+        updateCachedMatch(null)
+      }
 
       // 前回interim生成テキストと類似度を比較
       if (lastGen) {
@@ -311,7 +393,7 @@ function AppContent() {
         }
       }
 
-      // 大きく異なる場合、またはinterim生成がなかった場合に生成
+      // 大きく異なる場合、またはinterim生成がなかった場合にAI生成
       log.info('[Final] Triggering AI generation', {
         text: finalTrimmed,
         length: finalTrimmed.length,
@@ -319,7 +401,7 @@ function AppContent() {
       })
       generateStreamResponse(finalTrimmed)
     }
-  }, [transcripts, settings.autoGenerateAI, generateStreamResponse])
+  }, [transcripts, audioSource, settings.autoGenerateAI, generateStreamResponse, findMatch, abortGeneration, updateCachedMatch])
 
   const handleStart = async () => {
     if (!apiKey) {
@@ -414,7 +496,7 @@ function AppContent() {
             </div>
             <div className="flex-1 overflow-y-auto space-y-4 p-2">
               <DocumentUploadPanel />
-              <InterviewQuestionsPanel />
+              <InterviewQuestionsPanel onQuestionsUpdated={refreshQuestionCache} />
             </div>
           </div>
         </div>
@@ -581,7 +663,9 @@ function AppContent() {
               <span className="text-[11px] font-medium text-content-secondary">AI 回答提案</span>
             </div>
             <div className="flex items-center gap-2">
-              {isGenerating ? (
+              {cachedMatch ? (
+                <span className="text-[10px] text-success font-medium">即時マッチ</span>
+              ) : isGenerating ? (
                 <span className="text-[10px] text-accent flex items-center gap-1.5 animate-pulse">
                   <Spinner size="sm" className="text-accent" />
                   生成中...
@@ -644,7 +728,19 @@ function AppContent() {
 
           {/* AI回答本文 */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {isGenerating && !streamingText ? (
+            {cachedMatch ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] text-success font-medium">想定質問マッチ</div>
+                  <div className="text-[10px] text-content-tertiary">
+                    類似度 {Math.round(cachedMatch.similarity * 100)}%
+                  </div>
+                </div>
+                <p className="text-[13px] leading-relaxed text-content whitespace-pre-wrap font-medium">
+                  {cachedMatch.answer}
+                </p>
+              </div>
+            ) : isGenerating && !streamingText ? (
               <AIResponseSkeleton />
             ) : !aiResponse && !streamingText ? (
               <div className="h-full flex items-center justify-center">
@@ -659,7 +755,7 @@ function AppContent() {
               <div className="space-y-3">
                 <div className="text-[10px] text-content-secondary">おすすめの回答：</div>
                 <p className="text-[13px] leading-relaxed text-content whitespace-pre-wrap font-medium">
-                  {aiResponse?.answer || streamingText}
+                  {isGenerating ? (streamingText || aiResponse?.answer) : (aiResponse?.answer || streamingText)}
                   {isGenerating && streamingText && (
                     <span className="inline-block w-0.5 h-3.5 bg-accent ml-0.5 animate-pulse" />
                   )}

@@ -48,14 +48,14 @@ export function useAIResponse(): UseAIResponseReturn {
         setStreamingText((prev) => prev + chunk)
       })
 
+      // onComplete はログのみ — レスポンス設定は IPC 返り値で行う（世代チェック付き）
+      // ai:complete イベントには世代IDが含まれないため、レースコンディションの原因になる
       window.electron.ai.onComplete((aiResponse: AIResponse) => {
         if (!mountedRef.current) return
-        log.info('AI response completed', {
+        log.debug('ai:complete event received (handled by IPC return)', {
           answerLength: aiResponse.answer.length,
           answerPreview: aiResponse.answer.substring(0, 80),
         })
-        setResponse(aiResponse)
-        setIsGenerating(false)
       })
 
       window.electron.ai.onError((errorMessage: string) => {
@@ -145,7 +145,15 @@ export function useAIResponse(): UseAIResponseReturn {
       // この生成が最新でない場合は無視（abort後に新しい生成が開始された）
       if (generationIdRef.current !== thisGeneration) return
 
-      if (!result.success) {
+      if (result.success && result.response) {
+        // IPC返り値から直接レスポンスを設定（世代チェック済みで安全）
+        log.info('Setting response from IPC return', {
+          answerLength: result.response.answer.length,
+          generationId: thisGeneration,
+        })
+        setResponse(result.response)
+        setIsGenerating(false)
+      } else if (!result.success) {
         if (result.error === 'aborted') return // 意図的な中断
         setError(result.error || 'Failed to generate response')
         setStreamingText('')

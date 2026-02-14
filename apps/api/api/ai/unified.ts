@@ -22,11 +22,12 @@ export const config = {
 }
 
 // --- Generate 用定数 ---
-const DEFAULT_MODEL = 'gpt-5-mini'
-const DEFAULT_MAX_TOKENS = 4000
+const DEFAULT_MODEL = 'gpt-5-nano'
+const DEFAULT_MAX_TOKENS = 2000
 const MAX_QUESTION_LENGTH = 2000
-const ALLOWED_MODELS = ['gpt-5-mini', 'gpt-4o-mini']
-const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-mini']
+const ALLOWED_MODELS = ['gpt-5-nano', 'gpt-5-mini', 'gpt-4o-mini']
+const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-nano', 'gpt-5-mini']
+const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini']
 const DEFAULT_TOP_K = 3
 const DEFAULT_MIN_SIMILARITY = 0.7
 
@@ -76,7 +77,7 @@ function validateGenerateRequest(body: unknown): ValidatedGenerateRequest | { er
   const requestedModel = typeof data.model === 'string' ? data.model : DEFAULT_MODEL
   const model = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : DEFAULT_MODEL
   const maxTokens =
-    typeof data.maxTokens === 'number' && data.maxTokens > 0 && data.maxTokens <= 8000
+    typeof data.maxTokens === 'number' && data.maxTokens > 0 && data.maxTokens <= 4000
       ? data.maxTokens
       : DEFAULT_MAX_TOKENS
   const supportsTemperature = !MODELS_WITHOUT_TEMPERATURE.includes(model)
@@ -180,50 +181,68 @@ async function handleGenerate(req: VercelRequest, res: VercelResponse) {
     ? `コンテキスト情報:\n${fullContext}\n\n面接官の質問: ${question}`
     : `面接官の質問: ${question}`
 
-  const openai = new OpenAI({ apiKey: getEnv('OPENAI_API_KEY') })
-  const stream = await openai.chat.completions.create({
-    model,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ],
-    max_completion_tokens: maxTokens,
-    ...(temperature !== undefined && { temperature }),
-    stream: true,
-    stream_options: { include_usage: true },
-  })
+  try {
+    const openai = new OpenAI({ apiKey: getEnv('OPENAI_API_KEY') })
+    const stream = await openai.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+      max_completion_tokens: maxTokens,
+      ...(MODELS_WITH_REASONING.includes(model) && { reasoning_effort: 'minimal' as const }),
+      ...(temperature !== undefined && { temperature }),
+      stream: true,
+      stream_options: { include_usage: true },
+    })
 
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache, no-transform')
-  res.setHeader('Connection', 'keep-alive')
-  res.setHeader('X-Accel-Buffering', 'no')
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
 
-  let totalTokensUsed = 0
+    let totalTokensUsed = 0
+    let clientDisconnected = false
+    res.on('close', () => { clientDisconnected = true })
 
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content || ''
-    if (content) {
-      res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`)
+    for await (const chunk of stream) {
+      if (clientDisconnected) break
+      const content = chunk.choices[0]?.delta?.content || ''
+      if (content) {
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content })}\n\n`)
+        } catch {
+          break // クライアント切断
+        }
+      }
+      if (chunk.usage) {
+        totalTokensUsed = chunk.usage.total_tokens
+      }
     }
-    if (chunk.usage) {
-      totalTokensUsed = chunk.usage.total_tokens
+
+    if (!userHasCustomKey) {
+      await adjustReservedUsage(userId, 'ai_tokens', maxTokens, totalTokensUsed)
+      if (totalTokensUsed > 0) {
+        await recordUsage(userId, 'ai_completion', totalTokensUsed, 'tokens', {
+          model,
+          questionLength: question.length,
+        }, true)
+      }
     }
+
+    if (!clientDisconnected) {
+      res.write(
+        `data: ${JSON.stringify({ type: 'done', tokensUsed: totalTokensUsed })}\n\n`
+      )
+      res.end()
+    }
+  } catch (error) {
+    // ストリーミング失敗時: 予約済みusageを解放
+    if (!userHasCustomKey) {
+      await adjustReservedUsage(userId, 'ai_tokens', maxTokens, 0).catch(() => {})
+    }
+    throw error
   }
-
-  if (!userHasCustomKey) {
-    await adjustReservedUsage(userId, 'ai_tokens', maxTokens, totalTokensUsed)
-    if (totalTokensUsed > 0) {
-      await recordUsage(userId, 'ai_completion', totalTokensUsed, 'tokens', {
-        model,
-        questionLength: question.length,
-      }, true)
-    }
-  }
-
-  res.write(
-    `data: ${JSON.stringify({ type: 'done', tokensUsed: totalTokensUsed })}\n\n`
-  )
-  res.end()
 }
 
 // --- Embeddings 用ロジック ---

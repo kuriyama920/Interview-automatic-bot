@@ -52,6 +52,7 @@ export class STTService {
         smart_format: true,
         interim_results: true,
         utterance_end_ms: 1000,
+        endpointing: 300,
         vad_events: true,
         encoding: 'linear16',
         sample_rate: 16000,
@@ -137,13 +138,29 @@ export class STTService {
   }
 
   private parseError(error: unknown): string {
-    const errorStr = String(error)
+    // Deepgramのエラーオブジェクトを適切に文字列化
+    let errorStr: string
+    if (error instanceof Error) {
+      errorStr = error.message
+    } else if (typeof error === 'object' && error !== null) {
+      const obj = error as Record<string, unknown>
+      errorStr = obj.message
+        ? String(obj.message)
+        : JSON.stringify(error)
+    } else {
+      errorStr = String(error)
+    }
+
+    log.error('Deepgram error details', { errorStr, rawType: typeof error })
 
     if (errorStr.includes('401')) {
       return 'APIキーが無効です。Deepgramダッシュボードで有効なキーを確認してください。'
     }
     if (errorStr.includes('403')) {
       return 'このAPIキーにはLive Transcription権限がありません。'
+    }
+    if (errorStr.includes('400')) {
+      return `Deepgramパラメータエラー: ${errorStr.substring(0, 150)}`
     }
     if (errorStr.includes('429')) {
       return 'レート制限に達しました。しばらく待ってから再試行してください。'
@@ -152,7 +169,7 @@ export class STTService {
       return 'ネットワーク接続エラー。インターネット接続を確認してください。'
     }
 
-    return `接続エラー: ${errorStr.substring(0, 100)}`
+    return `接続エラー: ${errorStr.substring(0, 150)}`
   }
 
   send(audioData: Buffer): void {
