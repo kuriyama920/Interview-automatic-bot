@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button, IconButton, Input, Select, Toggle, Slider, Alert } from './ui'
+import { ProfileTab } from './ProfileTab'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -88,9 +89,21 @@ const MicrophoneIcon = () => (
   </svg>
 )
 
-type TabType = 'api' | 'ai' | 'audio' | 'appearance'
+const UserIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+    />
+  </svg>
+)
+
+type TabType = 'profile' | 'api' | 'ai' | 'audio' | 'appearance'
 
 const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+  { id: 'profile', label: 'プロフィール', icon: <UserIcon /> },
   { id: 'api', label: 'API設定', icon: <KeyIcon /> },
   { id: 'ai', label: 'AI設定', icon: <BrainIcon /> },
   { id: 'audio', label: '音声設定', icon: <MicrophoneIcon /> },
@@ -106,7 +119,7 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings)
   const [isSaving, setIsSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<TabType>('api')
+  const [activeTab, setActiveTab] = useState<TabType>('profile')
   const [showApiKeys, setShowApiKeys] = useState({ deepgram: false, openai: false })
 
   useEffect(() => {
@@ -183,6 +196,9 @@ export function SettingsModal({
 
         {/* コンテンツ */}
         <div className="p-6 max-h-[60vh] overflow-y-auto">
+          {/* プロフィールタブ */}
+          {activeTab === 'profile' && <ProfileTab />}
+
           {/* API設定タブ */}
           {activeTab === 'api' && (
             <div className="space-y-6">
@@ -385,20 +401,22 @@ export function SettingsModal({
           )}
         </div>
 
-        {/* フッター */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface-secondary rounded-b-2xl">
-          <Button variant="ghost" onClick={handleReset} disabled={isSaving}>
-            リセット
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={onClose} disabled={isSaving}>
-              キャンセル
+        {/* フッター（プロフィールタブは独自の保存ボタンを持つ） */}
+        {activeTab !== 'profile' && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface-secondary rounded-b-2xl">
+            <Button variant="ghost" onClick={handleReset} disabled={isSaving}>
+              リセット
             </Button>
-            <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
-              保存
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={onClose} disabled={isSaving}>
+                キャンセル
+              </Button>
+              <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
+                保存
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

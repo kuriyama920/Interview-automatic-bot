@@ -47,6 +47,21 @@ export interface DocumentInfo {
 }
 
 // 音声ソースの種類
+export interface InterviewProfile {
+  fullName: string
+  nameReading?: string
+  currentCompany?: string
+  currentPosition?: string
+  previousCompanies?: string[]
+  targetCompany?: string
+  targetPosition?: string
+  technologies?: string[]
+  certifications?: string[]
+  education?: string
+  yearsOfExperience?: number
+  additionalNotes?: string
+}
+
 export type AudioSource = 'mic' | 'system' | 'both'
 
 export interface AppSettings {
@@ -81,6 +96,7 @@ export interface User {
     aiTokens: number
     storageBytes: number
   }
+  interviewProfile: InterviewProfile | null
 }
 
 export interface UserSettings {
@@ -128,6 +144,9 @@ const ALLOWED_INVOKE_CHANNELS = [
   'settings:save',
   'settings:reset',
   'settings:getEffectiveApiKey',
+  // プロフィール関連
+  'profile:get',
+  'profile:save',
   // 認証関連
   'auth:getState',
   'auth:loginWithGoogle',
@@ -303,6 +322,16 @@ const electronAPI = {
     maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),
     isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
+  },
+
+  // Profile API (面接プロフィール)
+  profile: {
+    get: (): Promise<{ success: boolean; profile?: InterviewProfile | null; error?: string }> =>
+      ipcRenderer.invoke('profile:get'),
+    save: (
+      profile: InterviewProfile
+    ): Promise<{ success: boolean; interviewProfile?: InterviewProfile; error?: string }> =>
+      ipcRenderer.invoke('profile:save', profile),
   },
 
   // Subscription API (Phase 7: Stripe 決済)

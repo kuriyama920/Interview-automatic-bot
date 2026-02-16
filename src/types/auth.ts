@@ -3,6 +3,24 @@
  */
 
 /**
+ * 面接プロフィール（構造化された個人情報）
+ */
+export interface InterviewProfile {
+  fullName: string
+  nameReading?: string
+  currentCompany?: string
+  currentPosition?: string
+  previousCompanies?: string[]
+  targetCompany?: string
+  targetPosition?: string
+  technologies?: string[]
+  certifications?: string[]
+  education?: string
+  yearsOfExperience?: number
+  additionalNotes?: string
+}
+
+/**
  * ユーザー情報
  */
 export interface User {
@@ -14,6 +32,7 @@ export interface User {
   subscriptionStatus: SubscriptionStatus
   subscriptionPeriodEnd: string | null
   usage: UserUsage
+  interviewProfile: InterviewProfile | null
 }
 
 /**

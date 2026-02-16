@@ -38,6 +38,21 @@ interface GeneratedQuestion {
   answer: string
 }
 
+interface InterviewProfile {
+  fullName: string
+  nameReading?: string
+  currentCompany?: string
+  currentPosition?: string
+  previousCompanies?: string[]
+  targetCompany?: string
+  targetPosition?: string
+  technologies?: string[]
+  certifications?: string[]
+  education?: string
+  yearsOfExperience?: number
+  additionalNotes?: string
+}
+
 type AudioSource = 'mic' | 'system' | 'both'
 
 interface DocumentInfo {
@@ -79,6 +94,7 @@ interface User {
     aiTokens: number
     storageBytes: number
   }
+  interviewProfile: InterviewProfile | null
 }
 
 interface UserSettings {
@@ -178,6 +194,12 @@ interface Window {
       maximize: () => Promise<void>
       close: () => Promise<void>
       isMaximized: () => Promise<boolean>
+    }
+    profile: {
+      get: () => Promise<{ success: boolean; profile?: InterviewProfile | null; error?: string }>
+      save: (
+        profile: InterviewProfile
+      ) => Promise<{ success: boolean; interviewProfile?: InterviewProfile; error?: string }>
     }
     subscription: {
       getPlans: () => Promise<{ success: boolean; data?: unknown; error?: string }>

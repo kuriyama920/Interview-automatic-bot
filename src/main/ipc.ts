@@ -10,8 +10,55 @@ import { createLogger } from '../services/logger.service'
 import type { DocumentType } from '../types/document'
 import type { QuestionInput } from '../types/question'
 import type { AppSettings, AudioSource } from '../types/settings'
+import type { InterviewProfile } from '../types/auth'
 
 const log = createLogger('IPC')
+
+/**
+ * InterviewProfile を AI プロンプト用テキストに整形（サーバー側 formatProfileContext と同等）
+ */
+function formatProfileContext(profile: InterviewProfile | null | undefined): string {
+  if (!profile) return ''
+
+  const lines: string[] = []
+
+  if (profile.fullName) lines.push(`氏名: ${profile.fullName}`)
+  if (profile.nameReading) lines.push(`ふりがな: ${profile.nameReading}`)
+
+  if (profile.currentCompany || profile.currentPosition) {
+    lines.push(
+      `現職: ${[profile.currentCompany, profile.currentPosition].filter(Boolean).join(' / ')}`
+    )
+  }
+
+  if (profile.targetCompany || profile.targetPosition) {
+    lines.push(
+      `志望先: ${[profile.targetCompany, profile.targetPosition].filter(Boolean).join(' / ')}`
+    )
+  }
+
+  if (profile.previousCompanies && profile.previousCompanies.length > 0) {
+    lines.push(`過去の企業: ${profile.previousCompanies.join(', ')}`)
+  }
+
+  if (profile.technologies && profile.technologies.length > 0) {
+    lines.push(`主要技術: ${profile.technologies.join(', ')}`)
+  }
+
+  if (profile.certifications && profile.certifications.length > 0) {
+    lines.push(`資格: ${profile.certifications.join(', ')}`)
+  }
+
+  if (profile.education) lines.push(`学歴: ${profile.education}`)
+
+  if (profile.yearsOfExperience !== undefined && profile.yearsOfExperience !== null) {
+    lines.push(`経験年数: ${profile.yearsOfExperience}年`)
+  }
+
+  if (profile.additionalNotes) lines.push(`特記: ${profile.additionalNotes}`)
+
+  return lines.join('\n')
+}
 
 // 音声ソースごとに独立したSTT接続を管理
 // 'both'モード: mic用とsystem用の2つの接続
@@ -244,15 +291,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
           if (response.status === 429) {
-            return { success: false, error: 'STT usage limit exceeded. Please upgrade your plan.' }
+            return { success: false, error: errorData.error || '今月の音声認識の利用上限に達しました。プランをアップグレードするか、来月までお待ちください。' }
           }
-          return { success: false, error: errorData.error || 'Failed to get STT token' }
+          return { success: false, error: errorData.error || '音声認識の開始に失敗しました。' }
         }
 
         const tokenData = await response.json()
 
         if (tokenData.useCustomKey) {
-          return { success: false, error: 'Custom API key required but not configured' }
+          return { success: false, error: 'カスタムAPIキーが必要ですが、設定されていません。設定画面でAPIキーを入力してください。' }
         }
 
         apiKey = tokenData.token
@@ -478,6 +525,18 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
       let contextString = explicitContext || ''
 
+      // プロフィールコンテキスト注入（直接モード時のみ、プロキシ時はサーバー側で注入）
+      if (!aiService.isUsingProxy()) {
+        const authState = authService.getAuthState()
+        const profileText = formatProfileContext(authState.user?.interviewProfile)
+        if (profileText) {
+          const profileContext = `【候補者プロフィール】\n${profileText}`
+          contextString = contextString
+            ? `${profileContext}\n\n${contextString}`
+            : profileContext
+        }
+      }
+
       // プロキシモード時はサーバー側でRAGコンテキストを取得するのでスキップ
       // 直接モード時は200msタイムアウトでコンテキスト取得（遅延防止）
       if (!aiService.isUsingProxy() && contextService.isInitialized()) {
@@ -499,8 +558,11 @@ export function setupIPC(mainWindow: BrowserWindow): void {
             return `【${docLabel}: ${result.documentName}】\n${result.chunks.join('\n')}`
           })
 
-          contextString =
+          const ragContext =
             contextParts.join('\n\n') + (explicitContext ? `\n\n${explicitContext}` : '')
+          contextString = contextString
+            ? `${contextString}\n\n${ragContext}`
+            : ragContext
 
           log.debug('Context added to query', {
             documentsUsed: contextResults.length,
@@ -722,6 +784,59 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true, data: state }
     } catch (error) {
       log.error('Failed to refresh subscription', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ============================================
+  // プロフィール関連のIPCハンドラー
+  // ============================================
+
+  // プロフィール取得
+  ipcMain.handle('profile:get', async () => {
+    log.debug('profile:get called')
+    try {
+      const response = await authService.authenticatedFetch(`${API_BASE_URL}/api/auth/me`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return { success: false, error: errorData.error || 'Failed to fetch profile' }
+      }
+      const data = await response.json()
+      return { success: true, profile: data.user.interviewProfile || null }
+    } catch (error) {
+      log.error('Failed to get profile', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // プロフィール保存
+  ipcMain.handle('profile:save', async (_event, profile: Record<string, unknown>) => {
+    log.info('profile:save called')
+    try {
+      const response = await authService.authenticatedFetch(
+        `${API_BASE_URL}/api/auth/profile`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(profile),
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return { success: false, error: errorData.error || 'Failed to save profile' }
+      }
+
+      const data = await response.json()
+
+      // authService の状態を更新（AI生成時に最新プロフィールを使用するため）
+      void authService.validateAndRefresh().catch(() => {
+        // 更新失敗は無視（プロフィール保存自体は成功している）
+      })
+
+      return { success: true, interviewProfile: data.interviewProfile }
+    } catch (error) {
+      log.error('Failed to save profile', { error: String(error) })
       return { success: false, error: String(error) }
     }
   })

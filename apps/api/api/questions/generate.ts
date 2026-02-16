@@ -15,6 +15,7 @@ import { setCorsHeaders, handlePreflight } from '../../lib/cors'
 import { checkAndReserveUsage, adjustReservedUsage, recordUsage, hasCustomApiKey } from '../../lib/usage'
 import { getEnv } from '../../lib/env'
 import { QUESTION_GENERATION_PROMPT, STANDARD_INTERVIEW_QUESTIONS } from '../../lib/prompts'
+import { formatProfileContext } from '../../lib/profile'
 
 export const config = {
   maxDuration: 60,
@@ -82,15 +83,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { count } = validation
 
   try {
-    // ドキュメントチャンクを取得（履歴書+求人票）
-    const { data: chunks, error: chunksError } = await supabaseAdmin
-      .from('document_chunks')
-      .select(`
-        content,
-        documents!inner (type, name)
-      `)
-      .eq('user_id', userId)
-      .in('documents.type', ['resume', 'job_posting'])
+    // ドキュメントチャンク + プロフィールを並行取得
+    const [chunksResult, profileResult] = await Promise.all([
+      supabaseAdmin
+        .from('document_chunks')
+        .select(`
+          content,
+          documents!inner (type, name)
+        `)
+        .eq('user_id', userId)
+        .in('documents.type', ['resume', 'job_posting']),
+      supabaseAdmin
+        .from('profiles')
+        .select('interview_profile')
+        .eq('id', userId)
+        .single(),
+    ])
+
+    const { data: chunks, error: chunksError } = chunksResult
+    const profileContext = formatProfileContext(profileResult.data?.interview_profile)
 
     if (chunksError) {
       return res.status(500).json({ success: false, error: 'Failed to fetch document context' })
@@ -117,6 +128,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let documentContext = ''
+    if (profileContext) {
+      documentContext += `【候補者プロフィール】\n${profileContext}\n\n`
+    }
     if (resumeChunks.length > 0) {
       documentContext += `【履歴書】\n${resumeChunks.join('\n')}\n\n`
     }
@@ -132,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!usage.allowed) {
         return res.status(429).json({
           success: false,
-          error: 'AI token monthly limit exceeded',
+          error: '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
           usage: {
             used: usage.used,
             limit: usage.limit,
@@ -163,7 +177,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         { role: 'user', content: prompt },
       ],
-      response_format: { type: 'json_object' },
+      reasoning_effort: 'low',
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'interview_answers',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              answers: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+            },
+            required: ['answers'],
+            additionalProperties: false,
+          },
+        },
+      },
       max_completion_tokens: 10000,
     })
 
@@ -182,7 +214,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // レスポンスをパース（回答配列のみ）
-    const content = completion.choices[0]?.message?.content
+    const choice = completion.choices[0]
+    if (choice?.finish_reason === 'length') {
+      return res.status(500).json({
+        success: false,
+        error: 'AI response was truncated. Try reducing the question count.',
+      })
+    }
+
+    const message = choice?.message
+    if (message?.refusal) {
+      return res.status(422).json({
+        success: false,
+        error: 'AI declined to generate answers for the provided content',
+      })
+    }
+
+    const content = message?.content
     if (!content) {
       return res.status(500).json({ success: false, error: 'AI returned empty response' })
     }
@@ -209,7 +257,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       questions,
       tokensUsed: totalTokensUsed,
     })
-  } catch {
+  } catch (error) {
+    console.error('Question generation error:', error)
     return res.status(500).json({ success: false, error: 'Failed to generate questions' })
   }
 }

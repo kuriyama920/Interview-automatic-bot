@@ -16,6 +16,7 @@ import { generateEmbedding, generateEmbeddings } from '../../lib/openai'
 import { getEnv } from '../../lib/env'
 import { SYSTEM_PROMPT } from '../../lib/prompts'
 import { getRoute } from '../../lib/routing'
+import { formatProfileContext } from '../../lib/profile'
 
 export const config = {
   maxDuration: 60,
@@ -169,7 +170,7 @@ async function handleGenerate(req: VercelRequest, res: VercelResponse) {
   const withinLimit = await checkRateLimit(userId)
   if (!withinLimit) {
     return res.status(429).json({
-      error: 'Too many requests. Please wait a moment.',
+      error: 'リクエストが多すぎます。しばらく待ってから再度お試しください。',
       retryAfter: 60,
     })
   }
@@ -187,23 +188,36 @@ async function handleGenerate(req: VercelRequest, res: VercelResponse) {
     const usage = await checkAndReserveUsage(userId, 'ai_tokens', maxTokens)
     if (!usage.allowed) {
       return res.status(429).json({
-        error: 'AI token monthly limit exceeded',
+        error: '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
         usage: { used: usage.used, limit: usage.limit, remaining: 0 },
       })
     }
   }
 
-  let fullContext = ''
-  if (includeDocumentContext) {
-    fullContext = await fetchDocumentContext(userId, question)
-  }
+  // プロフィールとドキュメントコンテキストを並行取得
+  const [profileResult, docContext] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('interview_profile')
+      .eq('id', userId)
+      .single(),
+    includeDocumentContext
+      ? fetchDocumentContext(userId, question)
+      : Promise.resolve(''),
+  ])
+
+  const profileContext = formatProfileContext(profileResult.data?.interview_profile)
+
+  let fullContext = docContext
   if (context) {
     fullContext = fullContext ? `${fullContext}\n\n${context}` : context
   }
 
-  const userMessage = fullContext
-    ? `コンテキスト情報:\n${fullContext}\n\n面接官の質問: ${question}`
-    : `面接官の質問: ${question}`
+  const userMessage = [
+    profileContext ? `【候補者プロフィール】\n${profileContext}` : '',
+    fullContext ? `コンテキスト情報:\n${fullContext}` : '',
+    `面接官の質問: ${question}`,
+  ].filter(Boolean).join('\n\n')
 
   try {
     const openai = new OpenAI({ apiKey: getEnv('OPENAI_API_KEY') })
@@ -214,7 +228,7 @@ async function handleGenerate(req: VercelRequest, res: VercelResponse) {
         { role: 'user', content: userMessage },
       ],
       max_completion_tokens: maxTokens,
-      ...(MODELS_WITH_REASONING.includes(model) && { reasoning_effort: 'minimal' as const }),
+      ...(MODELS_WITH_REASONING.includes(model) && { reasoning_effort: 'low' as const }),
       ...(temperature !== undefined && { temperature }),
       stream: true,
       stream_options: { include_usage: true },
@@ -324,7 +338,7 @@ async function handleEmbeddings(req: VercelRequest, res: VercelResponse) {
     const usage = await checkAndReserveUsage(userId, 'ai_tokens', estimatedTokens)
     if (!usage.allowed) {
       return res.status(429).json({
-        error: 'AI token monthly limit exceeded',
+        error: '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
         usage: { used: usage.used, limit: usage.limit, remaining: 0 },
       })
     }
@@ -391,17 +405,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error('AI error:', error)
 
-    let errorMessage = 'Failed to process AI request'
+    let errorMessage = 'AI処理中にエラーが発生しました。しばらく待ってから再度お試しください。'
     let statusCode = 500
 
     if (error instanceof Error) {
       if ('status' in error && (error as { status: number }).status === 429) {
-        errorMessage = 'AI service rate limit exceeded. Please try again later.'
+        errorMessage = 'AIサービスが混み合っています。しばらく待ってから再度お試しください。'
         statusCode = 429
       } else if ('status' in error && (error as { status: number }).status === 401) {
-        errorMessage = 'AI service authentication error'
+        errorMessage = 'AIサービスの認証エラーが発生しました。'
       } else if (error.message.includes('timeout')) {
-        errorMessage = 'AI response timed out. Please try again.'
+        errorMessage = 'AIの応答がタイムアウトしました。再度お試しください。'
         statusCode = 504
       }
     }

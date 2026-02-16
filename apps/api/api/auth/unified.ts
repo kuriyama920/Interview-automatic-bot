@@ -4,8 +4,9 @@
  * GET /api/auth/callback - OAuthコールバック
  * POST|GET /api/auth/session - セッション作成・ポーリング
  * GET /api/auth/me - ユーザー情報取得
+ * PUT /api/auth/profile - 面接プロフィール更新
  *
- * JWT認証は /me のみ必須。
+ * JWT認証は /me, /profile で必須。
  */
 
 import { VercelRequest, VercelResponse } from '@vercel/node'
@@ -22,6 +23,7 @@ import { isAllowedOrigin } from '../../lib/allowed-origins'
 import { getBaseUrl } from '../../lib/url'
 import { showSuccessPage, showErrorPage } from '../../lib/auth-pages'
 import { getRoute } from '../../lib/routing'
+import { validateInterviewProfile } from '../../lib/profile'
 import crypto from 'crypto'
 
 // State data stored in Supabase
@@ -391,6 +393,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         aiTokens: user.monthly_ai_tokens_used,
         storageBytes: user.monthly_storage_bytes_used,
       },
+      interviewProfile: user.interview_profile || null,
     },
     settings: settings
       ? {
@@ -408,19 +411,49 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
   })
 }
 
+// --- /api/auth/profile ---
+
+async function handleProfile(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'PUT') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const jwtPayload = getUserFromRequest(req)
+  if (!jwtPayload) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const validation = validateInterviewProfile(req.body)
+  if ('error' in validation) {
+    return res.status(400).json({ success: false, error: validation.error })
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update({ interview_profile: validation })
+    .eq('id', jwtPayload.sub)
+
+  if (updateError) {
+    console.error('Failed to update interview profile:', updateError)
+    return res.status(500).json({ success: false, error: 'Failed to save profile' })
+  }
+
+  return res.status(200).json({ success: true, interviewProfile: validation })
+}
+
 // --- メインハンドラー ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const route = getRoute(req)
   const origin = req.headers.origin as string | undefined
 
-  // CORS: session と me のみ適用（google/callback はブラウザリダイレクト）
-  if (route === 'session' || route === 'me') {
+  // CORS: session, me, profile のみ適用（google/callback はブラウザリダイレクト）
+  if (route === 'session' || route === 'me' || route === 'profile') {
     if (req.method === 'OPTIONS') {
       return handlePreflight(res, origin)
     }
     const isAllowed = setCorsHeaders(res, origin)
-    if (route === 'me' && !isAllowed && origin) {
+    if ((route === 'me' || route === 'profile') && !isAllowed && origin) {
       return res.status(403).json({ error: 'Origin not allowed' })
     }
   }
@@ -435,6 +468,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return handleSession(req, res)
       case 'me':
         return handleMe(req, res)
+      case 'profile':
+        return handleProfile(req, res)
       default:
         return res.status(404).json({ error: 'Not found' })
     }

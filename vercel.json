@@ -11,6 +11,7 @@
     { "src": "/api/auth/callback", "dest": "/apps/api/api/auth/unified.ts?__route=callback" },
     { "src": "/api/auth/session", "dest": "/apps/api/api/auth/unified.ts?__route=session" },
     { "src": "/api/auth/me", "dest": "/apps/api/api/auth/unified.ts?__route=me" },
+    { "src": "/api/auth/profile", "dest": "/apps/api/api/auth/unified.ts?__route=profile" },
 
     { "src": "/api/stripe/checkout", "dest": "/apps/api/api/stripe/billing.ts?__route=checkout" },
     { "src": "/api/stripe/portal", "dest": "/apps/api/api/stripe/billing.ts?__route=portal" },
