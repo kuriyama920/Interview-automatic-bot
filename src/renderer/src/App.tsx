@@ -200,7 +200,7 @@ function AppContent() {
     clearResponse,
   } = useAIResponse()
 
-  // 会話履歴（Summary + Recent ハイブリッド）
+  // 会話履歴（Topic Tracking + Sliding Window）
   const conversationHistory = useConversationHistory({
     transcripts,
     audioSource,
