@@ -8,12 +8,10 @@ import { useSTT } from './hooks/useSTT'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
 import { useProgressiveAI } from './hooks/useProgressiveAI'
+import { useConversationHistory } from './hooks/useConversationHistory'
 import { useSettings } from './hooks/useSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
-import { createLogger } from './utils/logger'
-
-const log = createLogger('App')
 import DocumentUploadPanel from './components/DocumentUploadPanel'
 import InterviewQuestionsPanel from './components/InterviewQuestionsPanel'
 import { SubscriptionModal } from './components/SubscriptionModal'
@@ -202,6 +200,12 @@ function AppContent() {
     clearResponse,
   } = useAIResponse()
 
+  // 会話履歴（Summary + Recent ハイブリッド）
+  const conversationHistory = useConversationHistory({
+    transcripts,
+    audioSource,
+  })
+
   // Progressive AI Generation + 想定質問キャッシュ
   const {
     cachedMatch,
@@ -214,6 +218,7 @@ function AppContent() {
     audioSource,
     transcripts,
     autoGenerateAI: settings.autoGenerateAI,
+    conversationHistory,
     generateStreamResponse,
     abortGeneration,
   })

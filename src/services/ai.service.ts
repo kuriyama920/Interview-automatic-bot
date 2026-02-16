@@ -21,7 +21,8 @@ interface AIServiceConfig {
 // 正規定義: apps/api/lib/prompts.ts（Electronからは直接importできないためコピー）
 const SYSTEM_PROMPT = `あなたは面接コーチです。面接官の質問に対する最適な回答を即座に提案します。
 質問が途中や断片的でも、意図を推測して回答してください。
-回答形式：結論→根拠→具体例の順。数値・固有名詞で説得力を高める。日本語で簡潔に（3-5文）。`
+回答形式：結論→根拠→具体例の順。数値・固有名詞で説得力を高める。日本語で簡潔に（3-5文）。
+「これまでの対話」が提供された場合、候補者が既に述べた内容と矛盾しない回答を提案し、一貫性のある回答を心がける。`
 
 // reasoning_effort をサポートするモデル（GPT-5系推論モデル）
 const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']

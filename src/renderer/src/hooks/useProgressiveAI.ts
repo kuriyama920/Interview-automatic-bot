@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import type { Transcript } from '../types'
 import { useQuestionCache, type QuestionMatch } from './useQuestionCache'
 import { createLogger } from '../utils/logger'
 
@@ -17,18 +18,14 @@ const INTERIM_DEBOUNCE_MS = 700  // 再生成のデバウンス間隔
 const FINAL_MIN_LENGTH = 3       // 確定テキストの最低文字数
 const SIMILARITY_THRESHOLD = 0.5 // 50%以上類似なら再生成スキップ
 
-interface Transcript {
-  text: string
-  source?: 'mic' | 'system'
-}
-
 interface UseProgressiveAIOptions {
   currentText: string | null
   currentSource: string | undefined
   audioSource: string
   transcripts: Transcript[]
   autoGenerateAI: boolean
-  generateStreamResponse: (text: string) => Promise<void>
+  conversationHistory: string
+  generateStreamResponse: (text: string, context?: string) => Promise<void>
   abortGeneration: () => void
 }
 
@@ -38,12 +35,15 @@ export function useProgressiveAI({
   audioSource,
   transcripts,
   autoGenerateAI,
+  conversationHistory,
   generateStreamResponse,
   abortGeneration,
 }: UseProgressiveAIOptions) {
   const { findMatch, refreshCache, clearCache } = useQuestionCache()
   const [cachedMatch, setCachedMatch] = useState<QuestionMatch | null>(null)
   const cachedMatchRef = useRef<QuestionMatch | null>(null)
+  const conversationHistoryRef = useRef<string>('')
+  conversationHistoryRef.current = conversationHistory
 
   const updateCachedMatch = useCallback((match: QuestionMatch | null) => {
     cachedMatchRef.current = match
@@ -95,7 +95,7 @@ export function useProgressiveAI({
         source: currentSource,
       })
       lastGeneratedTextRef.current = trimmed
-      generateStreamResponse(trimmed)
+      generateStreamResponse(trimmed, conversationHistoryRef.current || undefined)
       return
     }
 
@@ -112,7 +112,7 @@ export function useProgressiveAI({
           prevLength: lastGeneratedTextRef.current.length,
         })
         lastGeneratedTextRef.current = latestText
-        generateStreamResponse(latestText)
+        generateStreamResponse(latestText, conversationHistoryRef.current || undefined)
       }, INTERIM_DEBOUNCE_MS)
     }
 
@@ -197,7 +197,7 @@ export function useProgressiveAI({
         length: finalTrimmed.length,
         hadInterimGen: !!lastGen,
       })
-      generateStreamResponse(finalTrimmed)
+      generateStreamResponse(finalTrimmed, conversationHistoryRef.current || undefined)
     }
   }, [transcripts, audioSource, autoGenerateAI, generateStreamResponse, findMatch, abortGeneration, updateCachedMatch])
 
