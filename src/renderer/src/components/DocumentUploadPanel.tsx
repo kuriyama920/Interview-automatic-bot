@@ -6,7 +6,7 @@
 import { useDocuments } from '../hooks/useDocuments'
 import { Card, CardHeader, Button, Spinner, ErrorAlert } from './ui'
 
-// DocumentType, DocumentInfo はenv.d.tsでグローバル宣言済み
+// DocType, DocumentInfo はenv.d.tsでグローバル宣言済み
 
 // アイコンコンポーネント
 const PlusIcon = () => (
@@ -102,7 +102,7 @@ function DocumentSection({
   onRemove,
 }: {
   title: string
-  type: DocumentType
+  type: DocType
   icon: React.ReactNode
   documents: DocumentInfo[]
   isUploading: boolean

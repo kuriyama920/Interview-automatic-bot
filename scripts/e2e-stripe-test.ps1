@@ -1,7 +1,7 @@
 # Stripe E2E Test Script
 # Phase 7: Stripe テストモードでの E2E 動作確認
 
-$baseUrl = "https://api-kuriyama-natos-projects.vercel.app"
+$baseUrl = "https://api.interviewbot.app"
 
 Write-Host "=== Stripe E2E Test ===" -ForegroundColor Cyan
 Write-Host ""

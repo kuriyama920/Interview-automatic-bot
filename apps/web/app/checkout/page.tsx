@@ -54,12 +54,16 @@ function CheckoutContent() {
   const planInfo = PLAN_INFO[plan]
   const priceId = getPriceIdForPlan(plan)
 
-  // React StrictMode対応: cleanup時にrefをリセットし、再マウント時に正しく実行
+  // session_id をRefに保存して、URL変更によるuseEffect再実行を防止
+  // Next.js 14+ はreplaceStateをインターセプトしuseSearchParamsを再評価するため、
+  // sessionIdを依存配列に含めるとreplaceState後にcleanup→cancelled=trueになりリダイレクトが失敗する
+  const sessionIdRef = useRef(sessionId)
   const checkoutStartedRef = useRef(false)
 
   // session_id がURLにある場合: ポーリング → JWT取得 → Stripe Checkout 作成
   useEffect(() => {
-    if (!sessionId || !planInfo || !priceId) return
+    if (!sessionIdRef.current || !planInfo || !priceId) return
+    const sid = sessionIdRef.current
     if (checkoutStartedRef.current) return
     checkoutStartedRef.current = true
 
@@ -81,7 +85,7 @@ function CheckoutContent() {
           if (cancelled) return
 
           try {
-            const result = await pollAuthSession(sessionId!)
+            const result = await pollAuthSession(sid)
 
             if (
               (result.status === 'completed' || result.status === 'consumed') &&
@@ -126,13 +130,6 @@ function CheckoutContent() {
 
         if (cancelled) return
 
-        // URLからsession_idをクリーンアップ
-        window.history.replaceState(
-          {},
-          '',
-          `${window.location.pathname}?plan=${plan}`
-        )
-
         setState('creating-checkout')
         const origin = window.location.origin
         const checkout = await createStripeCheckout(
@@ -143,6 +140,15 @@ function CheckoutContent() {
         )
 
         if (cancelled) return
+
+        // replaceStateはcreateStripeCheckout完了後かつリダイレクト直前に実行する必要がある。
+        // これより前に呼ぶとNext.js 14+がreplaceStateをインターセプトし、
+        // useSearchParamsの再評価→useEffect cleanup→cancelled=trueでリダイレクトがブロックされる。
+        window.history.replaceState(
+          {},
+          '',
+          `${window.location.pathname}?plan=${plan}`
+        )
 
         window.location.href = checkout.url
       } catch (err) {
@@ -161,7 +167,8 @@ function CheckoutContent() {
       // StrictMode: cleanup後の再マウントで再実行を許可するためリセット
       checkoutStartedRef.current = false
     }
-  }, [sessionId, plan, planInfo, priceId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionIdRefはマウント時のsessionIdをキャプチャ。replaceState起因の再実行を防止するため除外
+  }, [plan, planInfo, priceId])
 
   // Googleログインボタン
   const handleGoogleLogin = useCallback(async () => {

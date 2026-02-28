@@ -65,8 +65,6 @@ export interface InterviewProfile {
 export type AudioSource = 'mic' | 'system' | 'both'
 
 export interface AppSettings {
-  deepgramApiKey: string
-  openaiApiKey: string
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
   audioSource: AudioSource
@@ -107,8 +105,6 @@ export interface UserSettings {
   aiMaxTokens: number
   contextMinSimilarity: number
   contextTopK: number
-  hasCustomDeepgramKey: boolean
-  hasCustomOpenaiKey: boolean
 }
 
 export interface AuthState {
@@ -122,13 +118,14 @@ export interface AuthState {
 // 許可されたIPCチャンネルのホワイトリスト（セキュリティ向上）
 const ALLOWED_SEND_CHANNELS = ['stt:audio'] as const
 const ALLOWED_INVOKE_CHANNELS = [
-  'config:getApiKey',
   'stt:start',
   'stt:stop',
   'stt:status',
   'ai:init',
   'ai:generate',
   'ai:generateStream',
+  'ai:summarize',
+  'ai:prefetchContext',
   'ai:abort',
   'ai:status',
   'context:init',
@@ -143,7 +140,6 @@ const ALLOWED_INVOKE_CHANNELS = [
   'settings:get',
   'settings:save',
   'settings:reset',
-  'settings:getEffectiveApiKey',
   // プロフィール関連
   'profile:get',
   'profile:save',
@@ -203,12 +199,6 @@ const electronAPI = {
     },
   },
 
-  // 設定API
-  config: {
-    getApiKey: (keyName: string): Promise<string | null> =>
-      ipcRenderer.invoke('config:getApiKey', keyName),
-  },
-
   // STT (音声認識) API
   stt: {
     // APIキーはMain processで環境変数から直接取得（セキュリティ向上）
@@ -235,10 +225,14 @@ const electronAPI = {
   // AI API
   ai: {
     init: (apiKey?: string) => ipcRenderer.invoke('ai:init', apiKey),
-    generate: (question: string, context?: string) =>
-      ipcRenderer.invoke('ai:generate', question, context),
-    generateStream: (question: string, context?: string) =>
-      ipcRenderer.invoke('ai:generateStream', question, context),
+    generate: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
+      ipcRenderer.invoke('ai:generate', question, context, options),
+    generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
+      ipcRenderer.invoke('ai:generateStream', question, context, options),
+    summarize: (previousSummary: string, interviewer: string, candidate: string): Promise<{ success: boolean; summary?: string; error?: string }> =>
+      ipcRenderer.invoke('ai:summarize', previousSummary, interviewer, candidate),
+    prefetchContext: (): Promise<{ success: boolean; context?: string; error?: string }> =>
+      ipcRenderer.invoke('ai:prefetchContext'),
     abort: () => ipcRenderer.invoke('ai:abort'),
     status: () => ipcRenderer.invoke('ai:status'),
     onChunk: (callback: (chunk: string) => void) => {
@@ -284,10 +278,6 @@ const electronAPI = {
       ipcRenderer.invoke('settings:save', settings),
     reset: (): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
       ipcRenderer.invoke('settings:reset'),
-    getEffectiveApiKey: (
-      keyType: 'deepgram' | 'openai'
-    ): Promise<{ success: boolean; key?: string | null }> =>
-      ipcRenderer.invoke('settings:getEffectiveApiKey', keyType),
   },
 
   // Audio API (Phase 6.5: システム音声キャプチャ)

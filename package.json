@@ -24,7 +24,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
     "test": "vitest",
     "test:unit": "vitest run tests/unit",
-    "test:api": "vitest run tests/api",
+    "test:worker": "vitest run apps/worker/tests",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "test:e2e": "playwright test",
@@ -123,7 +123,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "workerd"
     ]
   }
 }

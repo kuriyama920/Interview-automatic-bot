@@ -189,7 +189,8 @@ describe('STTService', () => {
       const audioData = Buffer.from([1, 2, 3, 4])
       sttService.send(audioData)
 
-      expect(mockLiveClient.send).toHaveBeenCalledWith(audioData)
+      // send() converts Buffer to ArrayBuffer via new Uint8Array(audioData).buffer
+      expect(mockLiveClient.send).toHaveBeenCalledWith(expect.any(ArrayBuffer))
     })
 
     it('should not send audio data when not connected', () => {

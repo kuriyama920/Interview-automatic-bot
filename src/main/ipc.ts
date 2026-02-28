@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
 import * as fs from 'fs/promises'
 import { STTService, type TranscriptResult } from '../services/stt.service'
-import { aiService, type AIResponse } from '../services/ai.service'
+import { aiService, type AIResponse, type GenerateOptions } from '../services/ai.service'
 import { contextService } from '../services/context.service'
 import { questionsService } from '../services/questions.service'
 import { settingsService } from '../services/settings.service'
@@ -14,64 +14,17 @@ import type { InterviewProfile } from '../types/auth'
 
 const log = createLogger('IPC')
 
-/**
- * InterviewProfile を AI プロンプト用テキストに整形（サーバー側 formatProfileContext と同等）
- */
-function formatProfileContext(profile: InterviewProfile | null | undefined): string {
-  if (!profile) return ''
-
-  const lines: string[] = []
-
-  if (profile.fullName) lines.push(`氏名: ${profile.fullName}`)
-  if (profile.nameReading) lines.push(`ふりがな: ${profile.nameReading}`)
-
-  if (profile.currentCompany || profile.currentPosition) {
-    lines.push(
-      `現職: ${[profile.currentCompany, profile.currentPosition].filter(Boolean).join(' / ')}`
-    )
-  }
-
-  if (profile.targetCompany || profile.targetPosition) {
-    lines.push(
-      `志望先: ${[profile.targetCompany, profile.targetPosition].filter(Boolean).join(' / ')}`
-    )
-  }
-
-  if (profile.previousCompanies && profile.previousCompanies.length > 0) {
-    lines.push(`過去の企業: ${profile.previousCompanies.join(', ')}`)
-  }
-
-  if (profile.technologies && profile.technologies.length > 0) {
-    lines.push(`主要技術: ${profile.technologies.join(', ')}`)
-  }
-
-  if (profile.certifications && profile.certifications.length > 0) {
-    lines.push(`資格: ${profile.certifications.join(', ')}`)
-  }
-
-  if (profile.education) lines.push(`学歴: ${profile.education}`)
-
-  if (profile.yearsOfExperience !== undefined && profile.yearsOfExperience !== null) {
-    lines.push(`経験年数: ${profile.yearsOfExperience}年`)
-  }
-
-  if (profile.additionalNotes) lines.push(`特記: ${profile.additionalNotes}`)
-
-  return lines.join('\n')
-}
-
 // 音声ソースごとに独立したSTT接続を管理
 // 'both'モード: mic用とsystem用の2つの接続
 // 'mic'/'system'モード: 単一接続
 const sttServices = new Map<string, STTService>()
-let sttUsingProxy = false
 let currentAudioSource: AudioSource = 'system'
 let currentAIAbortController: AbortController | null = null
 
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
 
-  const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
+  const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
 
   // ウィンドウ操作
   ipcMain.handle('window:minimize', () => {
@@ -98,7 +51,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // 認証関連のIPCハンドラー
   // ============================================
 
-  // 認証状態を取得
   ipcMain.handle('auth:getState', () => {
     log.debug('auth:getState called')
     try {
@@ -110,7 +62,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Google OAuthログインを開始
   ipcMain.handle('auth:loginWithGoogle', async () => {
     log.info('auth:loginWithGoogle called')
     try {
@@ -122,7 +73,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 認証状態を検証（起動時など）
   ipcMain.handle('auth:validate', async () => {
     log.info('auth:validate called')
     try {
@@ -134,7 +84,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ログアウト
   ipcMain.handle('auth:logout', () => {
     log.info('auth:logout called')
     try {
@@ -146,7 +95,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // アクセストークンを取得
   ipcMain.handle('auth:getToken', () => {
     try {
       const token = authService.getAccessToken()
@@ -157,29 +105,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 認証状態変更をRendererに通知
   authService.addAuthStateListener((state) => {
     log.debug('Auth state changed, notifying renderer')
     mainWindow.webContents.send('auth:stateChanged', state)
   })
 
   // ============================================
-  // 環境変数・設定関連のIPCハンドラー
+  // 設定関連のIPCハンドラー
   // ============================================
 
-  // 環境変数からAPIキーを取得（許可リスト制限）
-  const ALLOWED_ENV_KEYS = new Set(['DEEPGRAM_API_KEY', 'API_BASE_URL', 'OPENAI_API_KEY'])
-  ipcMain.handle('config:getApiKey', (_event: unknown, keyName: string) => {
-    if (!ALLOWED_ENV_KEYS.has(keyName)) {
-      log.warn(`config:getApiKey blocked access to ${keyName}`)
-      return null
-    }
-    const value = process.env[keyName]
-    log.debug(`config:getApiKey called for ${keyName}, found: ${!!value}`)
-    return value || null
-  })
-
-  // 設定取得
   ipcMain.handle('settings:get', () => {
     log.debug('settings:get called')
     try {
@@ -191,7 +125,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 設定保存
   ipcMain.handle('settings:save', (_event: unknown, settings: Partial<AppSettings>) => {
     log.info('settings:save called', { keys: Object.keys(settings) })
     try {
@@ -203,7 +136,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 設定リセット
   ipcMain.handle('settings:reset', () => {
     log.info('settings:reset called')
     try {
@@ -215,17 +147,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 有効なAPIキーを取得（設定優先、なければ環境変数）
-  ipcMain.handle('settings:getEffectiveApiKey', (_event: unknown, keyType: 'deepgram' | 'openai') => {
-    const key = settingsService.getEffectiveApiKey(keyType)
-    return { success: true, key }
-  })
-
   // ============================================
   // 音声キャプチャ関連のIPCハンドラー（Phase 6.5）
   // ============================================
 
-  // 音声ソース設定
   ipcMain.handle('audio:setSource', (_event: unknown, source: AudioSource) => {
     log.info('audio:setSource called', { source })
     try {
@@ -240,7 +165,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声ソース取得
   ipcMain.handle('audio:getSource', () => {
     log.debug('audio:getSource called')
     try {
@@ -252,60 +176,40 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声認識開始（Phase 8: プロキシ経由で一時トークン取得 or カスタムキー直接接続）
-  // 音声ソースに応じて1つまたは2つのSTT接続を作成
+  // 音声認識開始（プロキシ経由で一時トークン取得）
   ipcMain.handle('stt:start', async () => {
     log.info('stt:start called')
     try {
-      // 現在の音声ソース設定を取得
       const audioSource = (settingsService.getSetting('audioSource') || 'system') as AudioSource
       currentAudioSource = audioSource
 
-      // 必要なSTT接続のソースを決定
       const sources: ('mic' | 'system')[] =
         audioSource === 'both' ? ['mic', 'system'] : [audioSource as 'mic' | 'system']
 
       log.info('STT sources to connect', { audioSource, sources })
 
-      // カスタムキーを確認（設定 → 環境変数の優先順位）
-      const customKey = settingsService.getEffectiveApiKey('deepgram')
-
-      let apiKey: string
-
-      if (customKey) {
-        // カスタムキーで直接接続
-        apiKey = customKey
-        sttUsingProxy = false
-        log.info('Using custom Deepgram API key')
-      } else {
-        // プロキシ経由で一時トークンを取得
-        log.info('Fetching temporary STT token from API proxy')
-        const response = await authService.authenticatedFetch(
-          `${API_BASE_URL}/api/stt/token`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          }
-        )
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          if (response.status === 429) {
-            return { success: false, error: errorData.error || '今月の音声認識の利用上限に達しました。プランをアップグレードするか、来月までお待ちください。' }
-          }
-          return { success: false, error: errorData.error || '音声認識の開始に失敗しました。' }
+      // プロキシ経由で一時トークンを取得
+      log.info('Fetching temporary STT token from API proxy')
+      const response = await authService.authenticatedFetch(
+        `${API_BASE_URL}/api/stt/token`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
         }
+      )
 
-        const tokenData = await response.json()
-
-        if (tokenData.useCustomKey) {
-          return { success: false, error: 'カスタムAPIキーが必要ですが、設定されていません。設定画面でAPIキーを入力してください。' }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
+        log.error('STT token request failed', { status: response.status, error: errorData.error })
+        if (response.status === 429) {
+          return { success: false, error: errorData.error || '今月の音声認識の利用上限に達しました。プランをアップグレードするか、来月までお待ちください。' }
         }
-
-        apiKey = tokenData.token
-        sttUsingProxy = true
-        log.info('Temporary STT token obtained', { expiresIn: tokenData.expiresIn })
+        return { success: false, error: errorData.error || '音声認識の開始に失敗しました。' }
       }
+
+      const tokenData = await response.json() as { token: string; expiresIn?: number }
+      const apiKey = tokenData.token
+      log.info('Temporary STT token obtained', { expiresIn: tokenData.expiresIn })
 
       // 既存の接続をクリーンアップ
       for (const [key, service] of sttServices) {
@@ -324,7 +228,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
             isFinal: result.isFinal,
             source,
           })
-          // 音声ソースをタグ付けしてレンダラーに送信
           mainWindow.webContents.send('stt:transcript', {
             ...result,
             source,
@@ -337,7 +240,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true }
     } catch (error) {
       log.error('Failed to start STT', { error: String(error) })
-      // エラー時は部分的に接続したサービスをクリーンアップ
       for (const [, service] of sttServices) {
         try { await service.disconnect() } catch { /* cleanup */ }
       }
@@ -346,12 +248,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声認識停止（Phase 8: プロキシ利用時は使用量を報告）
-  // 複数接続がある場合はすべて停止し、合計使用量を報告
+  // 音声認識停止（使用量を報告）
   ipcMain.handle('stt:stop', async () => {
     log.info('stt:stop called', { connections: sttServices.size })
     try {
-      // 全接続の使用量を集計して停止
       let totalMinutes = 0
       for (const [source, service] of sttServices) {
         const minutes = service.getSessionMinutes()
@@ -361,8 +261,8 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       }
       sttServices.clear()
 
-      // プロキシ利用時は合計使用量を報告（失敗しても停止をブロックしない）
-      if (sttUsingProxy && totalMinutes > 0) {
+      // 使用量を報告（失敗しても停止をブロックしない）
+      if (totalMinutes > 0) {
         try {
           log.info('Reporting STT usage', { minutes: totalMinutes })
           const response = await authService.authenticatedFetch(
@@ -376,7 +276,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
           if (!response.ok) {
             log.warn('Failed to report STT usage', { status: response.status })
           } else {
-            const usageData = await response.json()
+            const usageData = await response.json() as { recorded?: boolean; usage?: unknown }
             log.info('STT usage reported', { recorded: usageData.recorded, usage: usageData.usage })
           }
         } catch (usageError) {
@@ -384,7 +284,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         }
       }
 
-      sttUsingProxy = false
       return { success: true }
     } catch (error) {
       log.error('Failed to stop STT', { error: String(error) })
@@ -392,17 +291,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 音声データ送信（preloadからnumber[]として送信される）
-  // source パラメータで適切なSTT接続にルーティング
+  // 音声データ送信
   let audioChunkCount = 0
   ipcMain.on('stt:audio', (_event, audioData: number[], source?: string) => {
     audioChunkCount++
 
-    // ルーティング: sourceが指定されていればその接続へ、なければ単一接続を使用
     const targetSource = source || (currentAudioSource === 'both' ? undefined : currentAudioSource)
     const service = targetSource
       ? sttServices.get(targetSource)
-      : sttServices.values().next().value // 単一接続のフォールバック
+      : sttServices.values().next().value
 
     if (audioChunkCount % 50 === 1) {
       log.debug('Audio chunk received', {
@@ -413,7 +310,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       })
     }
     if (service && service.isConnected()) {
-      // number[]をBufferに変換してDeepgramに送信
       const buffer = Buffer.from(audioData)
       service.send(buffer)
     } else if (audioChunkCount % 50 === 1) {
@@ -421,7 +317,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 接続状態確認（いずれかの接続がアクティブならtrue）
   ipcMain.handle('stt:status', () => {
     let connected = false
     for (const [, service] of sttServices) {
@@ -434,26 +329,11 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     return { connected }
   })
 
-  // AI初期化（Phase 8: プロキシモード対応）
-  ipcMain.handle('ai:init', async (_event: unknown, apiKey?: string) => {
+  // AI初期化（プロキシモード）
+  ipcMain.handle('ai:init', async () => {
     log.info('ai:init called')
     try {
-      // カスタムキーを確認（引数 → 設定 → 環境変数の優先順位）
-      const customKey = apiKey || settingsService.getEffectiveApiKey('openai')
-
-      if (customKey) {
-        // カスタムキーで直接接続
-        aiService.initialize({ apiKey: customKey })
-        log.info('AI service initialized with custom key')
-      } else {
-        // プロキシモードで初期化（APIキー不要）
-        aiService.initialize({
-          useProxy: true,
-          apiBaseUrl: API_BASE_URL,
-        })
-        log.info('AI service initialized in proxy mode')
-      }
-
+      aiService.initialize({ apiBaseUrl: API_BASE_URL })
       return { success: true }
     } catch (error) {
       log.error('Failed to initialize AI', { error: String(error) })
@@ -462,20 +342,13 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   // AI回答生成
-  ipcMain.handle('ai:generate', async (_event: unknown, question: string, context?: string) => {
+  ipcMain.handle('ai:generate', async (_event: unknown, question: string, context?: string, options?: GenerateOptions) => {
     log.info('ai:generate called', { questionLength: question.length })
     try {
       if (!aiService.isInitialized()) {
-        // 自動初期化を試みる（カスタムキー or プロキシモード）
-        const customKey = settingsService.getEffectiveApiKey('openai')
-        if (customKey) {
-          aiService.initialize({ apiKey: customKey })
-        } else {
-          aiService.initialize({ useProxy: true, apiBaseUrl: API_BASE_URL })
-        }
+        aiService.initialize({ apiBaseUrl: API_BASE_URL })
       }
-
-      const response: AIResponse = await aiService.generateResponse(question, context)
+      const response: AIResponse = await aiService.generateResponse(question, context, options)
       log.info('AI response generated')
       return { success: true, response }
     } catch (error) {
@@ -494,11 +367,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     return { success: true }
   })
 
-  // AIストリーム回答生成（Phase 8: プロキシ時はサーバー側でRAGコンテキスト取得）
-  ipcMain.handle('ai:generateStream', async (_event, question: string, explicitContext?: string) => {
+  // AIストリーム回答生成（サーバー側でプロフィール注入 + RAGコンテキスト取得）
+  ipcMain.handle('ai:generateStream', async (_event, question: string, explicitContext?: string, options?: GenerateOptions) => {
     log.info('ai:generateStream called', { questionLength: question.length })
 
-    // 前回の生成を中断
     if (currentAIAbortController) {
       log.info('Aborting previous AI generation')
       currentAIAbortController.abort()
@@ -508,88 +380,24 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
     try {
       if (!aiService.isInitialized()) {
-        // 自動初期化（カスタムキー or プロキシモード）
-        const customKey = settingsService.getEffectiveApiKey('openai')
-        if (customKey) {
-          log.info('AI auto-init with custom key')
-          aiService.initialize({ apiKey: customKey })
-        } else {
-          log.info('AI auto-init with proxy mode')
-          aiService.initialize({ useProxy: true, apiBaseUrl: API_BASE_URL })
-        }
-      }
-      log.info('AI service config', {
-        initialized: aiService.isInitialized(),
-        useProxy: aiService.isUsingProxy(),
-      })
-
-      let contextString = explicitContext || ''
-
-      // プロフィールコンテキスト注入（直接モード時のみ、プロキシ時はサーバー側で注入）
-      if (!aiService.isUsingProxy()) {
-        const authState = authService.getAuthState()
-        const profileText = formatProfileContext(authState.user?.interviewProfile)
-        if (profileText) {
-          const profileContext = `【候補者プロフィール】\n${profileText}`
-          contextString = contextString
-            ? `${profileContext}\n\n${contextString}`
-            : profileContext
-        }
-      }
-
-      // プロキシモード時はサーバー側でRAGコンテキストを取得するのでスキップ
-      // 直接モード時は200msタイムアウトでコンテキスト取得（遅延防止）
-      if (!aiService.isUsingProxy() && contextService.isInitialized()) {
-        const RAG_TIMEOUT_MS = 200
-        const contextPromise = contextService.getRelevantContext(question)
-        const timeoutPromise = new Promise<null>((resolve) =>
-          setTimeout(() => resolve(null), RAG_TIMEOUT_MS)
-        )
-        const contextResults = await Promise.race([contextPromise, timeoutPromise])
-
-        if (contextResults && contextResults.length > 0) {
-          const contextParts = contextResults.map((result) => {
-            const labelMap: Record<string, string> = {
-              resume: '履歴書',
-              job_posting: '求人票',
-              expected_qa: '想定質問',
-            }
-            const docLabel = labelMap[result.documentType] || result.documentType
-            return `【${docLabel}: ${result.documentName}】\n${result.chunks.join('\n')}`
-          })
-
-          const ragContext =
-            contextParts.join('\n\n') + (explicitContext ? `\n\n${explicitContext}` : '')
-          contextString = contextString
-            ? `${contextString}\n\n${ragContext}`
-            : ragContext
-
-          log.debug('Context added to query', {
-            documentsUsed: contextResults.length,
-            contextLength: contextString.length,
-          })
-        } else if (!contextResults) {
-          log.debug('RAG context fetch timed out, proceeding without context', {
-            timeoutMs: RAG_TIMEOUT_MS,
-          })
-        }
+        aiService.initialize({ apiBaseUrl: API_BASE_URL })
       }
 
       const response = await aiService.generateStreamResponse(
         question,
-        contextString || undefined,
+        explicitContext || undefined,
         (chunk: string) => {
           if (!signal.aborted) {
             mainWindow.webContents.send('ai:chunk', chunk)
           }
         },
-        signal
+        signal,
+        options,
       )
 
       if (!signal.aborted) {
         log.info('Sending ai:complete to renderer', {
           answerLength: response.answer.length,
-          answerPreview: response.answer.substring(0, 80),
           suggestions: response.suggestions.length,
         })
         mainWindow.webContents.send('ai:complete', response)
@@ -607,12 +415,50 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // AI状態確認
+  // AI要約
+  ipcMain.handle('ai:summarize', async (_event, previousSummary: unknown, interviewer: unknown, candidate: unknown) => {
+    if (typeof interviewer !== 'string' || typeof candidate !== 'string') {
+      return { success: false, error: 'Invalid input: interviewer and candidate must be strings' }
+    }
+    const safePreviousSummary = typeof previousSummary === 'string' ? previousSummary : ''
+    const MAX_IPC_TEXT_LENGTH = 10000
+    if (interviewer.length > MAX_IPC_TEXT_LENGTH || candidate.length > MAX_IPC_TEXT_LENGTH) {
+      return { success: false, error: `Input text exceeds maximum length of ${MAX_IPC_TEXT_LENGTH}` }
+    }
+
+    log.debug('ai:summarize called', { interviewerLength: interviewer.length })
+    try {
+      if (!aiService.isInitialized()) {
+        aiService.initialize({ apiBaseUrl: API_BASE_URL })
+      }
+      const summary = await aiService.summarizeTurn(safePreviousSummary, interviewer, candidate)
+      return { success: true, summary }
+    } catch (error) {
+      log.error('Failed to summarize turn', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // AIドキュメントコンテキスト事前取得（案3）
+  ipcMain.handle('ai:prefetchContext', async () => {
+    log.debug('ai:prefetchContext called')
+    try {
+      if (!aiService.isInitialized()) {
+        aiService.initialize({ apiBaseUrl: API_BASE_URL })
+      }
+      const context = await aiService.prefetchContext()
+      return { success: true, context }
+    } catch (error) {
+      log.error('Failed to prefetch context', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
   ipcMain.handle('ai:status', () => {
     return { initialized: aiService.isInitialized() }
   })
 
-  // Context初期化（Phase 6: APIキー不要 - サーバーサイドでEmbedding生成）
+  // Context初期化
   ipcMain.handle('context:init', async () => {
     log.info('context:init called')
     try {
@@ -624,7 +470,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ドキュメントアップロード（Phase 6: API経由でアップロード）
+  // ドキュメントアップロード
   ipcMain.handle('document:upload', async (_event, documentType: DocumentType) => {
     log.info('document:upload called', { type: documentType })
     try {
@@ -640,7 +486,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       const filePath = result.filePaths[0]
       const fileName = filePath.split(/[\\/]/).pop() || 'document'
 
-      // Check file size before reading (10MB limit)
       const MAX_FILE_SIZE = 10 * 1024 * 1024
       const stats = await fs.stat(filePath)
       if (stats.size > MAX_FILE_SIZE) {
@@ -648,8 +493,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       }
 
       const fileBuffer = await fs.readFile(filePath)
-
-      // Phase 6: Upload to API (server-side parsing and embedding)
       const document = await contextService.addDocument(fileBuffer, fileName, documentType)
 
       log.info('Document uploaded successfully', { id: document.id, name: fileName })
@@ -669,7 +512,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ドキュメント一覧取得（Phase 6: API経由で取得）
   ipcMain.handle('document:list', async () => {
     try {
       const documents = await contextService.getDocuments()
@@ -680,7 +522,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // ドキュメント削除
   ipcMain.handle('document:remove', async (_event, documentId: string) => {
     log.info('document:remove called', { id: documentId })
     try {
@@ -696,18 +537,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // サブスクリプション関連のIPCハンドラー (Phase 7)
   // ============================================
 
-  // サブスクリプション情報を取得
   ipcMain.handle('subscription:getPlans', async () => {
     log.info('subscription:getPlans called')
     try {
-      const response = await authService.authenticatedFetch(
-        `${API_BASE_URL}/api/subscription`
-      )
+      const response = await authService.authenticatedFetch(`${API_BASE_URL}/api/subscription`)
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json() as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to fetch subscription' }
       }
-      const data = await response.json()
+      const data = await response.json() as Record<string, unknown>
       return { success: true, data }
     } catch (error) {
       log.error('Failed to get subscription plans', { error: String(error) })
@@ -715,7 +553,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Stripe Checkout セッションを作成してブラウザで開く
   ipcMain.handle('subscription:checkout', async (_event, priceId: string) => {
     log.info('subscription:checkout called', { priceId })
     if (!priceId || typeof priceId !== 'string' || !priceId.startsWith('price_')) {
@@ -730,13 +567,11 @@ export function setupIPC(mainWindow: BrowserWindow): void {
           body: JSON.stringify({ priceId }),
         }
       )
-
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json() as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to create checkout session' }
       }
-
-      const { url } = await response.json()
+      const { url } = await response.json() as { url?: string }
       if (url) {
         await shell.openExternal(url)
       }
@@ -747,7 +582,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Stripe Customer Portal をブラウザで開く
   ipcMain.handle('subscription:portal', async () => {
     log.info('subscription:portal called')
     try {
@@ -759,13 +593,11 @@ export function setupIPC(mainWindow: BrowserWindow): void {
           body: JSON.stringify({}),
         }
       )
-
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json() as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to create portal session' }
       }
-
-      const { url } = await response.json()
+      const { url } = await response.json() as { url?: string }
       if (url) {
         await shell.openExternal(url)
       }
@@ -776,7 +608,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // サブスクリプション情報を更新（認証情報ごとリフレッシュ）
   ipcMain.handle('subscription:refresh', async () => {
     log.info('subscription:refresh called')
     try {
@@ -792,16 +623,15 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // プロフィール関連のIPCハンドラー
   // ============================================
 
-  // プロフィール取得
   ipcMain.handle('profile:get', async () => {
     log.debug('profile:get called')
     try {
       const response = await authService.authenticatedFetch(`${API_BASE_URL}/api/auth/me`)
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to fetch profile' }
       }
-      const data = await response.json()
+      const data = await response.json() as { user: { interviewProfile?: InterviewProfile | null } }
       return { success: true, profile: data.user.interviewProfile || null }
     } catch (error) {
       log.error('Failed to get profile', { error: String(error) })
@@ -809,7 +639,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  // プロフィール保存
   ipcMain.handle('profile:save', async (_event, profile: Record<string, unknown>) => {
     log.info('profile:save called')
     try {
@@ -821,18 +650,13 @@ export function setupIPC(mainWindow: BrowserWindow): void {
           body: JSON.stringify(profile),
         }
       )
-
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to save profile' }
       }
+      const data = await response.json() as { interviewProfile?: InterviewProfile }
 
-      const data = await response.json()
-
-      // authService の状態を更新（AI生成時に最新プロフィールを使用するため）
-      void authService.validateAndRefresh().catch(() => {
-        // 更新失敗は無視（プロフィール保存自体は成功している）
-      })
+      void authService.validateAndRefresh().catch(() => {})
 
       return { success: true, interviewProfile: data.interviewProfile }
     } catch (error) {

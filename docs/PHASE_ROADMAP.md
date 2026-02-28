@@ -155,7 +155,7 @@ Electron [プラン管理] → IPC → /api/stripe/checkout → Checkout Session
 | api/stripe/webhook.ts | POST - Webhook 受信 + 署名検証 |
 | api/stripe/pages.ts | GET - 決済成功/キャンセル HTML ページ（統合） |
 | api/subscription.ts | GET - プラン + 使用量 + 全プラン一覧 |
-| api/cron/reset-usage.ts | GET - 月次使用量リセット（Vercel Cron） |
+| api/cron/reset-usage.ts | GET - 月次使用量リセット（Cloudflare Cron Trigger） |
 
 #### Electron
 | ファイル | 変更内容 |
@@ -170,7 +170,7 @@ Electron [プラン管理] → IPC → /api/stripe/checkout → Checkout Session
 ### Stripe設定手順
 1. Stripe ダッシュボードで商品作成: Pro (¥2,980/月), Max (¥14,800/月)
 2. 各 Price ID を subscription_plans テーブルに設定
-3. Webhook URL 設定: `https://your-api.vercel.app/api/stripe/webhook`
+3. Webhook URL 設定: `https://api.interviewbot.app/api/stripe/webhook`
 4. Webhook イベント: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted, invoice.payment_failed, invoice.paid
 5. Customer Portal を有効化
 
@@ -265,15 +265,15 @@ Electron → POST /api/ai/generate (JWT + SSE)
 - [x] ai.service.ts プロキシモード + SSEパース
 - [x] ipc.ts プロキシ対応ハンドラー
 - [x] DBマイグレーション 009 (インデックス)
-- [x] Vercelデプロイ + API動作確認
-- [x] Deepgram/OpenAI APIキーをVercel環境変数に設定
+- [x] Cloudflare Workersデプロイ + API動作確認
+- [x] Deepgram/OpenAI APIキーをCloudflare Workers環境変数に設定
 
 ---
 
 ## Serverless Functions統合 ✅ 完了
 
 ### 目的
-Vercel Hobbyプラン（最大12関数）に収まるよう、23個のServerless Functionsを12個に統合。
+Cloudflare Workers（Honoフレームワーク）に移行。モジュラーなルート構造に統合。
 
 ### 統合マッピング
 
@@ -294,11 +294,10 @@ Vercel Hobbyプラン（最大12関数）に収まるよう、23個のServerless
 - `lib/routing.ts` - `getRoute()` ヘルパー（5ファイルの重複を解消）
 - `lib/validation.ts` - `isValidUUID()` ヘルパー（2ファイルの重複を解消）
 
-### vercel.json 設定の注意点
-- `builds`（レガシー）と `routes`（レガシー）の組み合わせで動作
-- `builds` + `rewrites`（モダン）は互換性なし（全404になる）
-- `functions` + `rewrites`（モダン）は `apps/api/` パスを認識しない
-- `dest` パスには `.ts` 拡張子が必要
+### wrangler.toml 設定の注意点
+- Honoフレームワークでルーティングを管理
+- `wrangler.toml` でWorker設定、環境変数、Cron Triggerを定義
+- カスタムドメイン `api.interviewbot.app` をWorkerにバインド
 
 ### セキュリティ改善
 - OAuth `redirectUri` の許可リスト検証を追加（書き込み時 + 読み取り時の二重チェック）
@@ -319,8 +318,8 @@ Vercel Hobbyプラン（最大12関数）に収まるよう、23個のServerless
 - [x] 23関数 → 12関数に統合
 - [x] __route クエリパラメータによるルーティング
 - [x] 共通ライブラリ抽出（routing.ts, validation.ts）
-- [x] vercel.json builds + routes 設定
-- [x] Vercelデプロイ成功（12 nodejs functions）
+- [x] wrangler.toml + Hono ルート設定
+- [x] Cloudflare Workersデプロイ成功
 - [x] 全22エンドポイントの動作確認
 - [x] セキュリティ改善（redirectUri検証、エラーサニタイズ）
 - [x] Supabaseマイグレーション 006-012 適用

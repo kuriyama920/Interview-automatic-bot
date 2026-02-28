@@ -2,10 +2,10 @@
  * API統合E2Eテスト
  *
  * バックエンドAPIエンドポイントの実際のHTTPリクエストを検証。
- * テスト環境のAPI（vercel dev）またはモックサーバーに対して実行。
+ * テスト環境のAPI（wrangler dev）またはモックサーバーに対して実行。
  *
  * Note: CI環境でもデプロイ済みAPIに対してスモークテスト可能。
- * ローカルでは `vercel dev` でAPIサーバーを起動してから実行。
+ * ローカルでは `wrangler dev` でAPIサーバーを起動してから実行。
  */
 
 import { test, expect } from '@playwright/test'

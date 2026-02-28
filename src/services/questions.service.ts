@@ -11,7 +11,7 @@ import type { InterviewQuestion, QuestionInput, GeneratedQuestion } from '../typ
 
 const log = createLogger('questions-service')
 
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
+const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
 
 interface ApiQuestionsResponse {
   success: boolean

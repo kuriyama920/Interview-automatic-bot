@@ -4,10 +4,12 @@ import { useAudioCapture } from '../../src/renderer/src/hooks/useAudioCapture'
 
 // Get reference to mocked APIs
 const mockGetUserMedia = navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>
+const mockGetDisplayMedia = navigator.mediaDevices.getDisplayMedia as ReturnType<typeof vi.fn>
 const mockElectronStt = window.electron.stt
 
 describe('useAudioCapture', () => {
   let mockMediaStream: MediaStream
+  let mockDisplayMediaStream: MediaStream
   let mockAudioContext: AudioContext
   let mockWorkletNode: AudioWorkletNode
   let workletMessageHandler: ((e: MessageEvent) => void) | null
@@ -16,10 +18,20 @@ describe('useAudioCapture', () => {
     vi.clearAllMocks()
     workletMessageHandler = null
 
-    // Setup mock MediaStream
+    // Setup mock MediaStream (for mic)
     mockMediaStream = {
       getTracks: vi.fn(() => [{ stop: vi.fn() }]),
       getAudioTracks: vi.fn(() => [{ label: 'Default', stop: vi.fn() }]),
+    } as unknown as MediaStream
+
+    // Setup mock DisplayMedia stream (for system audio)
+    const mockVideoTrack = { stop: vi.fn(), kind: 'video' }
+    const mockAudioTrack = { stop: vi.fn(), kind: 'audio', label: 'System Audio' }
+    mockDisplayMediaStream = {
+      getTracks: vi.fn(() => [mockVideoTrack, mockAudioTrack]),
+      getAudioTracks: vi.fn(() => [mockAudioTrack]),
+      getVideoTracks: vi.fn(() => [mockVideoTrack]),
+      removeTrack: vi.fn(),
     } as unknown as MediaStream
 
     // Setup mock AudioWorkletNode
@@ -64,6 +76,7 @@ describe('useAudioCapture', () => {
     globalThis.Blob = vi.fn(() => ({})) as unknown as typeof Blob
 
     mockGetUserMedia.mockResolvedValue(mockMediaStream)
+    mockGetDisplayMedia.mockResolvedValue(mockDisplayMediaStream)
   })
 
   describe('initial state', () => {
@@ -76,8 +89,25 @@ describe('useAudioCapture', () => {
   })
 
   describe('startCapture', () => {
-    it('should request microphone access', async () => {
+    it('should request system audio via getDisplayMedia (default mode)', async () => {
       const { result } = renderHook(() => useAudioCapture())
+
+      await act(async () => {
+        await result.current.startCapture()
+      })
+
+      expect(mockGetDisplayMedia).toHaveBeenCalledWith({
+        video: true,
+        audio: true,
+      })
+    })
+
+    it('should request microphone access when audioSource is mic', async () => {
+      const { result } = renderHook(() => useAudioCapture())
+
+      await act(async () => {
+        result.current.setAudioSource('mic')
+      })
 
       await act(async () => {
         await result.current.startCapture()
@@ -105,9 +135,9 @@ describe('useAudioCapture', () => {
       expect(result.current.isCapturing).toBe(true)
     })
 
-    it('should handle microphone access error', async () => {
+    it('should handle system audio access error', async () => {
       const errorMessage = 'Permission denied'
-      mockGetUserMedia.mockRejectedValue(new Error(errorMessage))
+      mockGetDisplayMedia.mockRejectedValue(new Error(errorMessage))
 
       const { result } = renderHook(() => useAudioCapture())
 
@@ -168,12 +198,15 @@ describe('useAudioCapture', () => {
     })
 
     it('should stop media stream tracks', async () => {
-      const mockTrack = { stop: vi.fn() }
-      mockMediaStream = {
-        getTracks: vi.fn(() => [mockTrack]),
-        getAudioTracks: vi.fn(() => [{ label: 'Default', stop: vi.fn() }]),
+      const mockTrack = { stop: vi.fn(), kind: 'audio', label: 'System Audio' }
+      const mockVideoTrack = { stop: vi.fn(), kind: 'video' }
+      mockDisplayMediaStream = {
+        getTracks: vi.fn(() => [mockVideoTrack, mockTrack]),
+        getAudioTracks: vi.fn(() => [mockTrack]),
+        getVideoTracks: vi.fn(() => [mockVideoTrack]),
+        removeTrack: vi.fn(),
       } as unknown as MediaStream
-      mockGetUserMedia.mockResolvedValue(mockMediaStream)
+      mockGetDisplayMedia.mockResolvedValue(mockDisplayMediaStream)
 
       const { result } = renderHook(() => useAudioCapture())
 

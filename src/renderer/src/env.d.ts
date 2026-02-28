@@ -14,7 +14,7 @@ interface AIResponse {
   confidence: number
 }
 
-type DocumentType = 'resume' | 'job_posting' | 'expected_qa'
+type DocType = 'resume' | 'job_posting' | 'expected_qa'
 
 interface InterviewQuestion {
   id: string
@@ -58,14 +58,12 @@ type AudioSource = 'mic' | 'system' | 'both'
 interface DocumentInfo {
   id: string
   name: string
-  type: DocumentType
+  type: DocType
   uploadedAt: number
   chunkCount: number
 }
 
 interface AppSettings {
-  deepgramApiKey: string
-  openaiApiKey: string
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
   audioSource: AudioSource
@@ -105,8 +103,6 @@ interface UserSettings {
   aiMaxTokens: number
   contextMinSimilarity: number
   contextTopK: number
-  hasCustomDeepgramKey: boolean
-  hasCustomOpenaiKey: boolean
 }
 
 interface AuthState {
@@ -115,6 +111,11 @@ interface AuthState {
   user: User | null
   settings: UserSettings | null
   error: string | null
+}
+
+interface GenerateOptions {
+  includeDocumentContext?: boolean
+  maxTokens?: number
 }
 
 interface Window {
@@ -126,9 +127,6 @@ interface Window {
       logout: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
       getToken: () => Promise<{ success: boolean; token?: string | null; error?: string }>
       onStateChanged: (callback: (state: AuthState) => void) => () => void
-    }
-    config: {
-      getApiKey: (keyName: string) => Promise<string | null>
     }
     stt: {
       start: () => Promise<{ success: boolean; error?: string }>
@@ -142,12 +140,20 @@ interface Window {
       init: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
       generate: (
         question: string,
-        context?: string
+        context?: string,
+        options?: GenerateOptions
       ) => Promise<{ success: boolean; response?: AIResponse; error?: string }>
       generateStream: (
         question: string,
-        context?: string
+        context?: string,
+        options?: GenerateOptions
       ) => Promise<{ success: boolean; response?: AIResponse; error?: string }>
+      summarize: (
+        previousSummary: string,
+        interviewer: string,
+        candidate: string
+      ) => Promise<{ success: boolean; summary?: string; error?: string }>
+      prefetchContext: () => Promise<{ success: boolean; context?: string; error?: string }>
       abort: () => Promise<void>
       status: () => Promise<{ initialized: boolean }>
       onChunk: (callback: (chunk: string) => void) => void
@@ -157,7 +163,7 @@ interface Window {
     }
     document: {
       init: () => Promise<{ success: boolean; error?: string }>
-      upload: (type: DocumentType) => Promise<{
+      upload: (type: DocType) => Promise<{
         success: boolean
         error?: string
         document?: DocumentInfo & { wordCount: number }
@@ -171,9 +177,6 @@ interface Window {
         settings: Partial<AppSettings>
       ) => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
       reset: () => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
-      getEffectiveApiKey: (
-        keyType: 'deepgram' | 'openai'
-      ) => Promise<{ success: boolean; key?: string | null }>
     }
     audio: {
       setSource: (source: AudioSource) => Promise<{ success: boolean; error?: string }>

@@ -12,8 +12,8 @@ import type { DocumentMetadata, DocumentType, ContextResult } from '../types/doc
 
 const log = createLogger('context-service')
 
-// API Base URL
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
+// API Base URL (Cloudflare Workers)
+const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
 
 interface ApiDocumentResponse {
   success: boolean

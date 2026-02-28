@@ -88,9 +88,9 @@ interview-automatic-bot/
 │   ├── services/                # ビジネスロジック（STT, AI, Auth等）
 │   └── types/                   # 型定義
 │
-├── apps/api/                    # Vercel APIプロジェクト（SaaS）
-│   ├── api/auth/                # Google OAuth
-│   └── api/documents/           # ドキュメントCRUD + ベクトル検索
+├── apps/worker/                 # Cloudflare Workers API（SaaS）
+│   ├── src/routes/auth/         # Google OAuth
+│   └── src/routes/documents/    # ドキュメントCRUD + ベクトル検索
 │
 ├── tests/                       # テストコード
 │

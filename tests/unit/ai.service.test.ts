@@ -1,27 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AIService } from '../../src/services/ai.service'
 
-// Mock OpenAI
-vi.mock('openai', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      chat: {
-        completions: {
-          create: vi.fn().mockResolvedValue({
-            choices: [
-              {
-                message: {
-                  content:
-                    'これは回答例です。具体的なエピソードを交えて説明しています。\n\n- ポイント1: 経験を具体的に\n- ポイント2: 数値で示す\n- ポイント3: 結果を強調',
-                },
-              },
-            ],
-          }),
-        },
-      },
-    })),
-  }
-})
+// Mock auth service
+const mockAuthenticatedFetch = vi.hoisted(() => vi.fn())
+vi.mock('../../src/services/auth.service', () => ({
+  authService: {
+    authenticatedFetch: mockAuthenticatedFetch,
+  },
+}))
 
 // Mock logger
 vi.mock('../../src/services/logger.service', () => ({
@@ -33,27 +19,57 @@ vi.mock('../../src/services/logger.service', () => ({
   }),
 }))
 
+/**
+ * SSE形式のレスポンスモックを作成
+ */
+function createSSEResponse(content: string) {
+  const encoder = new TextEncoder()
+  const sseData = [
+    `data: ${JSON.stringify({ type: 'chunk', content })}`,
+    `data: ${JSON.stringify({ type: 'done' })}`,
+    '',
+  ].join('\n')
+
+  let readCount = 0
+  const reader = {
+    read: vi.fn().mockImplementation(async () => {
+      if (readCount === 0) {
+        readCount++
+        return { done: false, value: encoder.encode(sseData) }
+      }
+      return { done: true, value: undefined }
+    }),
+    releaseLock: vi.fn(),
+  }
+
+  return {
+    ok: true,
+    body: { getReader: () => reader },
+  }
+}
+
 describe('AIService', () => {
   let aiService: AIService
 
   beforeEach(() => {
+    vi.clearAllMocks()
     aiService = new AIService()
   })
 
   describe('initialize', () => {
-    it('should initialize with API key', () => {
-      aiService.initialize({ apiKey: 'test-api-key' })
+    it('should initialize with apiBaseUrl', () => {
+      aiService.initialize({ apiBaseUrl: 'https://api.example.com' })
       expect(aiService.isInitialized()).toBe(true)
     })
 
     it('should use default config values', () => {
-      aiService.initialize({ apiKey: 'test-api-key' })
+      aiService.initialize({ apiBaseUrl: 'https://api.example.com' })
       expect(aiService.isInitialized()).toBe(true)
     })
 
     it('should allow custom config', () => {
       aiService.initialize({
-        apiKey: 'test-api-key',
+        apiBaseUrl: 'https://api.example.com',
         model: 'gpt-4',
         maxTokens: 1000,
       })
@@ -63,7 +79,7 @@ describe('AIService', () => {
 
   describe('generateResponse', () => {
     beforeEach(() => {
-      aiService.initialize({ apiKey: 'test-api-key' })
+      aiService.initialize({ apiBaseUrl: 'https://api.example.com' })
     })
 
     it('should throw error if not initialized', async () => {
@@ -74,6 +90,10 @@ describe('AIService', () => {
     })
 
     it('should generate response for a question', async () => {
+      mockAuthenticatedFetch.mockResolvedValue(
+        createSSEResponse('これは回答例です。具体的なエピソードを交えて説明しています。')
+      )
+
       const response = await aiService.generateResponse('自己紹介をしてください')
 
       expect(response).toHaveProperty('answer')
@@ -84,22 +104,46 @@ describe('AIService', () => {
     })
 
     it('should include context if provided', async () => {
+      mockAuthenticatedFetch.mockResolvedValue(
+        createSSEResponse('志望動機の回答です。')
+      )
+
       const response = await aiService.generateResponse('志望動機を教えてください', 'エンジニア職への応募')
 
       expect(response).toHaveProperty('answer')
+      expect(mockAuthenticatedFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/ai/generate'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('エンジニア職への応募'),
+        })
+      )
+    })
+
+    it('should throw on non-ok response', async () => {
+      mockAuthenticatedFetch.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: 'API error' }),
+      })
+
+      await expect(aiService.generateResponse('質問')).rejects.toThrow('API error')
     })
   })
 
   describe('parseResponse', () => {
     beforeEach(() => {
-      aiService.initialize({ apiKey: 'test-api-key' })
+      aiService.initialize({ apiBaseUrl: 'https://api.example.com' })
     })
 
-    it('should parse response with suggestions', async () => {
+    it('should parse response content', async () => {
+      mockAuthenticatedFetch.mockResolvedValue(
+        createSSEResponse('回答テキスト')
+      )
+
       const response = await aiService.generateResponse('質問')
 
-      expect(response.suggestions.length).toBeGreaterThan(0)
-      expect(response.suggestions[0]).not.toMatch(/^[-•]/)
+      expect(response.answer).toBe('回答テキスト')
+      expect(response.confidence).toBe(0.85)
     })
   })
 
@@ -109,9 +153,8 @@ describe('AIService', () => {
     })
 
     it('should return true after initialization', () => {
-      aiService.initialize({ apiKey: 'test-api-key' })
+      aiService.initialize({ apiBaseUrl: 'https://api.example.com' })
       expect(aiService.isInitialized()).toBe(true)
     })
   })
-
 })

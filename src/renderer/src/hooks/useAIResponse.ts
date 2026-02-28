@@ -14,8 +14,8 @@ interface UseAIResponseReturn {
   streamingText: string
   isGenerating: boolean
   error: string | null
-  generateResponse: (question: string, context?: string) => Promise<void>
-  generateStreamResponse: (question: string, context?: string) => Promise<void>
+  generateResponse: (question: string, context?: string, options?: GenerateOptions) => Promise<void>
+  generateStreamResponse: (question: string, context?: string, options?: GenerateOptions) => Promise<void>
   abortGeneration: () => void
   clearResponse: () => void
 }
@@ -77,7 +77,7 @@ export function useAIResponse(): UseAIResponseReturn {
     }
   }, [])
 
-  const generateResponse = useCallback(async (question: string, context?: string) => {
+  const generateResponse = useCallback(async (question: string, context?: string, options?: GenerateOptions) => {
     if (!question.trim()) {
       return
     }
@@ -88,7 +88,7 @@ export function useAIResponse(): UseAIResponseReturn {
     log.info('Generating AI response', { questionLength: question.length })
 
     try {
-      const result = await window.electron.ai.generate(question, context)
+      const result = await window.electron.ai.generate(question, context, options)
 
       if (result.success && result.response) {
         setResponse(result.response)
@@ -114,7 +114,7 @@ export function useAIResponse(): UseAIResponseReturn {
     log.info('AI generation aborted by user')
   }, [])
 
-  const generateStreamResponse = useCallback(async (question: string, context?: string) => {
+  const generateStreamResponse = useCallback(async (question: string, context?: string, options?: GenerateOptions) => {
     if (!question.trim()) {
       log.debug('generateStreamResponse: empty question, skipping')
       return
@@ -133,7 +133,7 @@ export function useAIResponse(): UseAIResponseReturn {
     })
 
     try {
-      const result = await window.electron.ai.generateStream(question, context)
+      const result = await window.electron.ai.generateStream(question, context, options)
 
       log.info('generateStream IPC returned', {
         success: result.success,

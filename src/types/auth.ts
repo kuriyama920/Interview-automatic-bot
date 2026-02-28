@@ -55,8 +55,6 @@ export interface UserSettings {
   aiMaxTokens: number
   contextMinSimilarity: number
   contextTopK: number
-  hasCustomDeepgramKey: boolean
-  hasCustomOpenaiKey: boolean
 }
 
 /**

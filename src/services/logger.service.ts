@@ -1,4 +1,6 @@
 import winston from 'winston'
+import path from 'path'
+import fs from 'fs'
 
 const isDev = process.env.NODE_ENV !== 'production'
 
@@ -20,15 +22,21 @@ const logger = winston.createLogger({
   ],
 })
 
-// 開発時のみファイル出力
+// 開発時のみファイル出力（安全にディレクトリを作成）
 if (isDev) {
-  logger.add(
-    new winston.transports.File({
-      filename: 'logs/app.log',
-      maxsize: 5242880, // 5MB
-      maxFiles: 3,
-    })
-  )
+  try {
+    const logDir = path.resolve('logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    logger.add(
+      new winston.transports.File({
+        filename: path.join(logDir, 'app.log'),
+        maxsize: 5242880, // 5MB
+        maxFiles: 3,
+      })
+    )
+  } catch {
+    // ファイルログが作成できない場合はコンソールのみ（権限エラー等）
+  }
 }
 
 // 名前空間付きロガーを作成するファクトリー

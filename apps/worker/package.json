@@ -1,0 +1,31 @@
+{
+  "name": "interview-bot-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "hono": "^4.7.0",
+    "mammoth": "^1.6.0",
+    "openai": "^4.28.0",
+    "pdf-parse": "^1.1.1",
+    "stripe": "^14.14.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "@types/pdf-parse": "^1.1.4",
+    "@vitest/coverage-v8": "^3.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}

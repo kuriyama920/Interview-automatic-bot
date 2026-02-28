@@ -175,7 +175,7 @@ export class STTService {
   send(audioData: Buffer): void {
     if (this.connection && this._isConnected) {
       try {
-        this.connection.send(audioData)
+        this.connection.send(new Uint8Array(audioData).buffer)
       } catch (err) {
         log.error('Failed to send audio data', { error: String(err) })
       }

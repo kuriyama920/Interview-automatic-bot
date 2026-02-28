@@ -22,17 +22,6 @@ const CloseIcon = () => (
   </svg>
 )
 
-const KeyIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-    />
-  </svg>
-)
-
 const BrainIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -51,29 +40,6 @@ const PaletteIcon = () => (
       strokeLinejoin="round"
       strokeWidth={1.5}
       d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
-    />
-  </svg>
-)
-
-const EyeIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-    />
-  </svg>
-)
-
-const EyeOffIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
     />
   </svg>
 )
@@ -100,11 +66,10 @@ const UserIcon = () => (
   </svg>
 )
 
-type TabType = 'profile' | 'api' | 'ai' | 'audio' | 'appearance'
+type TabType = 'profile' | 'ai' | 'audio' | 'appearance'
 
 const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
   { id: 'profile', label: 'プロフィール', icon: <UserIcon /> },
-  { id: 'api', label: 'API設定', icon: <KeyIcon /> },
   { id: 'ai', label: 'AI設定', icon: <BrainIcon /> },
   { id: 'audio', label: '音声設定', icon: <MicrophoneIcon /> },
   { id: 'appearance', label: '表示設定', icon: <PaletteIcon /> },
@@ -120,7 +85,7 @@ export function SettingsModal({
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings)
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('profile')
-  const [showApiKeys, setShowApiKeys] = useState({ deepgram: false, openai: false })
+
 
   useEffect(() => {
     setLocalSettings(settings)
@@ -150,7 +115,7 @@ export function SettingsModal({
   }
 
   const handleReset = async () => {
-    if (window.confirm('設定をデフォルトに戻しますか？APIキーもクリアされます。')) {
+    if (window.confirm('設定をデフォルトに戻しますか？')) {
       setIsSaving(true)
       await onReset()
       setIsSaving(false)
@@ -198,75 +163,6 @@ export function SettingsModal({
         <div className="p-6 max-h-[60vh] overflow-y-auto">
           {/* プロフィールタブ */}
           {activeTab === 'profile' && <ProfileTab />}
-
-          {/* API設定タブ */}
-          {activeTab === 'api' && (
-            <div className="space-y-6">
-              <Alert variant="info">
-                APIキーを設定すると、環境変数より優先されます。空欄の場合は.envの値を使用します。
-              </Alert>
-
-              {/* Deepgram API Key */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-content">Deepgram API Key</label>
-                  <a
-                    href="https://console.deepgram.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-accent hover:underline"
-                  >
-                    キーを取得 →
-                  </a>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    type={showApiKeys.deepgram ? 'text' : 'password'}
-                    placeholder="空欄の場合は環境変数を使用"
-                    value={localSettings.deepgramApiKey}
-                    onChange={(e) => handleChange('deepgramApiKey', e.target.value)}
-                    className="flex-1"
-                  />
-                  <IconButton
-                    icon={showApiKeys.deepgram ? <EyeOffIcon /> : <EyeIcon />}
-                    label={showApiKeys.deepgram ? '隠す' : '表示'}
-                    variant="secondary"
-                    onClick={() => setShowApiKeys((prev) => ({ ...prev, deepgram: !prev.deepgram }))}
-                  />
-                </div>
-              </div>
-
-              {/* OpenAI API Key */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-content">OpenAI API Key</label>
-                  <a
-                    href="https://platform.openai.com/api-keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-accent hover:underline"
-                  >
-                    キーを取得 →
-                  </a>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    type={showApiKeys.openai ? 'text' : 'password'}
-                    placeholder="空欄の場合は環境変数を使用"
-                    value={localSettings.openaiApiKey}
-                    onChange={(e) => handleChange('openaiApiKey', e.target.value)}
-                    className="flex-1"
-                  />
-                  <IconButton
-                    icon={showApiKeys.openai ? <EyeOffIcon /> : <EyeIcon />}
-                    label={showApiKeys.openai ? '隠す' : '表示'}
-                    variant="secondary"
-                    onClick={() => setShowApiKeys((prev) => ({ ...prev, openai: !prev.openai }))}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* AI設定タブ */}
           {activeTab === 'ai' && (

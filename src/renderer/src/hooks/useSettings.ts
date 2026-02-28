@@ -5,8 +5,6 @@
 import { useState, useCallback, useEffect } from 'react'
 
 const DEFAULT_SETTINGS: AppSettings = {
-  deepgramApiKey: '',
-  openaiApiKey: '',
   theme: 'dark',
   autoGenerateAI: true,
   audioSource: 'system',

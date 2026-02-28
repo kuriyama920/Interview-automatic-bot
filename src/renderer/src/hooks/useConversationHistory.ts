@@ -1,22 +1,23 @@
 /**
  * Conversation History Hook
  *
- * 面接の対話履歴を「Topic Tracking + Sliding Window」方式で構築。
+ * 面接の対話履歴を「LLM要約 + Sliding Window」方式で構築。
  * - 直近5ターン: 原文そのまま（スライディングウィンドウ）
- * - それ以前: 面接官の質問文のみ保持（トピックトラッキング）
+ * - それ以前: バックグラウンドLLM要約（候補者の主張・数値・エピソードを保持）
  * - セッションスコープ: transcripts がクリアされると自動リセット
  * - audioSource === 'both' 時のみ有効（話者区別が必要）
  *
- * 業界標準パターン:
- *   短い会話（<20ターン）→ スライディングウィンドウ
- *   中程度（20-100）→ ウィンドウ + LLM要約
- *   長い（100+）→ 階層的要約 / 会話RAG
- * 面接は10-20ターンのため、スライディングウィンドウが最適。
- * 古いターンは面接官の質問のみ保持し、既出トピックの重複防止に活用。
+ * 要約タイミング:
+ *   各ターン完了後（候補者回答→次の面接官発言の境界）にバックグラウンドで実行。
+ *   ターン間は10-30秒あるため、要約（1-2秒）は次の質問に十分間に合う。
+ *   失敗時は面接官の質問文のみ保持するフォールバックで信頼性を確保。
  */
 
-import { useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import type { Transcript } from '../types'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('useConversationHistory')
 
 const RECENT_TURN_COUNT = 5
 // 約500-1000トークン。RAGコンテキスト（~1000トークン）と合わせて
@@ -72,22 +73,16 @@ function parseTranscriptsToTurns(transcripts: Transcript[]): ConversationTurn[] 
 
 /**
  * セクション文字列を組み立てる。
- * - 古いターン: 面接官の質問文のみ（トピックマーカー）
+ * - 要約: LLM生成の要約（古いターンの候補者主張・数値・エピソード）
  * - 直近ターン: 面接官・候補者ともに原文（スライディングウィンドウ）
  */
-function buildSections(
-  olderTurns: ConversationTurn[],
-  recentTurns: ConversationTurn[],
-): string {
+function buildSections(summary: string, recentTurns: ConversationTurn[]): string {
   const parts: string[] = []
 
-  // トピックトラッキング: 既出の質問一覧
-  if (olderTurns.length > 0) {
-    const topics = olderTurns.map((turn) => `- ${turn.interviewer}`)
-    parts.push('【既出の質問】\n' + topics.join('\n'))
+  if (summary) {
+    parts.push('【対話の要約】\n' + summary)
   }
 
-  // スライディングウィンドウ: 直近の対話原文
   if (recentTurns.length > 0) {
     const recentLines = recentTurns.map((turn) => {
       return `面接官: ${turn.interviewer}\nあなた: ${turn.candidate}`
@@ -99,22 +94,24 @@ function buildSections(
 }
 
 /**
- * ターン配列をフォーマット。
- * 文字数上限を超える場合は古いトピックを丸ごと削除。
+ * 履歴文字列を組み立てる。
+ * 文字数上限を超える場合は要約を切り詰める。
  */
-function formatHistoryString(turns: ConversationTurn[]): string {
-  if (turns.length === 0) return ''
+function formatHistoryString(
+  summary: string,
+  recentTurns: ConversationTurn[],
+): string {
+  if (!summary && recentTurns.length === 0) return ''
 
-  for (let dropCount = 0; dropCount < turns.length; dropCount++) {
-    const remaining = turns.slice(dropCount)
-    const recentStart = Math.max(0, remaining.length - RECENT_TURN_COUNT)
-    const olderTurns = remaining.slice(0, recentStart)
-    const recentTurns = remaining.slice(recentStart)
+  const result = buildSections(summary, recentTurns)
+  if (result.length <= MAX_HISTORY_CHARS) {
+    return `これまでの対話:\n${result}`
+  }
 
-    const result = buildSections(olderTurns, recentTurns)
-    if (result.length <= MAX_HISTORY_CHARS) {
-      return `これまでの対話:\n${result}`
-    }
+  // 要約が長すぎる場合、要約を省略して直近ターンのみ
+  const recentOnly = buildSections('', recentTurns)
+  if (recentOnly.length <= MAX_HISTORY_CHARS) {
+    return `これまでの対話:\n${recentOnly}`
   }
 
   return ''
@@ -129,9 +126,113 @@ export function useConversationHistory({
   transcripts,
   audioSource,
 }: UseConversationHistoryOptions): string {
+  const [rollingSummary, setRollingSummary] = useState('')
+  const rollingSummaryRef = useRef('')
+  const summarizedCountRef = useRef(0)
+  const isSummarizingRef = useRef(false)
+  const prevTranscriptsLengthRef = useRef(0)
+
+  // ref を state と同期（stale closure 回避）
+  useEffect(() => {
+    rollingSummaryRef.current = rollingSummary
+  }, [rollingSummary])
+
+  // transcripts がクリアされた（録音再開など）→ 状態リセット
+  useEffect(() => {
+    if (transcripts.length < prevTranscriptsLengthRef.current) {
+      log.info('Transcripts reset detected, clearing summary')
+      setRollingSummary('')
+      rollingSummaryRef.current = ''
+      summarizedCountRef.current = 0
+      isSummarizingRef.current = false
+    }
+    prevTranscriptsLengthRef.current = transcripts.length
+  }, [transcripts.length])
+
+  // ターン解析（useMemo で再計算を最小化）
+  const turns = useMemo(() => {
+    if (audioSource !== 'both') return []
+    return parseTranscriptsToTurns(transcripts)
+  }, [transcripts, audioSource])
+
+  // バックグラウンド要約: 新しいターンが完了したらLLMで要約
+  const summarizeNewTurns = useCallback(async (
+    turnsToSummarize: ConversationTurn[],
+    currentSummary: string,
+  ) => {
+    let summary = currentSummary
+
+    for (const turn of turnsToSummarize) {
+      try {
+        const result = await window.electron.ai.summarize(
+          summary,
+          turn.interviewer,
+          turn.candidate,
+        )
+
+        if (result.success && result.summary) {
+          summary = result.summary
+          log.info('Turn summarized successfully', {
+            summaryLength: summary.length,
+          })
+        } else {
+          // フォールバック: 面接官の質問のみ追加
+          log.warn('Summarization failed, using fallback', { error: result.error })
+          const fallback = `Q: ${turn.interviewer}`
+          summary = summary ? `${summary}\n${fallback}` : fallback
+        }
+      } catch (error) {
+        log.error('Summarization error, using fallback', { error })
+        const fallback = `Q: ${turn.interviewer}`
+        summary = summary ? `${summary}\n${fallback}` : fallback
+      }
+    }
+
+    return summary
+  }, [])
+
+  useEffect(() => {
+    if (audioSource !== 'both') return
+
+    // 要約対象: RECENT_TURN_COUNT より前のターンで未要約のもの
+    const turnsToSummarizeCount = Math.max(0, turns.length - RECENT_TURN_COUNT)
+    const newTurnsCount = turnsToSummarizeCount - summarizedCountRef.current
+
+    if (newTurnsCount <= 0 || isSummarizingRef.current) return
+
+    const newTurns = turns.slice(summarizedCountRef.current, turnsToSummarizeCount)
+    isSummarizingRef.current = true
+    let cancelled = false
+
+    log.info('Starting background summarization', {
+      newTurnsCount,
+      totalTurns: turns.length,
+      alreadySummarized: summarizedCountRef.current,
+    })
+
+    summarizeNewTurns(newTurns, rollingSummaryRef.current).then((updatedSummary) => {
+      if (!cancelled) {
+        setRollingSummary(updatedSummary)
+        rollingSummaryRef.current = updatedSummary
+        summarizedCountRef.current = turnsToSummarizeCount
+      }
+      isSummarizingRef.current = false
+    }).catch((error) => {
+      log.error('Background summarization failed completely', { error })
+      isSummarizingRef.current = false
+    })
+
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turns, audioSource, summarizeNewTurns])
+
+  // 最終的な履歴文字列を構築
   return useMemo(() => {
     if (audioSource !== 'both') return ''
-    const turns = parseTranscriptsToTurns(transcripts)
-    return formatHistoryString(turns)
-  }, [transcripts, audioSource])
+
+    const recentStart = Math.max(0, turns.length - RECENT_TURN_COUNT)
+    const recentTurns = turns.slice(recentStart)
+
+    return formatHistoryString(rollingSummary, recentTurns)
+  }, [turns, rollingSummary, audioSource])
 }

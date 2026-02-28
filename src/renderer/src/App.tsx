@@ -9,6 +9,7 @@ import { useAudioCapture } from './hooks/useAudioCapture'
 import { useAIResponse } from './hooks/useAIResponse'
 import { useProgressiveAI } from './hooks/useProgressiveAI'
 import { useConversationHistory } from './hooks/useConversationHistory'
+import { useDocumentContextCache } from './hooks/useDocumentContextCache'
 import { useSettings } from './hooks/useSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './hooks/useToast'
@@ -159,9 +160,7 @@ function AIResponseSkeleton() {
 // ============================================================
 
 function AppContent() {
-  const [apiKey, setApiKey] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingApiKey, setIsLoadingApiKey] = useState(true)
   const [appError, setAppError] = useState<string | null>(null)
   const [showSubscription, setShowSubscription] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -200,11 +199,14 @@ function AppContent() {
     clearResponse,
   } = useAIResponse()
 
-  // 会話履歴（Topic Tracking + Sliding Window）
+  // 会話履歴（LLM要約 + Sliding Window）
   const conversationHistory = useConversationHistory({
     transcripts,
     audioSource,
   })
+
+  // ドキュメントコンテキスト事前キャッシュ（案3: RAGスキップ高速化）
+  const { cachedContextRef: cachedDocumentContextRef, prefetch: prefetchDocumentContext, clear: clearDocumentContextCache } = useDocumentContextCache()
 
   // Progressive AI Generation + 想定質問キャッシュ
   const {
@@ -219,6 +221,7 @@ function AppContent() {
     transcripts,
     autoGenerateAI: settings.autoGenerateAI,
     conversationHistory,
+    cachedDocumentContextRef,
     generateStreamResponse,
     abortGeneration,
   })
@@ -234,44 +237,22 @@ function AppContent() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 起動時に環境変数からAPIキーの存在確認
-  useEffect(() => {
-    const checkApiKey = async () => {
-      try {
-        const key = await window.electron.config.getApiKey('DEEPGRAM_API_KEY')
-        if (key) {
-          setApiKey(key)
-        } else {
-          setAppError('.envファイルにDEEPGRAM_API_KEYを設定してください')
-        }
-      } catch {
-        setAppError('APIキーの確認に失敗しました')
-      } finally {
-        setIsLoadingApiKey(false)
-      }
-    }
-    checkApiKey()
-  }, [])
-
   // ログアウト時にキャッシュをクリア
   useEffect(() => {
     if (!user) {
       clearQuestionCache()
+      clearDocumentContextCache()
     }
-  }, [user, clearQuestionCache])
+  }, [user, clearQuestionCache, clearDocumentContextCache])
 
   const handleStart = async () => {
-    if (!apiKey) {
-      toast.error('.envファイルにDEEPGRAM_API_KEYを設定してください')
-      return
-    }
-
     setIsLoading(true)
     setAppError(null)
     resetProgressiveAI()
     clearResponse()
 
     try {
+      prefetchDocumentContext()  // 録音開始と並行でドキュメントコンテキストを事前取得
       await connect()
       await startCapture()
       toast.success('録音を開始しました')
@@ -309,18 +290,6 @@ function AppContent() {
   }
 
   const error = appError || sttError || captureError || aiError
-
-  // APIキー読み込み中
-  if (isLoadingApiKey) {
-    return (
-      <div className="h-full bg-surface flex items-center justify-center" data-theme="interview-light">
-        <div className="text-center space-y-4">
-          <Spinner size="lg" className="text-accent mx-auto" />
-          <p className="text-content-secondary">アプリケーションを初期化中...</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="h-full flex flex-col bg-surface-secondary overflow-hidden" data-theme="interview-light">
@@ -398,7 +367,7 @@ function AppContent() {
               {!isConnected ? (
                 <button
                   onClick={handleStart}
-                  disabled={!apiKey || isLoading}
+                  disabled={isLoading}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-soft"
                 >
                   {isLoading ? <Spinner size="sm" /> : <MicrophoneIcon />}

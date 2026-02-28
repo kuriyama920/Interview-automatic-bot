@@ -74,6 +74,7 @@ Object.defineProperty(window, 'electron', {
 Object.defineProperty(navigator, 'mediaDevices', {
   value: {
     getUserMedia: vi.fn(),
+    getDisplayMedia: vi.fn(),
   },
   writable: true,
 })

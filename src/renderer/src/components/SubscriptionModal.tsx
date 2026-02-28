@@ -133,12 +133,6 @@ function PlanCard({
             ? '無制限'
             : `${plan.limits.maxDocuments}件`}
         </li>
-        {plan.features.custom_api_keys && (
-          <li className="flex items-center gap-2">
-            <CheckIcon />
-            カスタムAPIキー
-          </li>
-        )}
         {plan.features.priority_support && (
           <li className="flex items-center gap-2">
             <CheckIcon />
@@ -237,13 +231,13 @@ export function SubscriptionModal({ isOpen, onClose }: SubscriptionModalProps) {
                 <UsageBar
                   label="音声認識 (STT)"
                   used={data.usage.sttMinutes}
-                  limit={data.plan?.limits.sttMinutesMonthly || 60}
+                  limit={data.plan?.limits.sttMinutesMonthly || 30}
                   unit="分"
                 />
                 <UsageBar
                   label="AIトークン"
                   used={data.usage.aiTokens}
-                  limit={data.plan?.limits.aiTokensMonthly || 50000}
+                  limit={data.plan?.limits.aiTokensMonthly || 30000}
                   unit=""
                 />
                 <UsageBar

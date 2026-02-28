@@ -42,8 +42,7 @@ const mockAIService = vi.hoisted(() => ({
   generateResponse: vi.fn(),
   generateStreamResponse: vi.fn(),
   isInitialized: vi.fn(() => false),
-  isUsingProxy: vi.fn(() => false),
-  updateConfig: vi.fn(),
+  summarizeTurn: vi.fn(),
 }))
 
 vi.mock('../../src/services/ai.service', () => ({
@@ -58,7 +57,6 @@ const mockSettingsService = vi.hoisted(() => ({
   resetSettings: vi.fn(() => ({})),
   getSetting: vi.fn(),
   setSetting: vi.fn(),
-  getEffectiveApiKey: vi.fn(),
 }))
 
 vi.mock('../../src/services/settings.service', () => ({
@@ -136,13 +134,11 @@ describe('IPC Handlers', () => {
     mockAIService.generateResponse.mockReset()
     mockAIService.generateStreamResponse.mockReset()
     mockAIService.isInitialized.mockReturnValue(false)
-    mockAIService.isUsingProxy.mockReturnValue(false)
 
-    // Default: settingsService returns custom deepgram key
-    mockSettingsService.getEffectiveApiKey.mockImplementation((type: string) => {
-      if (type === 'deepgram') return 'test-deepgram-key'
-      if (type === 'openai') return 'test-openai-key'
-      return null
+    // Default authenticatedFetch mock (proxy token for STT)
+    mockAuthService.authenticatedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'proxy-temp-token', expiresIn: 600 }),
     })
   })
 
@@ -175,17 +171,7 @@ describe('IPC Handlers', () => {
   })
 
   describe('stt:start handler', () => {
-    it('should start STT service successfully with custom key', async () => {
-      mockSettingsService.getEffectiveApiKey.mockReturnValue('test-deepgram-key')
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['stt:start']()
-
-      expect(result).toEqual({ success: true })
-    })
-
-    it('should start STT via proxy when no custom key', async () => {
-      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
+    it('should start STT service via proxy', async () => {
       mockAuthService.authenticatedFetch.mockResolvedValue({
         ok: true,
         json: async () => ({ token: 'proxy-temp-token', expiresIn: 600 }),
@@ -199,7 +185,6 @@ describe('IPC Handlers', () => {
     })
 
     it('should fail when proxy returns usage limit exceeded', async () => {
-      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
       mockAuthService.authenticatedFetch.mockResolvedValue({
         ok: false,
         status: 429,
@@ -211,7 +196,7 @@ describe('IPC Handlers', () => {
 
       expect(result).toEqual({
         success: false,
-        error: 'STT usage limit exceeded. Please upgrade your plan.',
+        error: 'Usage limit exceeded',
       })
     })
 
@@ -342,7 +327,10 @@ describe('IPC Handlers', () => {
         transcriptCallback(mockTranscript)
       }
 
-      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('stt:transcript', mockTranscript)
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('stt:transcript', {
+        ...mockTranscript,
+        source: 'system',
+      })
     })
   })
 
@@ -351,37 +339,13 @@ describe('IPC Handlers', () => {
       mockAIService.isInitialized.mockReturnValue(false)
     })
 
-    it('should initialize AI service with custom key from settings', async () => {
-      mockSettingsService.getEffectiveApiKey.mockImplementation((type: string) => {
-        if (type === 'openai') return 'test-openai-key'
-        return 'test-deepgram-key'
-      })
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:init'](null)
-
-      expect(result).toEqual({ success: true })
-      expect(mockAIService.initialize).toHaveBeenCalledWith({ apiKey: 'test-openai-key' })
-    })
-
-    it('should use provided API key over settings', async () => {
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:init'](null, 'custom-api-key')
-
-      expect(result).toEqual({ success: true })
-      expect(mockAIService.initialize).toHaveBeenCalledWith({ apiKey: 'custom-api-key' })
-    })
-
-    it('should initialize in proxy mode when no API key available', async () => {
-      mockSettingsService.getEffectiveApiKey.mockReturnValue(null)
+    it('should initialize AI service in proxy mode', async () => {
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['ai:init'](null)
 
       expect(result).toEqual({ success: true })
       expect(mockAIService.initialize).toHaveBeenCalledWith({
-        useProxy: true,
         apiBaseUrl: expect.any(String),
       })
     })
@@ -405,7 +369,7 @@ describe('IPC Handlers', () => {
       const result = await mockIpcHandlers['ai:generate'](null, 'Test question')
 
       expect(result).toEqual({ success: true, response: mockResponse })
-      expect(mockAIService.generateResponse).toHaveBeenCalledWith('Test question', undefined)
+      expect(mockAIService.generateResponse).toHaveBeenCalledWith('Test question', undefined, undefined)
     })
 
     it('should pass context to AI service', async () => {
@@ -413,7 +377,7 @@ describe('IPC Handlers', () => {
 
       await mockIpcHandlers['ai:generate'](null, 'Test question', 'Test context')
 
-      expect(mockAIService.generateResponse).toHaveBeenCalledWith('Test question', 'Test context')
+      expect(mockAIService.generateResponse).toHaveBeenCalledWith('Test question', 'Test context', undefined)
     })
 
     it('should auto-initialize if not initialized', async () => {
@@ -447,7 +411,6 @@ describe('IPC Handlers', () => {
 
     beforeEach(() => {
       mockAIService.isInitialized.mockReturnValue(true)
-      mockAIService.isUsingProxy.mockReturnValue(false)
       mockAIService.generateStreamResponse.mockResolvedValue(mockResponse)
     })
 

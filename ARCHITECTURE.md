@@ -101,10 +101,10 @@ Phase 5 で追加された SaaS 基盤のアーキテクチャです。
               │ HTTPS                     │ HTTPS
               ▼                           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         Vercel (API Layer)                         │
+│                    Cloudflare Workers (API Layer)                   │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                   Serverless Functions                       │   │
+│  │                   Hono API Routes                             │   │
 │  │                                                               │   │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │   │
 │  │  │ /api/auth/   │  │ /api/auth/   │  │ /api/auth/   │       │   │
@@ -136,7 +136,7 @@ Phase 5 で追加された SaaS 基盤のアーキテクチャです。
 |---------|------|------|
 | **認証** | Google OAuth 2.0 | シングルサインオン |
 | **トークン** | JWT (jsonwebtoken) | セッション管理 |
-| **API** | Vercel Serverless Functions | バックエンドAPI |
+| **API** | Cloudflare Workers + Hono 4.7 | バックエンドAPI |
 | **データベース** | Supabase PostgreSQL | ユーザー・設定・使用量データ |
 | **ベクトル検索** | pgvector | ドキュメント埋め込み（1536次元） |
 | **決済** | Stripe | サブスクリプション管理 |
@@ -169,18 +169,19 @@ subscription_plans -- プラン定義（マスター）
 ### ファイル構成（SaaS 関連）
 
 ```
-apps/api/                           # Vercel API プロジェクト
+apps/worker/                        # Cloudflare Workers API プロジェクト
 ├── package.json                    # 依存関係
-├── vercel.json                     # デプロイ設定
+├── wrangler.toml                   # デプロイ設定
 ├── tsconfig.json                   # TypeScript設定
-├── lib/
-│   ├── supabase.ts                 # Supabaseクライアント
-│   └── auth.ts                     # OAuth/JWT ユーティリティ
-├── api/
-│   └── auth/
-│       ├── google.ts               # OAuth開始エンドポイント
-│       ├── callback.ts             # OAuthコールバック
-│       └── me.ts                   # ユーザー情報取得
+├── src/
+│   ├── lib/
+│   │   ├── supabase.ts             # Supabaseクライアント
+│   │   └── auth.ts                 # OAuth/JWT ユーティリティ
+│   └── routes/
+│       └── auth/
+│           ├── google.ts           # OAuth開始エンドポイント
+│           ├── callback.ts         # OAuthコールバック
+│           └── me.ts               # ユーザー情報取得
 └── supabase/
     └── migrations/
         └── 001_initial_schema.sql  # DBスキーマ
@@ -230,11 +231,11 @@ src/
 | **ローカル保存** | electron-store 8.1.0 | 暗号化設定保存 |
 | **ログ** | winston 3.11.0 | 構造化ログ出力 |
 
-### SaaS バックエンド（Vercel API）
+### SaaS バックエンド（Cloudflare Workers API）
 
 | サービス | ライブラリ | 用途 |
 |---------|-----------|------|
-| **API** | @vercel/node | Serverless Functions |
+| **API** | Hono 4.7 | Cloudflare Workers フレームワーク |
 | **データベース** | @supabase/supabase-js 2.39.0 | PostgreSQL + pgvector |
 | **認証** | jsonwebtoken | JWT生成・検証 |
 | **決済** | stripe 14.14.0 | サブスクリプション管理 |
@@ -247,7 +248,7 @@ src/
 | **Google OAuth** | 認証プロバイダ | Gmail SSO |
 | **Supabase** | BaaS | PostgreSQL + pgvector + RLS |
 | **Stripe** | 決済 | サブスクリプション・Webhook |
-| **Vercel** | ホスティング | Serverless Functions |
+| **Cloudflare Workers** | ホスティング | Edge API |
 | **Resend** | メール | トランザクションメール |
 
 ### 開発ツール
@@ -463,7 +464,7 @@ src/
        │ ⑤承認後リダイレクト
        ▼
 ┌──────────────────┐
-│ Vercel API       │ /api/auth/callback
+│ Workers API      │ /api/auth/callback
 │ コールバック      │
 └──────┬───────────┘
        │ ⑥トークン交換 → JWT生成

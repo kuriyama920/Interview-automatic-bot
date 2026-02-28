@@ -3,14 +3,14 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('useDocuments')
 
-// DocumentType, DocumentInfo はenv.d.tsでグローバル宣言済み
+// DocType, DocumentInfo はenv.d.tsでグローバル宣言済み
 
 interface UseDocumentsReturn {
   documents: DocumentInfo[]
   isUploading: boolean
   isInitialized: boolean
   error: string | null
-  uploadDocument: (type: DocumentType) => Promise<void>
+  uploadDocument: (type: DocType) => Promise<void>
   removeDocument: (id: string) => Promise<void>
   refreshDocuments: () => Promise<void>
 }
@@ -72,7 +72,7 @@ export function useDocuments(): UseDocumentsReturn {
   }, [refreshDocuments])
 
   const uploadDocument = useCallback(
-    async (type: DocumentType) => {
+    async (type: DocType) => {
       setIsUploading(true)
       setError(null)
       log.info('Uploading document', { type })

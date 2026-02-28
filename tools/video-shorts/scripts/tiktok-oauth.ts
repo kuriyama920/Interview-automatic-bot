@@ -10,7 +10,7 @@
 
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY || ''
 const CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET || ''
-const REDIRECT_URI = 'https://web-phi-olive-40.vercel.app/auth/tiktok/callback'
+const REDIRECT_URI = 'https://interviewbot.app/auth/tiktok/callback'
 
 async function getAuthorizationUrl() {
   const scope = 'user.info.basic,video.upload,video.publish'

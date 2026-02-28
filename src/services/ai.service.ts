@@ -1,4 +1,3 @@
-import OpenAI from 'openai'
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
 
@@ -10,247 +9,105 @@ export interface AIResponse {
   confidence: number
 }
 
+export interface GenerateOptions {
+  includeDocumentContext?: boolean
+  maxTokens?: number
+}
+
 interface AIServiceConfig {
-  apiKey?: string
-  useProxy?: boolean
-  apiBaseUrl?: string
+  apiBaseUrl: string
   model?: string
   maxTokens?: number
 }
 
-// 正規定義: apps/api/lib/prompts.ts（Electronからは直接importできないためコピー）
-const SYSTEM_PROMPT = `あなたは面接コーチです。面接官の質問に対する最適な回答を即座に提案します。
-質問が途中や断片的でも、意図を推測して回答してください。
-回答形式：結論→根拠→具体例の順。数値・固有名詞で説得力を高める。日本語で簡潔に（3-5文）。
-「これまでの対話」が提供された場合、候補者が既に述べた内容と矛盾しない回答を提案し、一貫性のある回答を心がける。`
-
-// reasoning_effort をサポートするモデル（GPT-5系推論モデル）
-const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']
-
 export class AIService {
-  private client: OpenAI | null = null
   private config: AIServiceConfig | null = null
-  private useProxy = false
-  private apiBaseUrl = ''
 
   initialize(config: AIServiceConfig): void {
-    this.useProxy = config.useProxy ?? !config.apiKey
-    this.apiBaseUrl = config.apiBaseUrl || ''
-
     this.config = {
       model: 'gpt-5-nano',
       maxTokens: 2000,
       ...config,
     }
 
-    if (!this.useProxy && config.apiKey) {
-      this.client = new OpenAI({
-        apiKey: config.apiKey,
-      })
-    }
-
-    log.info('AI service initialized', {
+    log.info('AI service initialized (proxy mode)', {
       model: this.config.model,
-      useProxy: this.useProxy,
+      apiBaseUrl: this.config.apiBaseUrl,
     })
   }
 
-  async generateResponse(question: string, context?: string): Promise<AIResponse> {
-    if (this.useProxy) {
-      return this.generateViaProxy(question, context)
-    }
-
-    if (!this.client || !this.config) {
+  async generateResponse(question: string, context?: string, options?: GenerateOptions): Promise<AIResponse> {
+    if (!this.config) {
       throw new Error('AI service not initialized')
     }
 
-    log.debug('Generating response for question', { questionLength: question.length })
-
-    const userMessage = context
-      ? `コンテキスト情報:\n${context}\n\n面接官の質問: ${question}`
-      : `面接官の質問: ${question}`
-
-    try {
-      const response = await this.client.chat.completions.create({
-        model: this.config.model!,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-        max_completion_tokens: this.config.maxTokens,
-        ...(MODELS_WITH_REASONING.includes(this.config.model!) && { reasoning_effort: 'minimal' as const }),
-      })
-
-      const content = response.choices[0]?.message?.content || ''
-      log.info('AI response generated', { responseLength: content.length })
-
-      return this.parseResponse(content)
-    } catch (error) {
-      log.error('Failed to generate AI response', { error })
-      throw error
-    }
-  }
-
-  async generateStreamResponse(
-    question: string,
-    context?: string,
-    onChunk?: (chunk: string) => void,
-    signal?: AbortSignal
-  ): Promise<AIResponse> {
-    if (this.useProxy) {
-      return this.generateStreamViaProxy(question, context, onChunk, signal)
-    }
-
-    if (!this.client || !this.config) {
-      throw new Error('AI service not initialized')
-    }
-
-    log.info('Generating stream response', {
-      questionLength: question.length,
-      model: this.config.model,
-      maxTokens: this.config.maxTokens,
-    })
-
-    const userMessage = context
-      ? `コンテキスト情報:\n${context}\n\n面接官の質問: ${question}`
-      : `面接官の質問: ${question}`
-
-    try {
-      log.debug('Creating OpenAI stream', {
-        model: this.config.model,
-        maxTokens: this.config.maxTokens,
-        messageCount: 2,
-        userMessageLength: userMessage.length,
-      })
-      const stream = await this.client.chat.completions.create(
-        {
-          model: this.config.model!,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userMessage },
-          ],
-          max_completion_tokens: this.config.maxTokens,
-          ...(MODELS_WITH_REASONING.includes(this.config.model!) && { reasoning_effort: 'minimal' as const }),
-          stream: true,
-        },
-        { signal }
-      )
-
-      let fullContent = ''
-      let chunkCount = 0
-      let totalChunks = 0
-
-      for await (const chunk of stream) {
-        totalChunks++
-        if (signal?.aborted) {
-          log.info('Stream aborted mid-iteration', { totalChunks })
-          break
-        }
-
-        const choice = chunk.choices[0]
-        const content = choice?.delta?.content || ''
-        const finishReason = choice?.finish_reason
-
-        // 最初の数チャンクと完了理由をログ
-        if (totalChunks <= 3 || finishReason) {
-          log.debug('Stream chunk', {
-            n: totalChunks,
-            hasContent: !!content,
-            contentLen: content.length,
-            finishReason,
-            delta: JSON.stringify(choice?.delta),
-          })
-        }
-
-        fullContent += content
-        if (onChunk && content) {
-          chunkCount++
-          onChunk(content)
-        }
-      }
-
-      log.info('AI stream response completed', {
-        responseLength: fullContent.length,
-        chunkCount,
-        totalChunks,
-        contentPreview: fullContent.substring(0, 100),
-      })
-
-      return this.parseResponse(fullContent)
-    } catch (error) {
-      if (signal?.aborted) {
-        throw new Error('aborted')
-      }
-      log.error('Failed to generate AI stream response', { error })
-      throw error
-    }
-  }
-
-  /**
-   * プロキシ経由で AI 回答を生成（非ストリーミング）
-   */
-  private async generateViaProxy(
-    question: string,
-    context?: string
-  ): Promise<AIResponse> {
     log.debug('Generating response via proxy', { questionLength: question.length })
 
     const response = await authService.authenticatedFetch(
-      `${this.apiBaseUrl}/api/ai/generate`,
+      `${this.config.apiBaseUrl}/api/ai/generate`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question,
           context,
-          includeDocumentContext: true,
-          model: this.config?.model,
-          maxTokens: this.config?.maxTokens,
+          includeDocumentContext: options?.includeDocumentContext ?? true,
+          model: this.config.model,
+          maxTokens: options?.maxTokens ?? this.config.maxTokens,
         }),
       }
     )
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const errorData = await response.json().catch(() => ({})) as Record<string, string>
       throw new Error(errorData.error || 'AI generation failed')
     }
 
-    // SSE レスポンスをパースして全コンテンツを収集
     const fullContent = await this.parseSSEResponse(response)
     log.info('AI proxy response completed', { responseLength: fullContent.length })
 
     return this.parseResponse(fullContent)
   }
 
-  /**
-   * プロキシ経由で AI 回答をストリーミング生成
-   */
-  private async generateStreamViaProxy(
+  async generateStreamResponse(
     question: string,
     context?: string,
     onChunk?: (chunk: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: GenerateOptions,
   ): Promise<AIResponse> {
-    log.debug('Generating stream response via proxy', { questionLength: question.length })
+    if (!this.config) {
+      throw new Error('AI service not initialized')
+    }
+
+    const maxTokens = options?.maxTokens ?? this.config.maxTokens
+    const includeDocumentContext = options?.includeDocumentContext ?? true
+
+    log.info('Generating stream response via proxy', {
+      questionLength: question.length,
+      model: this.config.model,
+      maxTokens,
+      includeDocumentContext,
+    })
 
     const response = await authService.authenticatedFetch(
-      `${this.apiBaseUrl}/api/ai/generate`,
+      `${this.config.apiBaseUrl}/api/ai/generate`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question,
           context,
-          includeDocumentContext: true,
-          model: this.config?.model,
-          maxTokens: this.config?.maxTokens,
+          includeDocumentContext,
+          model: this.config.model,
+          maxTokens,
         }),
         signal,
       }
     )
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const errorData = await response.json().catch(() => ({})) as Record<string, string>
       throw new Error(errorData.error || 'AI generation failed')
     }
 
@@ -287,12 +144,10 @@ export class AIService {
 
         buffer += decoder.decode(value, { stream: true })
 
-        // バッファサイズ制限チェック（不正なストリーム対策）
         if (buffer.length > MAX_BUFFER_SIZE) {
           throw new Error('SSE buffer overflow - malformed stream')
         }
 
-        // SSE イベントを行ごとにパース
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
@@ -314,15 +169,12 @@ export class AIService {
               throw new Error(data.error || 'AI generation failed')
             }
           } catch (parseError) {
-            // JSON パースエラーは無視（不完全なデータ）
             if (parseError instanceof SyntaxError) continue
             throw parseError
           }
         }
       }
 
-      // ストリーム終了後にバッファに残ったデータを処理
-      // （最後のSSEイベントに末尾の改行がない場合の防御策）
       if (buffer.trim() && buffer.startsWith('data: ')) {
         try {
           const data = JSON.parse(buffer.slice(6))
@@ -341,7 +193,6 @@ export class AIService {
           if (parseError instanceof Error && !parseError.message.includes('JSON')) {
             throw parseError
           }
-          // 不完全なJSONは無視
         }
       }
     } finally {
@@ -359,12 +210,65 @@ export class AIService {
     }
   }
 
-  isInitialized(): boolean {
-    return this.useProxy || this.client !== null
+  /**
+   * 対話ターンをバックグラウンドで要約（ローリングサマリー更新）
+   */
+  async summarizeTurn(
+    previousSummary: string,
+    interviewer: string,
+    candidate: string,
+  ): Promise<string> {
+    if (!this.config) {
+      throw new Error('AI service not initialized')
+    }
+
+    log.debug('Summarizing turn via proxy')
+
+    const response = await authService.authenticatedFetch(
+      `${this.config.apiBaseUrl}/api/ai/summarize`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ previousSummary, interviewer, candidate }),
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({})) as Record<string, string>
+      throw new Error(errorData.error || 'Summarization failed')
+    }
+
+    const data = await response.json() as { summary?: string }
+    return data.summary || ''
   }
 
-  isUsingProxy(): boolean {
-    return this.useProxy
+  async prefetchContext(): Promise<string> {
+    if (!this.config) {
+      throw new Error('AI service not initialized')
+    }
+
+    log.debug('Prefetching document context')
+
+    const response = await authService.authenticatedFetch(
+      `${this.config.apiBaseUrl}/api/ai/prefetch-context`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({})) as Record<string, string>
+      throw new Error(errorData.error || 'Prefetch context failed')
+    }
+
+    const data = await response.json() as { context?: string }
+    return data.context || ''
+  }
+
+  isInitialized(): boolean {
+    return this.config !== null
   }
 }
 

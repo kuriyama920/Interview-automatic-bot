@@ -3,13 +3,15 @@ import { join, resolve } from 'path'
 import { config } from 'dotenv'
 import { setupIPC } from './ipc'
 import { authService } from '../services/auth.service'
+import { createLogger } from '../services/logger.service'
+
+const log = createLogger('Main')
 
 // .envファイルを読み込む（process.cwdを使用 - 開発時はプロジェクトルート）
 const envPath = join(process.cwd(), '.env')
 const envResult = config({ path: envPath })
-console.log('[Main] .env path:', envPath)
-console.log('[Main] .env load result:', envResult.error ? 'FAILED' : 'SUCCESS')
-console.log('[Main] DEEPGRAM_API_KEY found:', !!process.env.DEEPGRAM_API_KEY)
+log.info('.env load result', { path: envPath, success: !envResult.error })
+log.debug('DEEPGRAM_API_KEY found', { found: !!process.env.DEEPGRAM_API_KEY })
 
 // Deep Linkプロトコル
 const PROTOCOL = 'interview-bot'
@@ -23,7 +25,7 @@ if (!app.isPackaged) {
       resolve(process.argv[1]),
     ])
   } else {
-    console.warn('[Main] Cannot register protocol: no main script in argv')
+    log.warn('Cannot register protocol: no main script in argv')
   }
 } else {
   app.setAsDefaultProtocolClient(PROTOCOL)
@@ -31,12 +33,12 @@ if (!app.isPackaged) {
 
 // Deep Linkを処理
 function handleDeepLink(url: string): void {
-  console.log('[Main] Deep link received:', url)
+  log.info('Deep link received', { url: url.replace(/token=[^&]+/, 'token=[REDACTED]') })
 
   // 認証コールバックを処理
   if (url.startsWith(`${PROTOCOL}://auth/callback`)) {
     authService.handleAuthCallback(url).catch((error) => {
-      console.error('[Main] Failed to handle auth callback:', error)
+      log.error('Failed to handle auth callback', { error: String(error) })
     })
   }
 }
@@ -107,34 +109,35 @@ if (!gotTheLock) {
     try {
       authService.initialize(mainWindow)
     } catch (error) {
-      console.error('[Main] AuthService initialization failed:', error)
+      log.error('AuthService initialization failed', { error: String(error) })
     }
 
     setupIPC(mainWindow)
 
     // システム音声キャプチャを有効化（Phase 6.5）
     // getDisplayMedia() 呼び出し時にダイアログなしでシステム音声をキャプチャ
-    session.defaultSession.setDisplayMediaRequestHandler(
-      (_request, callback) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron 28 supports options param not yet in types
+    ;(session.defaultSession.setDisplayMediaRequestHandler as any)(
+      (_request: unknown, callback: (streams: { video?: unknown; audio?: string }) => void) => {
         desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
           if (sources.length === 0) {
-            console.error('[Main] No desktop sources available')
-            // 引数なしで呼び出すことでリクエストを正しく拒否
-            callback()
+            log.error('No desktop sources available')
+            // 空オブジェクトでリクエストを拒否
+            callback({})
             return
           }
           // video: 画面ソース（APIの仕様上必須だがレンダラーで即停止）
           // audio: 'loopback' でシステム音声（Zoom/Teams等の相手の声）をキャプチャ
           callback({ video: sources[0], audio: 'loopback' })
         }).catch((error) => {
-          console.error('[Main] Failed to get desktop sources:', error)
-          // 引数なしで呼び出すことでリクエストを正しく拒否
-          callback()
+          log.error('Failed to get desktop sources', { error: String(error) })
+          // 空オブジェクトでリクエストを拒否
+          callback({})
         })
       },
       { useSystemPicker: false } // ユーザー選択ダイアログを表示しない
     )
-    console.log('[Main] System audio capture (loopback) enabled')
+    log.info('System audio capture (loopback) enabled')
 
     // Windows: 初回起動時のDeep Link処理（process.argvからURLを取得）
     const deepLinkUrl = process.argv.find((arg) => arg.startsWith(`${PROTOCOL}://`))

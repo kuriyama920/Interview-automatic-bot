@@ -13,12 +13,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.{ts,tsx}', 'apps/api/**/*.ts'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/**/*.d.ts',
         'src/main/index.ts',
         'src/preload/index.ts',
-        'apps/api/node_modules/**',
       ],
     },
     deps: {

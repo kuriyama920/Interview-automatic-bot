@@ -5,7 +5,7 @@
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'https://api-kuriyama-natos-projects.vercel.app'
+  'https://api.interviewbot.app'
 
 export interface AuthSessionResponse {
   sessionId: string

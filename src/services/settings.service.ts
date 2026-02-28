@@ -111,22 +111,6 @@ class SettingsService {
     return resetSettings
   }
 
-  /**
-   * 有効なAPIキーを取得（設定優先、なければ環境変数）
-   */
-  getEffectiveApiKey(keyType: 'deepgram' | 'openai'): string | null {
-    const settings = this.getSettings()
-
-    if (keyType === 'deepgram') {
-      return settings.deepgramApiKey || process.env.DEEPGRAM_API_KEY || null
-    }
-
-    if (keyType === 'openai') {
-      return settings.openaiApiKey || process.env.OPENAI_API_KEY || null
-    }
-
-    return null
-  }
 }
 
 export const settingsService = new SettingsService()

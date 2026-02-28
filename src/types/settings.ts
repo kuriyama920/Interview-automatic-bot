@@ -6,10 +6,6 @@
 export type AudioSource = 'mic' | 'system' | 'both'
 
 export interface AppSettings {
-  // API設定
-  deepgramApiKey: string
-  openaiApiKey: string
-
   // UI設定
   theme: 'dark' | 'light'
   autoGenerateAI: boolean
@@ -32,10 +28,6 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  // API設定（空文字 = 環境変数から取得）
-  deepgramApiKey: '',
-  openaiApiKey: '',
-
   // UI設定
   theme: 'dark',
   autoGenerateAI: true,

@@ -16,8 +16,8 @@ import type {
 
 const log = createLogger('auth-service')
 
-// API Base URL (Vercel)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api-kuriyama-natos-projects.vercel.app'
+// API Base URL (Cloudflare Workers)
+const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
 
 interface AuthStoreSchema {
   tokens: AuthTokens | null
@@ -134,7 +134,7 @@ class AuthService {
         throw new Error('セッションの作成に失敗しました')
       }
 
-      const { sessionId, authUrl } = await sessionResponse.json()
+      const { sessionId, authUrl } = await sessionResponse.json() as { sessionId: string; authUrl: string }
       log.info('Created auth session', { sessionId: sessionId.substring(0, 10) + '...' })
 
       // 2. ブラウザでOAuth認証を開始
@@ -185,7 +185,12 @@ class AuthService {
           { signal: this.pollingAbortController.signal }
         )
 
-        const data = await response.json()
+        const data = await response.json() as {
+          status: string
+          token?: string
+          user?: User
+          error?: string
+        }
 
         if (data.status === 'pending') {
           // まだ認証中、待機
@@ -195,7 +200,7 @@ class AuthService {
 
         if (data.status === 'completed') {
           log.info('Auth completed via polling')
-          return await this.processAuthToken(data.token, data.user)
+          return await this.processAuthToken(data.token!, data.user)
         }
 
         if (data.status === 'expired' || data.status === 'error') {
@@ -446,11 +451,11 @@ class AuthService {
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const errorData = await response.json().catch(() => ({})) as Record<string, string>
       throw new Error(errorData.error || 'ユーザー情報の取得に失敗しました')
     }
 
-    return response.json()
+    return response.json() as Promise<AuthMeResponse>
   }
 
   /**
