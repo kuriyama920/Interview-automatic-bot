@@ -63,19 +63,6 @@ interface DocumentInfo {
   chunkCount: number
 }
 
-interface AppSettings {
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  audioSource: AudioSource
-  aiModel: 'gpt-5-nano' | 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-  lastUpdated: number
-  version: string
-}
-
 type SubscriptionTier = 'free' | 'pro' | 'max'
 type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
 
@@ -95,27 +82,18 @@ interface User {
   interviewProfile: InterviewProfile | null
 }
 
-interface UserSettings {
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  aiModel: string
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-}
-
 interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   user: User | null
-  settings: UserSettings | null
   error: string | null
 }
 
 interface GenerateOptions {
   includeDocumentContext?: boolean
   maxTokens?: number
+  predictedAnswer?: string
+  cascading?: boolean
 }
 
 interface Window {
@@ -155,10 +133,12 @@ interface Window {
       ) => Promise<{ success: boolean; summary?: string; error?: string }>
       prefetchContext: () => Promise<{ success: boolean; context?: string; error?: string }>
       abort: () => Promise<void>
+      warm: () => Promise<{ success: boolean }>
       status: () => Promise<{ initialized: boolean }>
       onChunk: (callback: (chunk: string) => void) => void
       onComplete: (callback: (response: AIResponse) => void) => void
       onError: (callback: (error: string) => void) => void
+      onPhase: (callback: (phase: string) => void) => void
       removeListeners: () => void
     }
     document: {
@@ -170,13 +150,6 @@ interface Window {
       }>
       list: () => Promise<{ success: boolean; documents: DocumentInfo[] }>
       remove: (id: string) => Promise<{ success: boolean; error?: string }>
-    }
-    settings: {
-      get: () => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
-      save: (
-        settings: Partial<AppSettings>
-      ) => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
-      reset: () => Promise<{ success: boolean; settings?: AppSettings; error?: string }>
     }
     audio: {
       setSource: (source: AudioSource) => Promise<{ success: boolean; error?: string }>

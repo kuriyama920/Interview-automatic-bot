@@ -10,19 +10,17 @@ import type {
   AuthState,
   AuthTokens,
   User,
-  UserSettings,
   AuthMeResponse,
 } from '../types/auth'
 
 const log = createLogger('auth-service')
 
 // API Base URL (Cloudflare Workers)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
+const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
 
 interface AuthStoreSchema {
   tokens: AuthTokens | null
   user: User | null
-  settings: UserSettings | null
 }
 
 class AuthService {
@@ -53,7 +51,6 @@ class AuthService {
         defaults: {
           tokens: null,
           user: null,
-          settings: null,
         },
         encryptionKey,
       })
@@ -76,14 +73,12 @@ class AuthService {
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        settings: null,
         error: null,
       }
     }
 
     const tokens = this.store.get('tokens')
     const user = this.store.get('user')
-    const settings = this.store.get('settings')
 
     const isAuthenticated = !!tokens && !!user && !this.isTokenExpired(tokens)
 
@@ -91,7 +86,6 @@ class AuthService {
       isAuthenticated,
       isLoading: false,
       user: isAuthenticated ? user : null,
-      settings: isAuthenticated ? settings : null,
       error: null,
     }
   }
@@ -120,7 +114,6 @@ class AuthService {
       isAuthenticated: false,
       isLoading: true,
       user: null,
-      settings: null,
       error: null,
     })
 
@@ -131,7 +124,14 @@ class AuthService {
       })
 
       if (!sessionResponse.ok) {
-        throw new Error('セッションの作成に失敗しました')
+        const errorBody = await sessionResponse.text().catch(() => 'no body')
+        log.error('Session creation failed', {
+          status: sessionResponse.status,
+          body: errorBody,
+        })
+        throw new Error(
+          `セッションの作成に失敗しました (HTTP ${sessionResponse.status}: ${errorBody})`
+        )
       }
 
       const { sessionId, authUrl } = await sessionResponse.json() as { sessionId: string; authUrl: string }
@@ -153,7 +153,6 @@ class AuthService {
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        settings: null,
         error: errorMessage,
       }
       this.notifyListeners(state)
@@ -208,8 +207,7 @@ class AuthService {
             isAuthenticated: false,
             isLoading: false,
             user: null,
-            settings: null,
-            error: data.error || '認証がタイムアウトしました',
+                error: data.error || '認証がタイムアウトしました',
           }
           this.notifyListeners(state)
           return state
@@ -230,7 +228,6 @@ class AuthService {
       isAuthenticated: false,
       isLoading: false,
       user: null,
-      settings: null,
       error: '認証がタイムアウトしました。もう一度お試しください。',
     }
     this.notifyListeners(state)
@@ -258,33 +255,19 @@ class AuthService {
 
       // ユーザー情報を取得（セッションから取得できなかった場合）
       let user = userData
-      let settings: UserSettings | null = null
 
       if (!user) {
         const authData = await this.fetchUserInfo(token)
         user = authData.user
-        settings = authData.settings
-      } else {
-        // 設定を取得
-        try {
-          const authData = await this.fetchUserInfo(token)
-          settings = authData.settings
-        } catch {
-          // 設定取得失敗は無視
-        }
       }
 
-      // ユーザー情報と設定を保存
+      // ユーザー情報を保存
       this.store?.set('user', user)
-      if (settings) {
-        this.store?.set('settings', settings)
-      }
 
       const state: AuthState = {
         isAuthenticated: true,
         isLoading: false,
         user,
-        settings,
         error: null,
       }
 
@@ -306,7 +289,6 @@ class AuthService {
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        settings: null,
         error: String(error),
       }
       this.notifyListeners(state)
@@ -339,8 +321,7 @@ class AuthService {
           isAuthenticated: false,
           isLoading: false,
           user: null,
-          settings: null,
-          error: decodeURIComponent(error),
+            error: decodeURIComponent(error),
         }
         this.notifyListeners(state)
         return state
@@ -352,8 +333,7 @@ class AuthService {
           isAuthenticated: false,
           isLoading: false,
           user: null,
-          settings: null,
-          error: 'トークンが見つかりませんでした',
+            error: 'トークンが見つかりませんでした',
         }
         this.notifyListeners(state)
         return state
@@ -376,17 +356,13 @@ class AuthService {
       // ユーザー情報を取得
       const authData = await this.fetchUserInfo(token)
 
-      // ユーザー情報と設定を保存
+      // ユーザー情報を保存
       this.store?.set('user', authData.user)
-      if (authData.settings) {
-        this.store?.set('settings', authData.settings)
-      }
 
       const state: AuthState = {
         isAuthenticated: true,
         isLoading: false,
         user: authData.user,
-        settings: authData.settings,
         error: null,
       }
 
@@ -408,7 +384,6 @@ class AuthService {
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        settings: null,
         error: String(error),
       }
       this.notifyListeners(state)
@@ -483,15 +458,11 @@ class AuthService {
     try {
       const authData = await this.fetchUserInfo(tokens.accessToken)
       this.store.set('user', authData.user)
-      if (authData.settings) {
-        this.store.set('settings', authData.settings)
-      }
 
       return {
         isAuthenticated: true,
         isLoading: false,
         user: authData.user,
-        settings: authData.settings,
         error: null,
       }
     } catch (error) {
@@ -510,14 +481,12 @@ class AuthService {
     if (this.store) {
       this.store.delete('tokens')
       this.store.delete('user')
-      this.store.delete('settings')
     }
 
     const state: AuthState = {
       isAuthenticated: false,
       isLoading: false,
       user: null,
-      settings: null,
       error: null,
     }
 

@@ -49,20 +49,6 @@ vi.mock('../../src/services/ai.service', () => ({
   aiService: mockAIService,
 }))
 
-// Mock settingsService
-const mockSettingsService = vi.hoisted(() => ({
-  initialize: vi.fn(),
-  getSettings: vi.fn(() => ({})),
-  saveSettings: vi.fn((s: unknown) => s),
-  resetSettings: vi.fn(() => ({})),
-  getSetting: vi.fn(),
-  setSetting: vi.fn(),
-}))
-
-vi.mock('../../src/services/settings.service', () => ({
-  settingsService: mockSettingsService,
-}))
-
 // Mock authService
 const mockAuthService = vi.hoisted(() => ({
   addAuthStateListener: vi.fn(),

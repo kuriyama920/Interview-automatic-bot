@@ -8,13 +8,12 @@
 
 import { useState, useEffect, useCallback, useContext, createContext } from 'react'
 
-// AuthState, User, UserSettings はenv.d.tsでグローバル宣言済み
+// AuthState, User はenv.d.tsでグローバル宣言済み
 
 const DEFAULT_AUTH_STATE: AuthState = {
   isAuthenticated: false,
   isLoading: true,
   user: null,
-  settings: null,
   error: null,
 }
 
@@ -22,7 +21,6 @@ interface AuthContextValue {
   isAuthenticated: boolean
   isLoading: boolean
   user: User | null
-  settings: UserSettings | null
   error: string | null
   loginWithGoogle: () => Promise<void>
   logout: () => Promise<void>
@@ -129,7 +127,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: authState.isAuthenticated,
     isLoading: authState.isLoading,
     user: authState.user,
-    settings: authState.settings,
     error: authState.error,
     loginWithGoogle,
     logout,

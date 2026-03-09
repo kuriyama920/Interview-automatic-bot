@@ -64,19 +64,6 @@ export interface InterviewProfile {
 
 export type AudioSource = 'mic' | 'system' | 'both'
 
-export interface AppSettings {
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  audioSource: AudioSource
-  aiModel: 'gpt-5-nano' | 'gpt-5-mini' | 'gpt-5' | 'gpt-4o'
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-  lastUpdated: number
-  version: string
-}
-
 // 認証関連の型
 export type SubscriptionTier = 'free' | 'pro' | 'max'
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
@@ -97,21 +84,10 @@ export interface User {
   interviewProfile: InterviewProfile | null
 }
 
-export interface UserSettings {
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  aiModel: string
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-}
-
 export interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   user: User | null
-  settings: UserSettings | null
   error: string | null
 }
 
@@ -128,6 +104,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'ai:prefetchContext',
   'ai:abort',
   'ai:status',
+  'ai:warm',
   'context:init',
   'document:upload',
   'document:list',
@@ -137,9 +114,6 @@ const ALLOWED_INVOKE_CHANNELS = [
   'questions:save',
   'questions:delete',
   'questions:generate',
-  'settings:get',
-  'settings:save',
-  'settings:reset',
   // プロフィール関連
   'profile:get',
   'profile:save',
@@ -168,6 +142,7 @@ const ALLOWED_ON_CHANNELS = [
   'ai:chunk',
   'ai:complete',
   'ai:error',
+  'ai:phase',
   // 認証関連
   'auth:stateChanged',
 ] as const
@@ -227,13 +202,14 @@ const electronAPI = {
     init: (apiKey?: string) => ipcRenderer.invoke('ai:init', apiKey),
     generate: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
       ipcRenderer.invoke('ai:generate', question, context, options),
-    generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
+    generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number; predictedAnswer?: string }) =>
       ipcRenderer.invoke('ai:generateStream', question, context, options),
     summarize: (previousSummary: string, interviewer: string, candidate: string): Promise<{ success: boolean; summary?: string; error?: string }> =>
       ipcRenderer.invoke('ai:summarize', previousSummary, interviewer, candidate),
     prefetchContext: (): Promise<{ success: boolean; context?: string; error?: string }> =>
       ipcRenderer.invoke('ai:prefetchContext'),
     abort: () => ipcRenderer.invoke('ai:abort'),
+    warm: (): Promise<{ success: boolean }> => ipcRenderer.invoke('ai:warm'),
     status: () => ipcRenderer.invoke('ai:status'),
     onChunk: (callback: (chunk: string) => void) => {
       ipcRenderer.on('ai:chunk', (_event, chunk) => callback(chunk))
@@ -244,10 +220,14 @@ const electronAPI = {
     onError: (callback: (error: string) => void) => {
       ipcRenderer.on('ai:error', (_event, error) => callback(error))
     },
+    onPhase: (callback: (phase: string) => void) => {
+      ipcRenderer.on('ai:phase', (_event, phase) => callback(phase))
+    },
     removeListeners: () => {
       ipcRenderer.removeAllListeners('ai:chunk')
       ipcRenderer.removeAllListeners('ai:complete')
       ipcRenderer.removeAllListeners('ai:error')
+      ipcRenderer.removeAllListeners('ai:phase')
     },
   },
 
@@ -266,18 +246,6 @@ const electronAPI = {
       ipcRenderer.invoke('document:list'),
     remove: (id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('document:remove', id),
-  },
-
-  // Settings API
-  settings: {
-    get: (): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
-      ipcRenderer.invoke('settings:get'),
-    save: (
-      settings: Partial<AppSettings>
-    ): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
-      ipcRenderer.invoke('settings:save', settings),
-    reset: (): Promise<{ success: boolean; settings?: AppSettings; error?: string }> =>
-      ipcRenderer.invoke('settings:reset'),
   },
 
   // Audio API (Phase 6.5: システム音声キャプチャ)

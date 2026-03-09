@@ -4,13 +4,13 @@ import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse, type GenerateOptions } from '../services/ai.service'
 import { contextService } from '../services/context.service'
 import { questionsService } from '../services/questions.service'
-import { settingsService } from '../services/settings.service'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
 import type { DocumentType } from '../types/document'
 import type { QuestionInput } from '../types/question'
-import type { AppSettings, AudioSource } from '../types/settings'
 import type { InterviewProfile } from '../types/auth'
+
+type AudioSource = 'mic' | 'system' | 'both'
 
 const log = createLogger('IPC')
 
@@ -24,7 +24,7 @@ let currentAIAbortController: AbortController | null = null
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
 
-  const API_BASE_URL = process.env.API_BASE_URL || 'https://api.interviewbot.app'
+  const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
 
   // ウィンドウ操作
   ipcMain.handle('window:minimize', () => {
@@ -43,9 +43,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('window:isMaximized', () => {
     return mainWindow.isMaximized()
   })
-
-  // 設定サービスを初期化
-  settingsService.initialize()
 
   // ============================================
   // 認証関連のIPCハンドラー
@@ -111,77 +108,29 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   // ============================================
-  // 設定関連のIPCハンドラー
-  // ============================================
-
-  ipcMain.handle('settings:get', () => {
-    log.debug('settings:get called')
-    try {
-      const settings = settingsService.getSettings()
-      return { success: true, settings }
-    } catch (error) {
-      log.error('Failed to get settings', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
-
-  ipcMain.handle('settings:save', (_event: unknown, settings: Partial<AppSettings>) => {
-    log.info('settings:save called', { keys: Object.keys(settings) })
-    try {
-      const newSettings = settingsService.saveSettings(settings)
-      return { success: true, settings: newSettings }
-    } catch (error) {
-      log.error('Failed to save settings', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
-
-  ipcMain.handle('settings:reset', () => {
-    log.info('settings:reset called')
-    try {
-      const settings = settingsService.resetSettings()
-      return { success: true, settings }
-    } catch (error) {
-      log.error('Failed to reset settings', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
-
-  // ============================================
   // 音声キャプチャ関連のIPCハンドラー（Phase 6.5）
   // ============================================
 
   ipcMain.handle('audio:setSource', (_event: unknown, source: AudioSource) => {
     log.info('audio:setSource called', { source })
-    try {
-      if (!['mic', 'system', 'both'].includes(source)) {
-        return { success: false, error: `Invalid audio source: ${source}` }
-      }
-      settingsService.setSetting('audioSource', source)
-      return { success: true }
-    } catch (error) {
-      log.error('Failed to set audio source', { error: String(error) })
-      return { success: false, error: String(error) }
+    if (!['mic', 'system', 'both'].includes(source)) {
+      return { success: false, error: `Invalid audio source: ${source}` }
     }
+    currentAudioSource = source
+    return { success: true }
   })
 
   ipcMain.handle('audio:getSource', () => {
     log.debug('audio:getSource called')
-    try {
-      const source = settingsService.getSetting('audioSource') || 'system'
-      return { success: true, source }
-    } catch (error) {
-      log.error('Failed to get audio source', { error: String(error) })
-      return { success: false, error: String(error), source: 'system' }
-    }
+    return { success: true, source: currentAudioSource }
   })
 
   // 音声認識開始（プロキシ経由で一時トークン取得）
   ipcMain.handle('stt:start', async () => {
     log.info('stt:start called')
     try {
-      const audioSource = (settingsService.getSetting('audioSource') || 'system') as AudioSource
-      currentAudioSource = audioSource
+      audioChunkCount = 0
+      const audioSource = currentAudioSource
 
       const sources: ('mic' | 'system')[] =
         audioSource === 'both' ? ['mic', 'system'] : [audioSource as 'mic' | 'system']
@@ -393,6 +342,12 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         },
         signal,
         options,
+        undefined,
+        (phase: string) => {
+          if (!signal.aborted) {
+            mainWindow.webContents.send('ai:phase', phase)
+          }
+        },
       )
 
       if (!signal.aborted) {
@@ -422,7 +377,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
     const safePreviousSummary = typeof previousSummary === 'string' ? previousSummary : ''
     const MAX_IPC_TEXT_LENGTH = 10000
-    if (interviewer.length > MAX_IPC_TEXT_LENGTH || candidate.length > MAX_IPC_TEXT_LENGTH) {
+    if (interviewer.length > MAX_IPC_TEXT_LENGTH || candidate.length > MAX_IPC_TEXT_LENGTH || safePreviousSummary.length > MAX_IPC_TEXT_LENGTH) {
       return { success: false, error: `Input text exceeds maximum length of ${MAX_IPC_TEXT_LENGTH}` }
     }
 
@@ -456,6 +411,21 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('ai:status', () => {
     return { initialized: aiService.isInitialized() }
+  })
+
+  // OpenAI接続プリウォーム（セッション開始時にHTTP/2接続を事前確立）
+  ipcMain.handle('ai:warm', async () => {
+    log.debug('ai:warm called')
+    try {
+      if (!aiService.isInitialized()) {
+        aiService.initialize({ apiBaseUrl: API_BASE_URL })
+      }
+      await aiService.warmConnection()
+      return { success: true }
+    } catch (error) {
+      log.warn('AI warm-up failed (non-blocking)', { error: String(error) })
+      return { success: true }
+    }
   })
 
   // Context初期化
@@ -523,6 +493,9 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('document:remove', async (_event, documentId: string) => {
+    if (!documentId || typeof documentId !== 'string' || !/^[a-f0-9-]{36}$/.test(documentId)) {
+      return { success: false, error: 'Invalid document ID format' }
+    }
     log.info('document:remove called', { id: documentId })
     try {
       await contextService.removeDocument(documentId)
@@ -542,7 +515,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     try {
       const response = await authService.authenticatedFetch(`${API_BASE_URL}/api/subscription`)
       if (!response.ok) {
-        const errorData = await response.json() as Record<string, string>
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to fetch subscription' }
       }
       const data = await response.json() as Record<string, unknown>
@@ -568,7 +541,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         }
       )
       if (!response.ok) {
-        const errorData = await response.json() as Record<string, string>
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to create checkout session' }
       }
       const { url } = await response.json() as { url?: string }
@@ -594,7 +567,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         }
       )
       if (!response.ok) {
-        const errorData = await response.json() as Record<string, string>
+        const errorData = await response.json().catch(() => ({})) as Record<string, string>
         return { success: false, error: errorData.error || 'Failed to create portal session' }
       }
       const { url } = await response.json() as { url?: string }
@@ -639,9 +612,17 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  ipcMain.handle('profile:save', async (_event, profile: Record<string, unknown>) => {
+  ipcMain.handle('profile:save', async (_event, profile: unknown) => {
     log.info('profile:save called')
     try {
+      // 入力検証: オブジェクトであること、サイズ上限
+      if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+        return { success: false, error: 'Profile must be an object' }
+      }
+      const serialized = JSON.stringify(profile)
+      if (serialized.length > 50_000) {
+        return { success: false, error: 'Profile data too large' }
+      }
       const response = await authService.authenticatedFetch(
         `${API_BASE_URL}/api/auth/profile`,
         {
@@ -681,6 +662,17 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('questions:save', async (_event, questions: QuestionInput[]) => {
+    if (!Array.isArray(questions) || questions.length === 0 || questions.length > 200) {
+      return { success: false, error: 'Invalid questions: must be an array with 1-200 items' }
+    }
+    for (const q of questions) {
+      if (typeof q?.question !== 'string' || typeof q?.answer !== 'string') {
+        return { success: false, error: 'Each question must have string question and answer fields' }
+      }
+      if (q.question.length > 2000 || q.answer.length > 10000) {
+        return { success: false, error: 'Question or answer exceeds maximum length' }
+      }
+    }
     log.info('questions:save called', { count: questions.length })
     try {
       const saved = await questionsService.saveQuestions(questions)
@@ -692,6 +684,9 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('questions:delete', async (_event, questionId: string) => {
+    if (!questionId || typeof questionId !== 'string' || !/^[a-f0-9-]{36}$/.test(questionId)) {
+      return { success: false, error: 'Invalid question ID format' }
+    }
     log.info('questions:delete called', { id: questionId })
     try {
       await questionsService.deleteQuestion(questionId)

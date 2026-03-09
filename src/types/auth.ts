@@ -45,19 +45,6 @@ export interface UserUsage {
 }
 
 /**
- * ユーザー設定（クラウド同期）
- */
-export interface UserSettings {
-  theme: 'dark' | 'light'
-  autoGenerateAI: boolean
-  aiModel: string
-  aiTemperature: number
-  aiMaxTokens: number
-  contextMinSimilarity: number
-  contextTopK: number
-}
-
-/**
  * サブスクリプションティア
  */
 export type SubscriptionTier = 'free' | 'pro' | 'max'
@@ -74,7 +61,6 @@ export interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   user: User | null
-  settings: UserSettings | null
   error: string | null
 }
 
@@ -91,6 +77,5 @@ export interface AuthTokens {
  */
 export interface AuthMeResponse {
   user: User
-  settings: UserSettings | null
 }
 
