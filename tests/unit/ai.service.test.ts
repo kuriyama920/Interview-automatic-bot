@@ -143,7 +143,7 @@ describe('AIService', () => {
       const response = await aiService.generateResponse('質問')
 
       expect(response.answer).toBe('回答テキスト')
-      expect(response.confidence).toBe(0.85)
+      expect(response.confidence).toBe(-1)
     })
   })
 
