@@ -1,116 +1,201 @@
 # Stripe E2E Test Script
 # Phase 7: Stripe テストモードでの E2E 動作確認
+#
+# 使用法:
+#   .\scripts\e2e-stripe-test.ps1                          # 非認証テストのみ
+#   .\scripts\e2e-stripe-test.ps1 -JwtToken "eyJhbG..."   # 認証テスト含む
 
-$baseUrl = "https://api.interviewbot.app"
+param(
+    [string]$BaseUrl = "https://api.interviewbot.app",
+    [string]$JwtToken = ""
+)
 
-Write-Host "=== Stripe E2E Test ===" -ForegroundColor Cyan
-Write-Host ""
+$passed = 0
+$failed = 0
+$total = 0
 
-# 1. Health Check
-Write-Host "[1/5] Health Check" -ForegroundColor Yellow
-try {
-    $health = Invoke-RestMethod -Uri "$baseUrl/api/health" -Method Get
-    Write-Host "  Status: $($health.status)" -ForegroundColor Green
-    Write-Host "  Timestamp: $($health.timestamp)"
-    if ($health.env) {
-        Write-Host "  Env vars:"
-        $health.env.PSObject.Properties | ForEach-Object {
-            $color = if ($_.Value) { "Green" } else { "Red" }
-            Write-Host "    $($_.Name): $($_.Value)" -ForegroundColor $color
+function Test-Endpoint {
+    param(
+        [string]$Name,
+        [string]$Uri,
+        [string]$Method = "Get",
+        [string]$Body = "",
+        [hashtable]$Headers = @{},
+        [int]$ExpectedStatus,
+        [scriptblock]$BodyCheck = $null
+    )
+
+    $script:total++
+    Write-Host "  [$script:total] $Name" -NoNewline
+
+    try {
+        $params = @{
+            Uri = $Uri
+            Method = $Method
+            UseBasicParsing = $true
+            ErrorAction = "Stop"
+        }
+        if ($Body) {
+            $params.Body = $Body
+            $params.ContentType = "application/json"
+        }
+        if ($Headers.Count -gt 0) {
+            $params.Headers = $Headers
+        }
+
+        $response = Invoke-WebRequest @params
+        $statusCode = [int]$response.StatusCode
+    } catch {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+        try {
+            $stream = $_.Exception.Response.GetResponseStream()
+            $reader = New-Object System.IO.StreamReader($stream)
+            $responseBody = $reader.ReadToEnd()
+        } catch {
+            $responseBody = ""
         }
     }
-} catch {
-    Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
-}
 
-Write-Host ""
+    if (-not $responseBody -and $response) {
+        $responseBody = $response.Content
+    }
 
-# 2. Subscription (no auth - expect 401)
-Write-Host "[2/5] /api/subscription (no auth - expect 401)" -ForegroundColor Yellow
-try {
-    $sub = Invoke-WebRequest -Uri "$baseUrl/api/subscription" -Method Get -UseBasicParsing
-    Write-Host "  UNEXPECTED: Status $($sub.StatusCode)" -ForegroundColor Red
-    Write-Host "  Body: $($sub.Content)"
-} catch {
-    $statusCode = [int]$_.Exception.Response.StatusCode
-    Write-Host "  Status: $statusCode" -ForegroundColor $(if ($statusCode -eq 401) { "Green" } else { "Red" })
-    try {
-        $stream = $_.Exception.Response.GetResponseStream()
-        $reader = New-Object System.IO.StreamReader($stream)
-        $body = $reader.ReadToEnd()
-        Write-Host "  Body: $body"
-    } catch {
-        Write-Host "  (Could not read response body)"
+    if ($statusCode -eq $ExpectedStatus) {
+        $bodyOk = $true
+        if ($BodyCheck) {
+            $bodyOk = & $BodyCheck $responseBody
+        }
+        if ($bodyOk) {
+            Write-Host " -> PASS ($statusCode)" -ForegroundColor Green
+            $script:passed++
+        } else {
+            Write-Host " -> FAIL (body check failed)" -ForegroundColor Red
+            Write-Host "    Body: $responseBody" -ForegroundColor DarkGray
+            $script:failed++
+        }
+    } else {
+        Write-Host " -> FAIL (expected $ExpectedStatus, got $statusCode)" -ForegroundColor Red
+        if ($responseBody) {
+            Write-Host "    Body: $responseBody" -ForegroundColor DarkGray
+        }
+        $script:failed++
     }
 }
 
+# ==============================================================
+Write-Host ""
+Write-Host "=== Stripe E2E Tests ===" -ForegroundColor Cyan
+Write-Host "Base URL: $BaseUrl"
 Write-Host ""
 
-# 3. Stripe Checkout (no auth - expect 401)
-Write-Host "[3/5] /api/stripe/checkout (no auth - expect 401)" -ForegroundColor Yellow
-try {
-    $body = '{"priceId":"price_1SzYTIEFLs3ImTfQeP6B8cbR"}'
-    $checkout = Invoke-WebRequest -Uri "$baseUrl/api/stripe/checkout" -Method Post -Body $body -ContentType "application/json" -UseBasicParsing
-    Write-Host "  UNEXPECTED: Status $($checkout.StatusCode)" -ForegroundColor Red
-} catch {
-    $statusCode = [int]$_.Exception.Response.StatusCode
-    Write-Host "  Status: $statusCode" -ForegroundColor $(if ($statusCode -eq 401) { "Green" } else { "Red" })
-    try {
-        $stream = $_.Exception.Response.GetResponseStream()
-        $reader = New-Object System.IO.StreamReader($stream)
-        $body = $reader.ReadToEnd()
-        Write-Host "  Body: $body"
-    } catch {
-        Write-Host "  (Could not read response body)"
-    }
+# ==============================================================
+# Part 1: 非認証テスト (セキュリティ検証)
+# ==============================================================
+
+Write-Host "[Part 1] Security - Unauthenticated Access" -ForegroundColor Yellow
+Write-Host ""
+
+Test-Endpoint -Name "Health Check" `
+    -Uri "$BaseUrl/api/health" -Method "Get" `
+    -ExpectedStatus 200
+
+Test-Endpoint -Name "Subscription (no auth -> 401)" `
+    -Uri "$BaseUrl/api/subscription" -Method "Get" `
+    -ExpectedStatus 401
+
+Test-Endpoint -Name "Checkout (no auth -> 401)" `
+    -Uri "$BaseUrl/api/stripe/checkout" -Method "Post" `
+    -Body '{"priceId":"price_test"}' `
+    -ExpectedStatus 401
+
+Test-Endpoint -Name "Portal (no auth -> 401)" `
+    -Uri "$BaseUrl/api/stripe/portal" -Method "Post" `
+    -ExpectedStatus 401
+
+Test-Endpoint -Name "Webhook (no signature -> 400)" `
+    -Uri "$BaseUrl/api/stripe/webhook" -Method "Post" `
+    -Body '{"type":"test"}' `
+    -ExpectedStatus 400
+
+Test-Endpoint -Name "Webhook (invalid signature -> 400)" `
+    -Uri "$BaseUrl/api/stripe/webhook" -Method "Post" `
+    -Body '{"type":"checkout.session.completed","data":{"object":{}}}' `
+    -Headers @{ "stripe-signature" = "t=1234567890,v1=invalid_signature" } `
+    -ExpectedStatus 400
+
+Test-Endpoint -Name "Success page (public -> 200)" `
+    -Uri "$BaseUrl/api/stripe/success" -Method "Get" `
+    -ExpectedStatus 200 `
+    -BodyCheck { param($b) $b -match "<!DOCTYPE html>" -and $b -match "決済が完了しました" }
+
+Test-Endpoint -Name "Cancel page (public -> 200)" `
+    -Uri "$BaseUrl/api/stripe/cancel" -Method "Get" `
+    -ExpectedStatus 200 `
+    -BodyCheck { param($b) $b -match "<!DOCTYPE html>" -and $b -match "決済がキャンセルされました" }
+
+Write-Host ""
+
+# ==============================================================
+# Part 2: 認証テスト (JWT トークン必要)
+# ==============================================================
+
+if ($JwtToken) {
+    Write-Host "[Part 2] Authenticated Flow Tests" -ForegroundColor Yellow
+    Write-Host ""
+
+    $authHeaders = @{ "Authorization" = "Bearer $JwtToken" }
+
+    Test-Endpoint -Name "Subscription (with auth -> 200)" `
+        -Uri "$BaseUrl/api/subscription" -Method "Get" `
+        -Headers $authHeaders `
+        -ExpectedStatus 200 `
+        -BodyCheck { param($b)
+            $json = $b | ConvertFrom-Json
+            $null -ne $json.subscription -and $null -ne $json.usage -and $null -ne $json.plans
+        }
+
+    Test-Endpoint -Name "Checkout - missing priceId (-> 400)" `
+        -Uri "$BaseUrl/api/stripe/checkout" -Method "Post" `
+        -Body '{}' `
+        -Headers $authHeaders `
+        -ExpectedStatus 400
+
+    Test-Endpoint -Name "Checkout - invalid priceId (-> 400)" `
+        -Uri "$BaseUrl/api/stripe/checkout" -Method "Post" `
+        -Body '{"priceId":"price_nonexistent_xxx"}' `
+        -Headers $authHeaders `
+        -ExpectedStatus 400
+
+    Test-Endpoint -Name "Portal (with auth -> 200)" `
+        -Uri "$BaseUrl/api/stripe/portal" -Method "Post" `
+        -Headers $authHeaders `
+        -ExpectedStatus 200 `
+        -BodyCheck { param($b)
+            $json = $b | ConvertFrom-Json
+            $json.url -match "stripe\.com"
+        }
+
+    Write-Host ""
+} else {
+    Write-Host "[Part 2] Skipped - No JWT token provided" -ForegroundColor DarkGray
+    Write-Host "  Run with: .\scripts\e2e-stripe-test.ps1 -JwtToken `"eyJhbG...`"" -ForegroundColor DarkGray
+    Write-Host ""
 }
 
+# ==============================================================
+# Results
+# ==============================================================
+
+Write-Host "=== Results ===" -ForegroundColor Cyan
+Write-Host "  Total:  $total"
+Write-Host "  Passed: $passed" -ForegroundColor Green
+Write-Host "  Failed: $failed" -ForegroundColor $(if ($failed -gt 0) { "Red" } else { "Green" })
 Write-Host ""
 
-# 4. Stripe Portal (no auth - expect 401)
-Write-Host "[4/5] /api/stripe/portal (no auth - expect 401)" -ForegroundColor Yellow
-try {
-    $portal = Invoke-WebRequest -Uri "$baseUrl/api/stripe/portal" -Method Post -ContentType "application/json" -UseBasicParsing
-    Write-Host "  UNEXPECTED: Status $($portal.StatusCode)" -ForegroundColor Red
-} catch {
-    $statusCode = [int]$_.Exception.Response.StatusCode
-    Write-Host "  Status: $statusCode" -ForegroundColor $(if ($statusCode -eq 401) { "Green" } else { "Red" })
-    try {
-        $stream = $_.Exception.Response.GetResponseStream()
-        $reader = New-Object System.IO.StreamReader($stream)
-        $body = $reader.ReadToEnd()
-        Write-Host "  Body: $body"
-    } catch {
-        Write-Host "  (Could not read response body)"
-    }
+if ($failed -gt 0) {
+    Write-Host "SOME TESTS FAILED" -ForegroundColor Red
+    exit 1
+} else {
+    Write-Host "ALL TESTS PASSED" -ForegroundColor Green
+    exit 0
 }
-
-Write-Host ""
-
-# 5. Stripe Webhook (invalid signature - expect 400)
-Write-Host "[5/5] /api/stripe/webhook (invalid sig - expect 400)" -ForegroundColor Yellow
-try {
-    $webhookBody = '{"type":"checkout.session.completed","data":{"object":{}}}'
-    $headers = @{
-        "stripe-signature" = "t=1234567890,v1=invalid_signature"
-    }
-    $webhook = Invoke-WebRequest -Uri "$baseUrl/api/stripe/webhook" -Method Post -Body $webhookBody -ContentType "application/json" -Headers $headers -UseBasicParsing
-    Write-Host "  UNEXPECTED: Status $($webhook.StatusCode)" -ForegroundColor Red
-} catch {
-    $statusCode = [int]$_.Exception.Response.StatusCode
-    Write-Host "  Status: $statusCode" -ForegroundColor $(if ($statusCode -eq 400) { "Green" } else { "Red" })
-    try {
-        $stream = $_.Exception.Response.GetResponseStream()
-        $reader = New-Object System.IO.StreamReader($stream)
-        $body = $reader.ReadToEnd()
-        Write-Host "  Body: $body"
-    } catch {
-        Write-Host "  (Could not read response body)"
-    }
-}
-
-Write-Host ""
-Write-Host "=== Unauthenticated tests complete ===" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Next: Run authenticated tests with a valid JWT token." -ForegroundColor Yellow
-Write-Host "Provide a JWT token to test checkout flow, subscription data, and portal."
