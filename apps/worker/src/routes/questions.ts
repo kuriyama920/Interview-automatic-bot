@@ -523,7 +523,7 @@ app.post('/generate', async (c) => {
       },
       { role: 'user', content: prompt },
     ],
-    reasoning_effort: 'low' as const,
+    reasoning_effort: 'minimal' as const,
     response_format: {
       type: 'json_schema',
       json_schema: {

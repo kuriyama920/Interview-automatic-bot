@@ -17,7 +17,7 @@ Claude Codeがこのリポジトリで作業する際のガイダンス。
 | スタイル | Tailwind CSS 3.4 + DaisyUI 4.6 |
 | 音声認識 | Deepgram SDK 3.4 (WebSocket) |
 | 音声キャプチャ | Electron desktopCapturer + setDisplayMediaRequestHandler |
-| AI | OpenAI API 4.28 (GPT-5 Mini) |
+| AI | OpenAI API 4.28 (GPT-5 Nano, reasoning_effort: minimal) |
 | ローカル保存 | electron-store 8.1 (AES暗号化) |
 
 ### SaaSバックエンド（Cloudflare Workers）
@@ -35,9 +35,16 @@ Claude Codeがこのリポジトリで作業する際のガイダンス。
 pnpm dev              # 開発サーバー
 pnpm build            # プロダクションビルド
 pnpm build:win        # Windows用インストーラー
-pnpm test             # テスト実行
+pnpm test             # テスト実行（Electronアプリ）
 pnpm lint             # ESLint
 pnpm format           # Prettier
+
+# Worker テスト
+cd apps/worker && npx vitest run      # Workerユニットテスト
+
+# Stripe E2E テスト
+.\scripts\e2e-stripe-test.ps1                        # 非認証テストのみ
+.\scripts\e2e-stripe-test.ps1 -JwtToken "eyJhbG..."  # 認証テスト含む
 ```
 
 ## プロジェクト構造
@@ -49,19 +56,30 @@ src/
 │   └── ipc.ts            # IPC通信ハンドラー
 ├── preload/              # プリロードスクリプト
 ├── renderer/src/         # Reactアプリ
-│   ├── App.tsx           # メインコンポーネント
-│   ├── hooks/            # カスタムフック
-│   │   ├── useAuth.ts
-│   │   ├── useSTT.ts
-│   │   ├── useAudioCapture.ts
-│   │   ├── useAIResponse.ts
-│   │   └── useDocuments.ts
+│   ├── App.tsx           # ルートコンポーネント（ナビゲーション）
+│   ├── contexts/         # React Context
+│   │   ├── InterviewContext.tsx   # 面接セッション状態管理
+│   │   └── NavigationContext.tsx  # ページ遷移管理
+│   ├── hooks/            # カスタムフック（13個）
+│   │   ├── useAuth.tsx, useSTT.ts, useAudioCapture.ts
+│   │   ├── useAIResponse.ts, useProgressiveAI.ts
+│   │   ├── useDocuments.ts, useInterviewQuestions.ts
+│   │   ├── useConversationHistory.ts, useQuestionCache.ts
+│   │   ├── useSubscription.ts, useInterviewProfile.ts
+│   │   └── useDocumentContextCache.ts, useToast.tsx
 │   └── components/       # UIコンポーネント
+│       ├── dashboard/    # ダッシュボード（UsageCard等）
+│       ├── interview/    # 面接画面（AIResponsePanel等）
+│       ├── layout/       # レイアウト（AppShell, Sidebar等）
+│       ├── pages/        # ページ（6ページ）
+│       └── ui/           # 共通UI（PageHeader, icons等）
 ├── services/             # 共有サービス（メインプロセス）
 │   ├── auth.service.ts
 │   ├── stt.service.ts
 │   ├── ai.service.ts
-│   └── context.service.ts
+│   ├── context.service.ts
+│   ├── questions.service.ts
+│   └── logger.service.ts
 └── types/                # 型定義
 
 apps/worker/                # Cloudflare Workers API（Hono）
@@ -77,6 +95,16 @@ apps/worker/                # Cloudflare Workers API（Hono）
 │   │   ├── questions.ts    # 想定質問CRUD + AI生成
 │   │   └── subscription.ts # サブスクリプション管理
 │   ├── lib/                # 共有ユーティリティ
+│   │   ├── auth.ts         # JWT生成・検証・Google OAuth
+│   │   ├── usage.ts        # 使用量チェック・記録
+│   │   ├── subscription.ts # Stripe Customer管理・プラン解決
+│   │   ├── stripe.ts       # Stripeクライアント
+│   │   ├── openai.ts       # OpenAIクライアント
+│   │   ├── deepgram.ts     # Deepgramトークン生成
+│   │   ├── prompts.ts      # AIプロンプトテンプレート
+│   │   ├── profile.ts      # ユーザープロファイル
+│   │   ├── supabase.ts     # Supabaseクライアント
+│   │   └── validation.ts   # 入力バリデーション
 │   └── middleware/         # Auth + CORSミドルウェア
 └── tests/                  # Vitest テスト
 
