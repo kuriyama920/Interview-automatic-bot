@@ -14,11 +14,10 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('useProgressiveAI')
 
 const INTERIM_MIN_LENGTH = 3     // 最低3文字以上で生成開始（日本語は1文字=情報量大）
-const INTERIM_DEBOUNCE_MS = 700  // 再生成のデバウンス間隔
+const INTERIM_DEBOUNCE_MS = 300  // 再生成のデバウンス間隔（reasoning_effort:'minimal'でTTFT短縮のため積極的に）
 const FINAL_MIN_LENGTH = 3       // 確定テキストの最低文字数
-const SIMILARITY_THRESHOLD = 0.5 // 50%以上類似なら再生成スキップ
-const INTERIM_MAX_TOKENS = 800   // Interim用の短めトークン上限（案5）
-const FINAL_ACCUMULATE_MS = 1500 // 同一話者のfinal transcriptを蓄積する待機時間
+const INTERIM_MAX_TOKENS = 400   // Interim用の短めトークン上限（短い回答スタイルに合わせて削減）
+const FINAL_ACCUMULATE_MS = 350  // 同一話者のfinal transcriptを蓄積する待機時間（TTFT改善分を反映）
 
 /** キャッシュ済みドキュメント + 会話履歴を結合 */
 function buildContext(docContext: string | null, history: string): string | undefined {
@@ -49,7 +48,7 @@ export function useProgressiveAI({
   generateStreamResponse,
   abortGeneration,
 }: UseProgressiveAIOptions) {
-  const { findMatch, refreshCache, clearCache } = useQuestionCache()
+  const { findMatch, findPartialMatch, refreshCache, clearCache } = useQuestionCache()
   const [cachedMatch, setCachedMatch] = useState<QuestionMatch | null>(null)
   const cachedMatchRef = useRef<QuestionMatch | null>(null)
   const conversationHistoryRef = useRef<string>('')
@@ -71,72 +70,69 @@ export function useProgressiveAI({
 
   // Interim: 面接官発言で即座にマッチング→AI生成
   useEffect(() => {
-    if (!autoGenerateAI) {
-      log.debug('[Interim] autoGenerateAI is OFF')
-      return
-    }
-    if (!currentText || currentText.trim().length < INTERIM_MIN_LENGTH) return
-    // bothモードのみsource分離（mic=自分の声をスキップ）
-    if (currentSource === 'mic' && audioSource === 'both') return
+    const shouldProcess =
+      autoGenerateAI &&
+      currentText &&
+      currentText.trim().length >= INTERIM_MIN_LENGTH &&
+      !(currentSource === 'mic' && audioSource === 'both')
 
-    const trimmed = currentText.trim()
+    if (shouldProcess) {
+      const trimmed = currentText.trim()
 
-    // Layer 1: 想定質問キャッシュで即時マッチング
-    const match = findMatch(trimmed)
-    if (match) {
-      log.info('[Interim] Instant Q&A match found', {
-        query: trimmed.substring(0, 30),
-        matched: match.question.substring(0, 30),
-        similarity: match.similarity.toFixed(3),
-      })
-      abortGeneration()
-      updateCachedMatch(match)
-      lastGeneratedTextRef.current = trimmed
-      return
-    }
-
-    // マッチなし → キャッシュクリア（ref経由で依存ループを回避）
-    if (cachedMatchRef.current) {
-      updateCachedMatch(null)
-    }
-
-    // Layer 2: AI生成（初回は即座に、以降はデバウンスで）
-    if (!lastGeneratedTextRef.current) {
-      log.info('[Interim] Triggering AI generation (initial)', {
-        text: trimmed,
-        length: trimmed.length,
-        source: currentSource,
-      })
-      lastGeneratedTextRef.current = trimmed
-      generateStreamResponse(
-        trimmed,
-        buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
-        { includeDocumentContext: false, maxTokens: INTERIM_MAX_TOKENS },
-      )
-      return
-    }
-
-    // 2回目以降: テキストが50%以上長くなった場合、デバウンスで再生成
-    if (trimmed.length > lastGeneratedTextRef.current.length * 1.5) {
-      if (interimDebounceRef.current) clearTimeout(interimDebounceRef.current)
-      interimDebounceRef.current = setTimeout(() => {
-        // 最新のテキストを使用（stale closure回避）
-        const latestText = currentTextRef.current?.trim() || ''
-        if (latestText.length < INTERIM_MIN_LENGTH) return
-        log.info('[Interim] Triggering AI re-generation (text grew)', {
-          text: latestText,
-          length: latestText.length,
-          prevLength: lastGeneratedTextRef.current.length,
+      // Layer 1: 想定質問キャッシュで即時マッチング
+      const match = findMatch(trimmed)
+      if (match) {
+        log.info('[Interim] Instant Q&A match found', {
+          query: trimmed.substring(0, 30),
+          matched: match.question.substring(0, 30),
+          similarity: match.similarity.toFixed(3),
         })
-        lastGeneratedTextRef.current = latestText
-        generateStreamResponse(
-          latestText,
-          buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
-          { includeDocumentContext: false, maxTokens: INTERIM_MAX_TOKENS },
-        )
-      }, INTERIM_DEBOUNCE_MS)
+        abortGeneration()
+        updateCachedMatch(match)
+        lastGeneratedTextRef.current = trimmed
+      } else {
+        // マッチなし → キャッシュクリア（ref経由で依存ループを回避）
+        if (cachedMatchRef.current) {
+          updateCachedMatch(null)
+        }
+
+        // Layer 2: AI生成（初回は即座に、以降はデバウンスで）
+        if (!lastGeneratedTextRef.current) {
+          log.info('[Interim] Triggering AI generation (initial)', {
+            text: trimmed,
+            length: trimmed.length,
+            source: currentSource,
+          })
+          lastGeneratedTextRef.current = trimmed
+          generateStreamResponse(
+            trimmed,
+            buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
+            { includeDocumentContext: false, maxTokens: INTERIM_MAX_TOKENS },
+          )
+        } else if (trimmed.length > lastGeneratedTextRef.current.length * 1.5) {
+          // 2回目以降: テキストが50%以上長くなった場合、デバウンスで再生成
+          if (interimDebounceRef.current) clearTimeout(interimDebounceRef.current)
+          interimDebounceRef.current = setTimeout(() => {
+            // 最新のテキストを使用（stale closure回避）
+            const latestText = currentTextRef.current?.trim() || ''
+            if (latestText.length < INTERIM_MIN_LENGTH) return
+            log.info('[Interim] Triggering AI re-generation (text grew)', {
+              text: latestText,
+              length: latestText.length,
+              prevLength: lastGeneratedTextRef.current.length,
+            })
+            lastGeneratedTextRef.current = latestText
+            generateStreamResponse(
+              latestText,
+              buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
+              { includeDocumentContext: false, maxTokens: INTERIM_MAX_TOKENS },
+            )
+          }, INTERIM_DEBOUNCE_MS)
+        }
+      }
     }
 
+    // 常にクリーンアップを返す（早期リターンでもペンディング中のタイマーをクリア）
     return () => {
       if (interimDebounceRef.current) clearTimeout(interimDebounceRef.current)
     }
@@ -193,7 +189,10 @@ export function useProgressiveAI({
       updateCachedMatch(null)
     }
 
-    // 前回interim生成テキストと類似度を比較
+    // 前回interim生成テキストとの類似度をログ（スキップはしない）
+    // 以前は類似度60%以上でfinal再生成をスキップしていたが、
+    // interim生成が中断された場合に不完全な回答が残るバグがあったため、
+    // finalでは常に再生成する
     if (lastGen) {
       const shorter = lastGen.length <= finalTrimmed.length ? lastGen : finalTrimmed
       const longer = lastGen.length > finalTrimmed.length ? lastGen : finalTrimmed
@@ -202,30 +201,34 @@ export function useProgressiveAI({
         if (shorter[i] === longer[i]) matches++
       }
       const similarity = longer.length > 0 ? matches / longer.length : 0
-      log.debug('[Final] Similarity check', {
+      log.debug('[Final] Similarity check (always regenerate)', {
         lastGen,
         finalText: finalTrimmed,
         similarity: similarity.toFixed(2),
-        skip: similarity >= SIMILARITY_THRESHOLD,
       })
-      if (similarity >= SIMILARITY_THRESHOLD) {
-        return
-      }
     }
 
     // 大きく異なる場合、またはinterim生成がなかった場合にAI生成
+    // Layer 1.5: 部分マッチがあればPredicted Outputsで高速化
+    const partialMatch = findPartialMatch(finalTrimmed)
     log.info('[Final] Triggering AI generation', {
       text: finalTrimmed,
       length: finalTrimmed.length,
       hadInterimGen: !!lastGen,
+      hasPredictedAnswer: !!partialMatch,
+      partialMatchSimilarity: partialMatch?.similarity.toFixed(3),
     })
     const hasCachedDocs = !!cachedDocumentContextRef.current
     generateStreamResponse(
       finalTrimmed,
       buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
-      { includeDocumentContext: !hasCachedDocs },
+      {
+        includeDocumentContext: !hasCachedDocs,
+        ...(partialMatch && { predictedAnswer: partialMatch.answer }),
+        // cascading無効: interimが既に回答済み。2段階生成の300-500ms削減
+      },
     )
-  }, [audioSource, cachedDocumentContextRef, generateStreamResponse, findMatch, abortGeneration, updateCachedMatch])
+  }, [audioSource, cachedDocumentContextRef, generateStreamResponse, findMatch, findPartialMatch, abortGeneration, updateCachedMatch])
 
   // Final: 確定テキストを蓄積し、同一話者の連続フラグメントをまとめて処理
   // STTが1つの発話を複数のfinal transcriptに分割する場合に対応
