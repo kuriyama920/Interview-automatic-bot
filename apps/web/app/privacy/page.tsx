@@ -127,7 +127,7 @@ export default function PrivacyPage() {
                     <td className="py-2.5">ユーザー・使用量データ</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 pr-4"><a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">Vercel</a></td>
+                    <td className="py-2.5 pr-4"><a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">Cloudflare</a></td>
                     <td className="py-2.5 pr-4">ホスティング</td>
                     <td className="py-2.5">アクセスログ、IP</td>
                   </tr>

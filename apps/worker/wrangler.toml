@@ -3,7 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-12-01"
 compatibility_flags = ["nodejs_compat"]
 
-# カスタムドメインはダッシュボードから設定
+workers_dev = true
+
+[placement]
+mode = "smart"
+
+# カスタムドメイン: ネームサーバー変更後に有効化
+# Cloudflareネームサーバー: hassan.ns.cloudflare.com, josephine.ns.cloudflare.com
+# 現在: ns1.vercel-dns.com → 要切替
 # routes = [
 #   { pattern = "api.interviewbot.app", custom_domain = true }
 # ]

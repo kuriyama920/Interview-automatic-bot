@@ -33,8 +33,8 @@ export interface CheckoutResponse {
 // プランID → Stripe Price ID マッピング
 // subscription_plans テーブルの値と一致させる
 const PLAN_PRICE_MAP: Record<string, string> = {
-  pro: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID || 'price_1SzYTIEFLs3ImTfQeP6B8cbR',
-  max: process.env.NEXT_PUBLIC_STRIPE_MAX_PRICE_ID || 'price_1SzYTIEFLs3ImTfQyysjYrWQ',
+  pro: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID || 'price_1T5jdGJYscx9GZNhlwROF46u',
+  max: process.env.NEXT_PUBLIC_STRIPE_MAX_PRICE_ID || 'price_1T5jcKJYscx9GZNhz5epevXW',
 }
 
 export function getPriceIdForPlan(planId: string): string | null {

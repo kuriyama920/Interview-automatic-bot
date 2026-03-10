@@ -5,15 +5,13 @@
       "Bash(pnpm dev:*)",
       "Bash(npx vitest:*)",
       "Bash(npx electron-vite build:*)",
-      "Bash(npx vercel logs:*)",
       "Bash(git add:*)",
       "mcp__supabase__execute_sql",
-      "mcp__vercel__get_runtime_logs"
+      "Bash(git worktree add:*)"
     ]
   },
   "enabledMcpjsonServers": [
     "supabase",
-    "stripe",
-    "vercel"
+    "stripe"
   ]
 }
