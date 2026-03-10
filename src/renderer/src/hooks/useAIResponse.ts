@@ -14,6 +14,7 @@ interface UseAIResponseReturn {
   streamingText: string
   isGenerating: boolean
   error: string | null
+  currentPhase: string | null
   generateResponse: (question: string, context?: string, options?: GenerateOptions) => Promise<void>
   generateStreamResponse: (question: string, context?: string, options?: GenerateOptions) => Promise<void>
   abortGeneration: () => void
@@ -25,6 +26,7 @@ export function useAIResponse(): UseAIResponseReturn {
   const [streamingText, setStreamingText] = useState<string>('')
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [currentPhase, setCurrentPhase] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const listenerSetup = useRef(false)
   const generationIdRef = useRef(0)
@@ -39,6 +41,8 @@ export function useAIResponse(): UseAIResponseReturn {
       window.electron.ai.onChunk((chunk: string) => {
         if (!mountedRef.current) return
         // 新世代の最初のチャンク: 前の回答を置き換え（チラつき防止）
+        // 注: リスナーは1回のみ登録されるため、世代チェックはgenerateStreamResponseの
+        // IPC返り値側（line 168）で実施。ここではpendingClearRefで制御。
         if (pendingClearRef.current) {
           pendingClearRef.current = false
           log.debug('First chunk received (replacing)', { chunkLength: chunk.length })
@@ -56,6 +60,16 @@ export function useAIResponse(): UseAIResponseReturn {
           answerLength: aiResponse.answer.length,
           answerPreview: aiResponse.answer.substring(0, 80),
         })
+      })
+
+      window.electron.ai.onPhase((phase: string) => {
+        if (!mountedRef.current) return
+        log.info('Phase change received', { phase })
+        setCurrentPhase(phase)
+        // detailed フェーズ移行時: streamingTextをリセット（Phase 2の内容で置き換え）
+        if (phase === 'detailed') {
+          pendingClearRef.current = true
+        }
       })
 
       window.electron.ai.onError((errorMessage: string) => {
@@ -111,6 +125,8 @@ export function useAIResponse(): UseAIResponseReturn {
     window.electron.ai.abort()
     setIsGenerating(false)
     setStreamingText('')
+    setCurrentPhase(null)
+    pendingClearRef.current = false
     log.info('AI generation aborted by user')
   }, [])
 
@@ -124,6 +140,7 @@ export function useAIResponse(): UseAIResponseReturn {
     setIsGenerating(true)
     setError(null)
     setResponse(null)
+    setCurrentPhase(null)
     // streamingTextはクリアせず、新チャンク到着時に置き換え（チラつき防止）
     pendingClearRef.current = true
     log.info('generateStreamResponse called', {
@@ -174,6 +191,7 @@ export function useAIResponse(): UseAIResponseReturn {
     setResponse(null)
     setStreamingText('')
     setError(null)
+    setCurrentPhase(null)
   }, [])
 
   return {
@@ -181,6 +199,7 @@ export function useAIResponse(): UseAIResponseReturn {
     streamingText,
     isGenerating,
     error,
+    currentPhase,
     generateResponse,
     generateStreamResponse,
     abortGeneration,

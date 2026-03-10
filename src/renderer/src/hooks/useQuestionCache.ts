@@ -23,6 +23,7 @@ export interface QuestionMatch {
 }
 
 const MATCH_THRESHOLD = 0.65
+const PARTIAL_MATCH_THRESHOLD = 0.4
 const MIN_QUERY_LENGTH = 6
 
 /** テキストからビグラムセットを生成（日本語対応） */
@@ -110,6 +111,40 @@ export function useQuestionCache() {
     return bestMatch
   }, [])
 
+  /** 部分マッチ: 完全マッチ未満だが類似度0.4以上の場合にPredicted Outputs用として返す */
+  const findPartialMatch = useCallback((query: string): QuestionMatch | null => {
+    if (!loadedRef.current || cacheRef.current.length === 0) return null
+
+    const trimmed = query.replace(/[\s、。？！「」（）\u3000]/g, '')
+    if (trimmed.length < MIN_QUERY_LENGTH) return null
+
+    const queryBigrams = computeBigrams(query)
+    let bestMatch: QuestionMatch | null = null
+    let bestSimilarity = 0
+
+    for (const item of cacheRef.current) {
+      const similarity = bigramSimilarity(queryBigrams, item.bigrams)
+      if (similarity > bestSimilarity && similarity >= PARTIAL_MATCH_THRESHOLD && similarity < MATCH_THRESHOLD) {
+        bestSimilarity = similarity
+        bestMatch = {
+          question: item.question,
+          answer: item.answer,
+          similarity,
+        }
+      }
+    }
+
+    if (bestMatch) {
+      log.debug('Partial question match found (for Predicted Outputs)', {
+        query: query.substring(0, 30),
+        matched: bestMatch.question.substring(0, 30),
+        similarity: bestMatch.similarity.toFixed(3),
+      })
+    }
+
+    return bestMatch
+  }, [])
+
   /** キャッシュをクリア（ログアウト時等） */
   const clearCache = useCallback(() => {
     cacheRef.current = []
@@ -117,5 +152,5 @@ export function useQuestionCache() {
     log.info('Question cache cleared')
   }, [])
 
-  return { findMatch, refreshCache: loadCache, clearCache }
+  return { findMatch, findPartialMatch, refreshCache: loadCache, clearCache }
 }
