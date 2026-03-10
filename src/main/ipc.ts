@@ -318,6 +318,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
   // AIストリーム回答生成（サーバー側でプロフィール注入 + RAGコンテキスト取得）
   ipcMain.handle('ai:generateStream', async (_event, question: string, explicitContext?: string, options?: GenerateOptions) => {
+    const ipcStartTime = Date.now()
     log.info('ai:generateStream called', { questionLength: question.length })
 
     if (currentAIAbortController) {
@@ -342,7 +343,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         },
         signal,
         options,
-        undefined,
         (phase: string) => {
           if (!signal.aborted) {
             mainWindow.webContents.send('ai:phase', phase)
@@ -350,10 +350,12 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         },
       )
 
+      const totalMs = Date.now() - ipcStartTime
       if (!signal.aborted) {
         log.info('Sending ai:complete to renderer', {
           answerLength: response.answer.length,
           suggestions: response.suggestions.length,
+          totalMs,
         })
         mainWindow.webContents.send('ai:complete', response)
       }

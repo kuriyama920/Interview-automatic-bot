@@ -14,7 +14,7 @@
     "url": "https://github.com/yourusername/interview-automatic-bot.git"
   },
   "scripts": {
-    "dev": "chcp 65001 >nul & electron-vite dev",
+    "dev": "chcp 65001 >nul & set NODE_OPTIONS=--max-old-space-size=4096&& electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:win": "npm run build && electron-builder --win --x64",
