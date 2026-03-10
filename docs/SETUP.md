@@ -84,9 +84,7 @@ pnpm install
 |---------|-----------|------|
 | 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
 | AI | openai | GPT-5 Mini回答生成、Embeddings |
-| PDF解析 | pdf-parse | 履歴書PDFテキスト抽出 |
-| DOCX解析 | mammoth | Word文書テキスト抽出 |
-| テキスト分割 | langchain | RecursiveCharacterTextSplitter |
+| ローカル保存 | electron-store | AES暗号化設定保存 |
 | ログ | winston | 構造化ログ出力 |
 | UI | tailwindcss, daisyui | スタイリング |
 
@@ -100,44 +98,24 @@ pnpm install
 cp .env.example .env
 ```
 
-### 3.2 APIキー取得
-
-#### Deepgram API
-
-1. https://console.deepgram.com/ にアクセス
-2. アカウント作成（GitHubアカウントで連携可能）
-3. 無料クレジット$200を自動取得
-4. 左メニュー「API Keys」→「Create a New API Key」
-5. キーをコピー
-
-**料金**: $0.0043/分（無料枠で約46,000分）
-
-#### OpenAI API
-
-1. https://platform.openai.com/ にアクセス
-2. アカウント作成
-3. 「Billing」→支払い方法登録（最低$5チャージ）
-4. 「API Keys」→「Create new secret key」
-5. キーをコピー（一度しか表示されないので注意！）
-
-**料金（GPT-5 Mini）**:
-- 入力: $0.25/1M tokens
-- 出力: $2.00/1M tokens
-
-### 3.3 .envファイル編集
+### 3.2 .envファイル編集
 
 `.env`ファイルを開いて以下のように編集:
 
 ```env
-# Deepgram API
-DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# SaaS接続（プロキシモード: APIキー不要）
+API_BASE_URL=https://api.interviewbot.app
 
-# OpenAI API
-OPENAI_API_KEY=your_openai_api_key_here
+# カスタムキー使用時のみ（オプション）
+# DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# OPENAI_API_KEY=your_openai_api_key_here
 
 # ログレベル（オプション）
 LOG_LEVEL=info
 ```
+
+プロキシモード（デフォルト）では、API_BASE_URLのみでSTTとAIが利用可能です。
+Google OAuthでログイン後、Freeプランの範囲内で無料で使用できます。
 
 ⚠️ **重要**: `.env`ファイルは絶対にGitにコミットしないでください！
 
@@ -199,7 +177,7 @@ pnpm build:win
 pnpm build:portable
 ```
 
-生成物は`dist-electron/`フォルダに保存されます。
+生成物は`dist/`フォルダに保存されます。
 
 ---
 
@@ -266,17 +244,14 @@ pnpm install
 - 「実行」を選択
 - または、コード署名証明書を取得（有料）
 
-### 問題5: APIキーエラー
+### 問題5: ログインできない
 
-**症状**:
-```
-Error: Unauthorized (401)
-```
+**症状**: Google OAuthログイン後にアプリに戻らない
 
 **解決策**:
-1. `.env`ファイルが正しい場所にあるか確認
-2. APIキーが正しくコピーされているか確認
-3. 余分なスペースや改行がないか確認
+1. インターネット接続を確認
+2. `API_BASE_URL`が正しく設定されているか確認
+3. ファイアウォールがElectronの通信をブロックしていないか確認
 
 ### 問題6: WSL2で画面が表示されない
 
@@ -309,4 +284,4 @@ Error: Unauthorized (401)
 
 ---
 
-**最終更新**: 2026-02-11
+**最終更新**: 2026-03-04

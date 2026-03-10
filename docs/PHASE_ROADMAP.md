@@ -131,7 +131,7 @@ export type AudioSource = 'mic' | 'system' | 'both'
 
 ---
 
-## Phase 7: Stripe決済 + サブスクリプション管理 ✅ 実装済み
+## Phase 7: Stripe決済 + サブスクリプション管理 ✅ 完了
 
 ### 目的
 Stripe Checkoutで決済を行い、Googleアカウントに紐づけてサブスクリプション管理
@@ -188,7 +188,7 @@ CRON_SECRET=your-cron-secret
 - [x] Electron IPC + プラン管理 UI
 - [x] 月次リセット Cron 設定
 - [x] Stripe ダッシュボードで商品作成 + Price ID 設定
-- [ ] Stripe テストモードでの E2E 動作確認
+- [x] Stripe テストモードでの E2E 動作確認
 
 ---
 

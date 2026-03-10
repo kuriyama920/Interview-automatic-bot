@@ -49,7 +49,6 @@ Interview Automatic Botの技術アーキテクチャとシステム設計の詳
 │  │       │  │      Services Layer           │              │   │
 │  │       │  │  ・STT Service (Deepgram)     │              │   │
 │  │       │  │  ・AI Service (OpenAI)        │              │   │
-│  │       │  │  ・Document Service (Parse)   │              │   │
 │  │       │  │  ・Context Service (RAG)      │              │   │
 │  │       │  │  ・Logger Service (Winston)   │              │   │
 │  │       │  └───────────┬───────────────────┘              │   │
@@ -216,7 +215,7 @@ src/
 | 技術 | バージョン | 用途 |
 |------|----------|------|
 | **Electron** | 28.3.3 | デスクトップアプリフレームワーク |
-| **Node.js** | 18.x LTS | ランタイム |
+| **Node.js** | 22.x LTS | ランタイム |
 | **TypeScript** | 5.3.0 | 型安全な開発 |
 
 ### サービス層（Electron）
@@ -225,9 +224,6 @@ src/
 |---------|-----------|------|
 | **音声認識** | @deepgram/sdk 3.4.0 | リアルタイムSTT |
 | **AI** | openai 4.28.0 | GPT-5 Mini回答生成、Embeddings |
-| **PDF解析** | pdf-parse 1.1.1 | 履歴書テキスト抽出 |
-| **DOCX解析** | mammoth 1.6.0 | Word文書解析 |
-| **テキスト分割** | langchain 0.1.0 | RecursiveCharacterTextSplitter |
 | **ローカル保存** | electron-store 8.1.0 | 暗号化設定保存 |
 | **ログ** | winston 3.11.0 | 構造化ログ出力 |
 
@@ -350,55 +346,32 @@ src/
    [AI回答表示]
 ```
 
-### 3. ドキュメント処理フロー（RAG）
+### 3. ドキュメント処理フロー（クラウドRAG）
 
 ```
 ┌──────────────────┐
 │ PDF/DOCX ファイル │ ユーザーアップロード
 └──────┬───────────┘
-       │ ①ファイル選択
+       │ ①ファイル選択 + Base64エンコード
        ▼
 ┌──────────────────┐
-│ IPC: document:upload │
-│ (type: 'resume' | 'job_posting') │
+│ IPC: document:upload │ Main Process
 └──────┬───────────┘
-       │ ②Main Processへ
+       │ ②Workers APIへ送信
        ▼
 ┌──────────────────┐
-│ dialog.showOpenDialog │ ファイル選択ダイアログ
+│ POST /api/documents │ Cloudflare Workers
+│ (parse + chunk)  │
 └──────┬───────────┘
-       │ ③ファイルパス取得
-       ▼
-┌──────────────────┐
-│ ファイルサイズチェック │ MAX: 10MB
-└──────┬───────────┘
-       │ ④バリデーション
-       ▼
-┌──────────────────┐
-│ DocumentService  │ src/services/document.service.ts
-│ .parseFile()     │
-└──────┬───────────┘
-       │ ⑤テキスト抽出（pdf-parse/mammoth）
-       ▼
-┌──────────────────┐
-│ DocumentService  │
-│ .chunkText()     │
-└──────┬───────────┘
-       │ ⑥チャンク化（500文字、50オーバーラップ）
-       ▼
-┌──────────────────┐
-│ ContextService   │ src/services/context.service.ts
-│ .addDocument()   │
-└──────┬───────────┘
-       │ ⑦Embeddings生成（バッチ: 20）
+       │ ③サーバー側でテキスト抽出・チャンク化
        ▼
 ┌──────────────────┐
 │ OpenAI Embeddings │ text-embedding-3-small
 └──────┬───────────┘
-       │ ⑧ベクトル生成
+       │ ④ベクトル生成
        ▼
 ┌──────────────────┐
-│ context-data.json │ userData領域に永続化
+│ Supabase pgvector │ document_chunks テーブル
 └──────────────────┘
 ```
 
@@ -537,20 +510,37 @@ Main Process (Node.js)
 │   │
 │   ├── AI生成
 │   │   ├── handle('ai:init')
-│   │   └── handle('ai:generateStream')
+│   │   ├── handle('ai:generateStream')
+│   │   ├── handle('ai:summarize')
+│   │   ├── handle('ai:warm')
+│   │   └── handle('ai:abort')
 │   │
-│   └── ドキュメント
-│       ├── handle('context:init')
-│       ├── handle('document:upload')
-│       ├── handle('document:list')
-│       └── handle('document:remove')
+│   ├── ドキュメント
+│   │   ├── handle('document:list')
+│   │   ├── handle('document:upload')
+│   │   └── handle('document:remove')
+│   │
+│   ├── 想定質問
+│   │   ├── handle('questions:list')
+│   │   ├── handle('questions:save')
+│   │   ├── handle('questions:delete')
+│   │   └── handle('questions:generate')
+│   │
+│   ├── プロフィール
+│   │   ├── handle('profile:get')
+│   │   └── handle('profile:save')
+│   │
+│   └── サブスクリプション
+│       ├── handle('subscription:status')
+│       ├── handle('subscription:manage')
+│       └── handle('subscription:refresh')
 │
 └── src/services/            サービス層
     ├── auth.service.ts      Google OAuth + JWT管理
     ├── stt.service.ts       Deepgram WebSocket管理
-    ├── ai.service.ts        OpenAI Chat/Embeddings
-    ├── document.service.ts  PDF/DOCX解析
+    ├── ai.service.ts        OpenAI SSEストリーミング（プロキシ経由）
     ├── context.service.ts   RAGコンテキスト管理
+    ├── questions.service.ts 想定質問キャッシュ管理
     ├── settings.service.ts  ローカル設定管理
     └── logger.service.ts    Winston ロガー
 
@@ -570,16 +560,20 @@ Renderer Process (React)
     ├── main.tsx             Reactエントリーポイント
     ├── env.d.ts             Window.electron型定義
     ├── hooks/               カスタムフック
-    │   ├── useAuth.ts       認証状態管理
-    │   ├── useSTT.ts        STT接続・文字起こし管理
-    │   ├── useAudioCapture.ts  AudioContext管理
-    │   ├── useAIResponse.ts    AI回答生成管理
-    │   ├── useDocuments.ts     ドキュメント管理
-    │   └── useSettings.ts      設定管理
+    │   ├── useAuth.ts              認証状態管理
+    │   ├── useSTT.ts               STT接続・文字起こし管理
+    │   ├── useAudioCapture.ts      AudioContext管理
+    │   ├── useAIResponse.ts        AI回答生成管理
+    │   ├── useProgressiveAI.ts     段階的AI生成（キャッシュ＋自動生成）
+    │   ├── useConversationHistory.ts 会話履歴トラッキング
+    │   ├── useDocumentContextCache.ts ドキュメントコンテキストキャッシュ
+    │   ├── useDocuments.ts         ドキュメント管理
+    │   ├── useSettings.ts          設定管理
+    │   └── useSubscription.ts      サブスクリプション状態
+    ├── contexts/            コンテキスト
+    │   ├── InterviewContext.tsx  面接セッション全状態管理
+    │   └── NavigationContext.tsx ナビゲーション状態
     └── components/          UIコンポーネント
-        ├── LoginPage.tsx        ログインUI
-        ├── DocumentUploadPanel.tsx
-        └── ErrorBoundary.tsx
 ```
 
 ### React コンポーネント階層
@@ -588,7 +582,7 @@ Renderer Process (React)
 App
 ├── ヘッダー
 │   ├── タイトル "Interview Bot"
-│   └── フェーズバッジ (Phase 1-3)
+│   └── ナビゲーションメニュー
 │
 ├── コントロールパネル
 │   ├── 接続状態バッジ
@@ -942,4 +936,4 @@ log.debug('Context retrieved', { resultCount: groupedResults.size })
 
 ---
 
-**最終更新**: 2026-02-06
+**最終更新**: 2026-03-04

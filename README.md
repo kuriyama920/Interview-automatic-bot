@@ -20,9 +20,10 @@
 | Phase 1-4 | 音声認識・AI回答・コンテキスト・UI | ✅ 完了 |
 | Phase 5 | SaaS基盤（Google OAuth + Supabase） | ✅ 完了 |
 | Phase 6 | クラウドRAG（pgvector） | ✅ 完了 |
-| **Phase 6.5** | **システム音声キャプチャ（Zoom/Teams対応）** | 🔜 **次** |
-| Phase 7 | Stripe決済 + Webダッシュボード | ⏳ 予定 |
-| Phase 8 | APIプロキシ（ユーザーAPIキー不要化） | ⏳ 予定 |
+| Phase 6.5 | システム音声キャプチャ（Zoom/Teams対応） | ✅ 完了 |
+| Phase 7 | Stripe決済 + サブスクリプション管理 | ✅ 完了 |
+| Phase 8 | APIプロキシ（ユーザーAPIキー不要化） | ✅ 完了 |
+| - | Cloudflare Workers移行（Vercel → Cloudflare） | ✅ 完了 |
 
 ### なぜデスクトップアプリが必要か？
 
@@ -55,9 +56,7 @@ Webブラウザでは以下の機能が**技術的に不可能**です：
 |------|-----------|------|
 | 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
 | AI | openai | GPT-5 Mini回答生成、Embeddings |
-| PDF解析 | pdf-parse | 履歴書PDFテキスト抽出 |
-| DOCX解析 | mammoth | Word文書テキスト抽出 |
-| テキスト分割 | langchain | RecursiveCharacterTextSplitter |
+| ローカル保存 | electron-store | AES暗号化設定保存 |
 | ログ | winston | 構造化ログ出力 |
 
 ### 開発ツール
@@ -84,15 +83,22 @@ interview-automatic-bot/
 ├── src/
 │   ├── main/                    # Electronメインプロセス
 │   ├── preload/                 # プリロードスクリプト
-│   ├── renderer/                # React UI
-│   ├── services/                # ビジネスロジック（STT, AI, Auth等）
+│   ├── renderer/src/            # React UI
+│   │   ├── components/          # UIコンポーネント（5サブディレクトリ）
+│   │   ├── contexts/            # React Context（Interview, Navigation）
+│   │   └── hooks/               # カスタムフック（13個）
+│   ├── services/                # ビジネスロジック（6サービス）
 │   └── types/                   # 型定義
 │
-├── apps/worker/                 # Cloudflare Workers API（SaaS）
-│   ├── src/routes/auth/         # Google OAuth
-│   └── src/routes/documents/    # ドキュメントCRUD + ベクトル検索
+├── apps/
+│   ├── worker/                  # Cloudflare Workers API（Hono）
+│   │   ├── src/routes/          # APIルート（7ファイル）
+│   │   ├── src/lib/             # 共有ユーティリティ（15ファイル）
+│   │   └── tests/               # Workerユニットテスト
+│   └── web/                     # ランディングページ（Next.js）
 │
-├── tests/                       # テストコード
+├── tests/                       # E2Eテスト
+├── scripts/                     # ユーティリティスクリプト
 │
 └── docs/
     ├── SETUP.md                 # セットアップ手順
@@ -106,7 +112,7 @@ interview-automatic-bot/
 
 ### 前提条件
 
-- **Node.js**: v18.x LTS以上
+- **Node.js**: v22.x LTS以上
 - **pnpm**: 最新版（推奨）
 - **Git**: 最新版
 - **Windows 10/11**: 64bit（本番利用時）
@@ -135,11 +141,12 @@ cp .env.example .env
 `.env`に以下を記載：
 
 ```env
-# Deepgram API (https://console.deepgram.com/)
-DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# SaaS接続（プロキシモード: APIキー不要）
+API_BASE_URL=https://api.interviewbot.app
 
-# OpenAI API (https://platform.openai.com/api-keys)
-OPENAI_API_KEY=your_openai_api_key_here
+# カスタムキー使用時のみ（オプション）
+# DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ### 4. 開発サーバー起動
@@ -156,7 +163,7 @@ Electronアプリが起動します。
 pnpm build:win
 ```
 
-`dist-electron/`フォルダに実行ファイルが生成されます。
+`dist/`フォルダに実行ファイルが生成されます。
 
 ---
 
@@ -164,8 +171,9 @@ pnpm build:win
 
 ### 1. 初期設定
 
-1. `.env`ファイルにAPIキーを設定
+1. `.env`ファイルにAPI_BASE_URLを設定（プロキシモード）
 2. `pnpm dev`でアプリを起動
+3. Google OAuthでログイン
 
 ### 2. ドキュメントアップロード（オプション）
 
@@ -202,11 +210,19 @@ pnpm build            # プロダクションビルド
 pnpm build:win        # Windows用インストーラー作成
 pnpm build:portable   # ポータブル版作成
 
-# テスト
+# テスト（Electronアプリ）
 pnpm test             # テスト実行（watchモード）
 pnpm test --run       # テスト実行（1回）
 pnpm test:ui          # テストUI表示
 pnpm test:coverage    # カバレッジレポート
+
+# テスト（Cloudflare Workers）
+cd apps/worker && npx vitest run              # ユニットテスト
+cd apps/worker && npx vitest run --coverage   # カバレッジ付き
+
+# Stripe E2Eテスト
+.\scripts\e2e-stripe-test.ps1                        # 非認証テスト
+.\scripts\e2e-stripe-test.ps1 -JwtToken "eyJhbG..."  # 認証テスト含む
 
 # コード品質
 pnpm lint             # ESLint実行
@@ -274,8 +290,9 @@ MIT License
 - [Electron公式ドキュメント](https://www.electronjs.org/docs)
 - [Deepgram API Docs](https://developers.deepgram.com/)
 - [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
-- [LangChain Documentation](https://js.langchain.com/docs/)
+- [Cloudflare Workers Docs](https://developers.cloudflare.com/workers/)
+- [Hono Documentation](https://hono.dev/)
 
 ---
 
-**最終更新**: 2026-02-06
+**最終更新**: 2026-03-09
