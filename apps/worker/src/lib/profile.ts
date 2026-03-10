@@ -45,6 +45,9 @@ export function formatProfileContext(profile: InterviewProfile | null | undefine
     lines.push(
       `志望先: ${[profile.targetCompany, profile.targetPosition].filter(Boolean).join(' / ')}`
     )
+    if (profile.targetCompany) {
+      lines.push(`※回答中で「御社」の代わりに「${profile.targetCompany}」を適宜使用すること`)
+    }
   }
 
   if (profile.previousCompanies && profile.previousCompanies.length > 0) {
@@ -53,6 +56,7 @@ export function formatProfileContext(profile: InterviewProfile | null | undefine
 
   if (profile.technologies && profile.technologies.length > 0) {
     lines.push(`主要技術: ${profile.technologies.join(', ')}`)
+    lines.push(`※「技術」「スキル」等の曖昧表現ではなく、${profile.technologies.slice(0, 3).join('・')}等の具体的な技術名を使うこと`)
   }
 
   if (profile.certifications && profile.certifications.length > 0) {

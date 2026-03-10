@@ -13,7 +13,7 @@ describe('SYSTEM_PROMPT', () => {
 
   it('contains key instructions', () => {
     expect(SYSTEM_PROMPT).toContain('面接')
-    expect(SYSTEM_PROMPT).toContain('日本語')
+    expect(SYSTEM_PROMPT).toContain('話し言葉')
   })
 })
 
