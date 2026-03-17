@@ -1,53 +1,30 @@
-Codemap Update Report
-=====================
+Codemap Diff Report
+===================
+Generated: 2026-03-10T12:00:00+09:00
+Previous version: None (initial generation)
 
-Generated: 2026-02-04
-Status: NEW (Initial Creation)
+Status: NEW (100% change - initial codemap generation)
 
-Files Created:
---------------
-1. codemaps/architecture.md
-   - Overall system architecture
-   - IPC communication patterns
-   - Data flow diagrams
-   - Key file references
+Files generated:
+  - docs/codemaps/architecture.md  (Overall architecture + system diagram)
+  - docs/codemaps/backend.md       (Worker API + Electron services)
+  - docs/codemaps/frontend.md      (Renderer + Next.js LP)
+  - docs/codemaps/data.md          (DB schema + TypeScript types)
 
-2. codemaps/backend.md
-   - Main process services
-   - STTService, AIService, ContextService, DocumentService
-   - IPC handler mapping
-   - Dependency graph
+Codebase summary (post-cleanup):
+  - Electron app: ~47 source files (main/preload/renderer/services/types)
+  - Worker API: ~22 source files (routes/lib/middleware)
+  - Web LP: ~22 source files (pages/components/lib)
+  - Tests: ~22 test files (unit/integration/e2e)
+  - Total: ~113 source files
 
-3. codemaps/frontend.md
-   - Renderer process structure
-   - React component hierarchy
-   - Custom hooks (useSTT, useAudioCapture, useAIResponse, useDocuments)
-   - Electron API (preload)
-   - UI layout
-
-4. codemaps/data.md
-   - Type definitions
-   - Storage schema (context-data.json)
-   - Data flow diagrams
-   - Validation rules
-   - Immutability patterns
-
-Diff Summary:
--------------
-Previous version: None
-Current version: v1.0.0
-Change percentage: 100% (new creation)
-
-Coverage:
----------
-- src/main/: 100%
-- src/preload/: 100%
-- src/services/: 100%
-- src/renderer/: 100%
-- src/types/: 100%
-
-Next Update Recommendation:
----------------------------
-- After major architectural changes
-- After adding new services
-- After adding new IPC channels
+Changes from previous session:
+  - Removed: tools/ (sns-uploader + video-shorts)
+  - Removed: .github/workflows/video-shorts.yml
+  - Removed: apps/web/app/auth/tiktok/ (TikTok OAuth)
+  - Removed: scripts/generate-interview-questions-audio.mjs
+  - Removed: scripts/generate-test-docs.mjs
+  - Removed: test-data/ (sample documents)
+  - Removed: coverage/, ARCHITECTURE.md, DELETION_LOG.md
+  - Removed: Malformed c:devInterview-automatic-bot* directories
+  - Kept: audio/ (20 MP3 interview question files)

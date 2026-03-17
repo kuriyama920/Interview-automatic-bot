@@ -1,0 +1,123 @@
+# Architecture Codemap
+
+> Freshness: 2026-03-10T12:00:00+09:00
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    User's Desktop                       │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │           Electron Desktop App (src/)             │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌───────────────┐   │  │
+│  │  │  Main    │  │ Preload  │  │  Renderer     │   │  │
+│  │  │ Process  │──│  Bridge  │──│  (React 18)   │   │  │
+│  │  │          │  │          │  │               │   │  │
+│  │  └────┬─────┘  └──────────┘  └───────────────┘   │  │
+│  │       │ Services Layer                            │  │
+│  │  ┌────┴──────────────────────────────────────┐    │  │
+│  │  │ auth | stt | ai | context | questions     │    │  │
+│  │  └────┬──────────────────────────────────────┘    │  │
+│  └───────┼───────────────────────────────────────────┘  │
+│          │ HTTPS (JWT Bearer)                           │
+└──────────┼──────────────────────────────────────────────┘
+           │
+    ┌──────▼──────────────────────────────────────────┐
+    │      Cloudflare Workers API (apps/worker/)      │
+    │  ┌────────────────────────────────────────────┐  │
+    │  │  Hono Router + CORS + Auth Middleware      │  │
+    │  │  Routes: auth|ai|stt|stripe|docs|questions │  │
+    │  └──────┬───────────┬──────────┬──────────────┘  │
+    │         │           │          │                  │
+    │    ┌────▼────┐ ┌────▼────┐ ┌──▼───────┐         │
+    │    │Supabase │ │ OpenAI  │ │ Deepgram │         │
+    │    │PostgreSQL│ │ GPT-5  │ │ nova-2   │         │
+    │    │+pgvector│ │         │ │          │         │
+    │    └─────────┘ └─────────┘ └──────────┘         │
+    │         │                                        │
+    │    ┌────▼────┐                                   │
+    │    │ Stripe  │                                   │
+    │    │Payments │                                   │
+    │    └─────────┘                                   │
+    └──────────────────────────────────────────────────┘
+
+    ┌──────────────────────────────────────────────────┐
+    │      Next.js Marketing Site (apps/web/)          │
+    │  Landing Page | Download | Checkout | Legal      │
+    └──────────────────────────────────────────────────┘
+```
+
+## Monorepo Structure
+
+```
+pnpm-workspace.yaml → packages: ["apps/*"]
+
+interview-automatic-bot/          # Root (Electron app)
+├── src/                          # Electron desktop app
+│   ├── main/         (2 files)   # Main process
+│   ├── preload/      (1 file)    # IPC bridge
+│   ├── renderer/src/ (~35 files) # React UI
+│   ├── services/     (6 files)   # Business logic
+│   └── types/        (3 files)   # Shared types
+├── apps/
+│   ├── worker/                   # Cloudflare Workers API
+│   │   ├── src/routes/  (7 files)
+│   │   ├── src/lib/     (13 files)
+│   │   ├── src/middleware/ (2 files)
+│   │   └── tests/       (~15 files)
+│   └── web/                      # Next.js LP
+│       ├── app/         (10 pages)
+│       ├── components/  (10 files)
+│       └── lib/         (2 files)
+├── tests/                        # Electron app tests
+│   ├── unit/        (4 files)
+│   ├── integration/ (1 file)
+│   └── e2e/         (2 files)
+├── scripts/         (2 files)    # E2E/test scripts
+└── docs/            (3 files)    # Documentation
+```
+
+## Key Integration Points
+
+| Integration | Protocol | Auth | Data Flow |
+|------------|----------|------|-----------|
+| Electron → Workers | HTTPS + SSE | JWT Bearer | API proxy for all services |
+| Workers → Supabase | PostgreSQL | Service Role Key | User data, documents, usage |
+| Workers → OpenAI | HTTPS | API Key | GPT-5 generation, embeddings |
+| Workers → Deepgram | HTTPS | API Key → Temp Token | STT token provisioning |
+| Workers → Stripe | HTTPS + Webhook | Secret Key + Webhook Secret | Checkout, subscription |
+| Web → Workers | HTTPS | JWT (checkout flow) | Auth session, Stripe checkout |
+| Electron ← OAuth | Deep Link | interview-bot:// | Google OAuth callback |
+| Web → GitHub | HTTPS | Public API | Release info for download page |
+
+## Authentication Flow
+
+```
+1. Electron → shell.openExternal(Workers /api/auth/session)
+2. Workers → Create session → Return sessionId + authUrl
+3. Electron → Poll /api/auth/session?id=xxx
+4. Browser → Google OAuth → Workers /api/auth/callback
+5. Workers → Upsert user → Generate JWT → Store in session
+6. Electron ← Poll returns JWT → Store in electron-store (AES)
+7. All subsequent requests: Authorization: Bearer <JWT>
+```
+
+## Audio Pipeline
+
+```
+Mic → getUserMedia() ─────────────┐
+                                  ├→ AudioWorklet → 16kHz PCM → Deepgram WS
+System → setDisplayMediaRequestHandler ┘     (via temp token from /api/stt/token)
+```
+
+## AI Response Pipeline
+
+```
+Transcript → useProgressiveAI
+  ├→ Layer 1: QuestionCache (bigram match, <1ms)
+  │   └→ Match found → Instant cached answer
+  └→ Layer 2: AI Generation (350ms debounce)
+      └→ POST /api/ai/generate (SSE)
+          ├→ Phase 1: gpt-5-nano (cascading, ~0.77s TTFT)
+          └→ Phase 2: Full model response
+```
