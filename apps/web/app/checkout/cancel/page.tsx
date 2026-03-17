@@ -1,16 +1,12 @@
-import type { Metadata } from 'next'
+'use client'
+
 import Link from 'next/link'
+import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 
-export const metadata: Metadata = {
-  title: '決済キャンセル - InterviewBot',
-}
-
-export default async function CheckoutCancelPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ plan?: string }>
-}) {
-  const { plan: rawPlan = 'pro' } = await searchParams
+function CancelContent() {
+  const searchParams = useSearchParams()
+  const rawPlan = searchParams.get('plan') || 'pro'
   const validPlans = ['pro', 'max']
   const plan = validPlans.includes(rawPlan) ? rawPlan : 'pro'
 
@@ -57,5 +53,13 @@ export default async function CheckoutCancelPage({
         </div>
       </div>
     </div>
+  )
+}
+
+export default function CheckoutCancelPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <CancelContent />
+    </Suspense>
   )
 }

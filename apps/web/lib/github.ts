@@ -44,7 +44,6 @@ export async function getLatestRelease(): Promise<ReleaseInfo | null> {
         headers: {
           Accept: 'application/vnd.github.v3+json',
         },
-        next: { revalidate: 3600 },
       }
     )
 
