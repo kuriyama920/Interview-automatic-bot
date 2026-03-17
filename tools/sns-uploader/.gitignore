@@ -1,9 +1,0 @@
-venv/
-__pycache__/
-*.pyc
-.env
-sessions/
-*.json
-!.env.example
-output/
-*.log

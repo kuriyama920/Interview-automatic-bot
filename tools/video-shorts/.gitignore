@@ -1,7 +1,0 @@
-node_modules/
-dist/
-output/
-.env
-history.json
-*.mp4
-*.mov
