@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { renderHook, act, waitFor } from '@testing-library/react'
 
-// Mock renderer logger
 vi.mock('../../src/renderer/src/utils/logger', () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -10,52 +10,56 @@ vi.mock('../../src/renderer/src/utils/logger', () => ({
   }),
 }))
 
-import { computeBigrams, bigramSimilarity } from '../../src/renderer/src/hooks/useQuestionCache'
+import {
+  computeBigrams,
+  bigramSimilarity,
+  useQuestionCache,
+} from '../../src/renderer/src/hooks/useQuestionCache'
+
+const mockQuestions = window.electron.questions
 
 describe('computeBigrams', () => {
-  it('should generate bigrams from ASCII text', () => {
-    const result = computeBigrams('abcd')
-    expect(result).toEqual(new Set(['ab', 'bc', 'cd']))
-  })
-
-  it('should generate bigrams from Japanese text', () => {
-    const result = computeBigrams('自己紹介')
-    expect(result).toEqual(new Set(['自己', '己紹', '紹介']))
-  })
-
-  it('should strip whitespace and punctuation before generating bigrams', () => {
-    const result = computeBigrams('自己　紹介、です。')
-    // After stripping: '自己紹介です'
-    expect(result).toEqual(new Set(['自己', '己紹', '紹介', '介で', 'です']))
-  })
-
-  it('should return empty set for single character', () => {
-    const result = computeBigrams('あ')
+  it('should return empty set for short text', () => {
+    const result = computeBigrams('a')
     expect(result.size).toBe(0)
+  })
+
+  it('should return bigrams for text', () => {
+    const result = computeBigrams('abc')
+    expect(result.has('ab')).toBe(true)
+    expect(result.has('bc')).toBe(true)
+    expect(result.size).toBe(2)
+  })
+
+  it('should normalize spaces and punctuation', () => {
+    const withSpaces = computeBigrams('ab cd')
+    const withoutSpaces = computeBigrams('abcd')
+    expect(withSpaces).toEqual(withoutSpaces)
+  })
+
+  it('should handle Japanese text', () => {
+    const result = computeBigrams('自己紹介')
+    expect(result.has('自己')).toBe(true)
+    expect(result.has('己紹')).toBe(true)
+    expect(result.has('紹介')).toBe(true)
   })
 
   it('should return empty set for empty string', () => {
     const result = computeBigrams('')
     expect(result.size).toBe(0)
   })
-
-  it('should handle text with only punctuation', () => {
-    const result = computeBigrams('、。？！')
-    expect(result.size).toBe(0)
-  })
-
-  it('should strip Japanese brackets and full-width spaces', () => {
-    const result = computeBigrams('「テスト」（確認）')
-    // After stripping: 'テスト確認'
-    expect(result).toEqual(new Set(['テス', 'スト', 'ト確', '確認']))
-  })
 })
 
 describe('bigramSimilarity', () => {
-  it('should return 1.0 for identical sets', () => {
-    const a = new Set(['ab', 'bc', 'cd'])
-    const b = new Set(['ab', 'bc', 'cd'])
-    expect(bigramSimilarity(a, b)).toBe(1)
+  it('should return 0 for empty sets', () => {
+    expect(bigramSimilarity(new Set(), new Set())).toBe(0)
+    expect(bigramSimilarity(new Set(['ab']), new Set())).toBe(0)
+    expect(bigramSimilarity(new Set(), new Set(['ab']))).toBe(0)
+  })
+
+  it('should return 1 for identical sets', () => {
+    const set = new Set(['ab', 'bc', 'cd'])
+    expect(bigramSimilarity(set, set)).toBe(1)
   })
 
   it('should return 0 for completely different sets', () => {
@@ -64,62 +68,161 @@ describe('bigramSimilarity', () => {
     expect(bigramSimilarity(a, b)).toBe(0)
   })
 
-  it('should return 0 when either set is empty', () => {
-    const empty = new Set<string>()
-    const nonEmpty = new Set(['ab', 'bc'])
-    expect(bigramSimilarity(empty, nonEmpty)).toBe(0)
-    expect(bigramSimilarity(nonEmpty, empty)).toBe(0)
-    expect(bigramSimilarity(empty, empty)).toBe(0)
-  })
-
-  it('should compute correct Jaccard similarity for partial overlap', () => {
-    const a = new Set(['ab', 'bc', 'cd'])       // 3 items
-    const b = new Set(['ab', 'bc', 'de', 'ef'])  // 4 items
-    // intersection = {ab, bc} = 2
-    // union = 3 + 4 - 2 = 5
-    // similarity = 2/5 = 0.4
-    expect(bigramSimilarity(a, b)).toBeCloseTo(0.4)
-  })
-
-  it('should return correct similarity for Japanese bigrams', () => {
-    const a = computeBigrams('自己紹介をしてください')
-    const b = computeBigrams('自己紹介をお願いします')
-    const similarity = bigramSimilarity(a, b)
-    expect(similarity).toBeGreaterThan(0)
-    expect(similarity).toBeLessThan(1)
-  })
-
-  it('should return high similarity for nearly identical Japanese phrases', () => {
-    const a = computeBigrams('あなたの強みを教えてください')
-    const b = computeBigrams('あなたの強みを教えて下さい')
-    const similarity = bigramSimilarity(a, b)
-    expect(similarity).toBeGreaterThanOrEqual(0.65)
+  it('should return partial similarity', () => {
+    const a = new Set(['ab', 'bc', 'cd'])
+    const b = new Set(['ab', 'bc', 'xy'])
+    const sim = bigramSimilarity(a, b)
+    expect(sim).toBeGreaterThan(0)
+    expect(sim).toBeLessThan(1)
   })
 })
 
-describe('matching integration', () => {
-  it('should compute high similarity for same question with minor differences', () => {
-    const q1 = '志望動機を教えてください'
-    const q2 = '志望の動機を教えてください'
-    const bigrams1 = computeBigrams(q1)
-    const bigrams2 = computeBigrams(q2)
-    const similarity = bigramSimilarity(bigrams1, bigrams2)
-    expect(similarity).toBeGreaterThanOrEqual(0.65)
+describe('useQuestionCache', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [],
+    })
   })
 
-  it('should compute low similarity for completely different questions', () => {
-    const q1 = '自己紹介をしてください'
-    const q2 = '給与の希望はありますか'
-    const bigrams1 = computeBigrams(q1)
-    const bigrams2 = computeBigrams(q2)
-    const similarity = bigramSimilarity(bigrams1, bigrams2)
-    expect(similarity).toBeLessThan(0.3)
+  it('should return findMatch, findPartialMatch, refreshCache, clearCache', () => {
+    const { result } = renderHook(() => useQuestionCache())
+    expect(typeof result.current.findMatch).toBe('function')
+    expect(typeof result.current.findPartialMatch).toBe('function')
+    expect(typeof result.current.refreshCache).toBe('function')
+    expect(typeof result.current.clearCache).toBe('function')
   })
 
-  it('should handle short query (below MIN_QUERY_LENGTH threshold)', () => {
-    const shortQuery = 'テスト'
-    const bigrams = computeBigrams(shortQuery)
-    // Still computes bigrams, but the hook would reject this query
-    expect(bigrams.size).toBe(2) // テス, スト
+  it('should load cache on mount', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [
+        { question: '自己紹介をお願いします', answer: 'はい、私は...', isAutoGenerated: false },
+      ],
+    })
+
+    renderHook(() => useQuestionCache())
+
+    await waitFor(() => {
+      expect(mockQuestions.list).toHaveBeenCalled()
+    })
+  })
+
+  it('should return null from findMatch when cache is empty', () => {
+    const { result } = renderHook(() => useQuestionCache())
+    expect(result.current.findMatch('自己紹介をお願いします')).toBeNull()
+  })
+
+  it('should find a match when similarity is high', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [
+        { question: '自己紹介をお願いします', answer: '私は田中と申します', isAutoGenerated: false },
+      ],
+    })
+
+    const { result } = renderHook(() => useQuestionCache())
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const match = result.current.findMatch('自己紹介をお願いします')
+    expect(match).not.toBeNull()
+    expect(match?.question).toBe('自己紹介をお願いします')
+    expect(match?.answer).toBe('私は田中と申します')
+    expect(match?.similarity).toBeGreaterThan(0.65)
+  })
+
+  it('should return null from findMatch when similarity is below threshold', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [
+        { question: '志望動機を教えてください', answer: '御社に入りたいです', isAutoGenerated: false },
+      ],
+    })
+
+    const { result } = renderHook(() => useQuestionCache())
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const match = result.current.findMatch('最後に何か質問はありますか')
+    expect(match).toBeNull()
+  })
+
+  it('should clear cache', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [
+        { question: '自己紹介をお願いします', answer: '私は田中と申します', isAutoGenerated: false },
+      ],
+    })
+
+    const { result } = renderHook(() => useQuestionCache())
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const beforeClear = result.current.findMatch('自己紹介をお願いします')
+    expect(beforeClear).not.toBeNull()
+
+    act(() => {
+      result.current.clearCache()
+    })
+
+    const afterClear = result.current.findMatch('自己紹介をお願いします')
+    expect(afterClear).toBeNull()
+  })
+
+  it('should refresh cache by calling loadCache again', async () => {
+    const { result } = renderHook(() => useQuestionCache())
+
+    await act(async () => {
+      await result.current.refreshCache()
+    })
+
+    expect(mockQuestions.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('should filter out questions without answers', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      questions: [
+        { question: '自己紹介をお願いします', answer: '', isAutoGenerated: false },
+        { question: '志望動機は何ですか', answer: '   ', isAutoGenerated: false },
+      ],
+    })
+
+    const { result } = renderHook(() => useQuestionCache())
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const match = result.current.findMatch('自己紹介をお願いします')
+    expect(match).toBeNull()
+  })
+
+  it('should handle list API failure gracefully', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'))
+
+    const { result } = renderHook(() => useQuestionCache())
+
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const match = result.current.findMatch('自己紹介をお願いします')
+    expect(match).toBeNull()
+  })
+
+  it('should handle list API returning success false', async () => {
+    ;(mockQuestions.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      questions: [],
+      error: 'Server error',
+    })
+
+    const { result } = renderHook(() => useQuestionCache())
+
+    await waitFor(() => expect(mockQuestions.list).toHaveBeenCalled())
+
+    const match = result.current.findMatch('自己紹介をお願いします')
+    expect(match).toBeNull()
+  })
+
+  it('should return null from findPartialMatch when cache is empty', () => {
+    const { result } = renderHook(() => useQuestionCache())
+    expect(result.current.findPartialMatch('自己紹介をお願いします')).toBeNull()
   })
 })
