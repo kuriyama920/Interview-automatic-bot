@@ -380,14 +380,13 @@ app.get('/session', async (c) => {
     return c.json({ status: 'pending' })
   }
 
-  if (
-    (session.status === 'completed' || session.status === 'consumed') &&
-    session.token
-  ) {
+  // セキュリティ修正: フォールバックパスではトークンを返さない
+  // トークンは atomic な consume_auth_session RPC 経由でのみ返却する
+  // これにより複数回のトークン取得（リプレイ攻撃）を防止
+  if (session.status === 'completed') {
     return c.json({
       status: 'completed',
-      token: session.token,
-      user: session.user_data,
+      message: 'Session completed but token must be retrieved atomically. Please retry.',
     })
   }
 
@@ -395,6 +394,37 @@ app.get('/session', async (c) => {
     status: 'error',
     error: session.error || 'Authentication failed',
   })
+})
+
+// --- /api/auth/refresh (JWT required) ---
+
+app.post('/refresh', authRequired, async (c) => {
+  const supabase = createSupabaseAdmin(c.env)
+  const { sub: userId, email, name, picture } = c.get('jwtPayload')
+
+  // Verify user still exists in database
+  const { data: user, error: userError } = await supabase
+    .from('profiles')
+    .select('id, email, display_name, avatar_url')
+    .eq('id', userId)
+    .single()
+
+  if (userError || !user) {
+    return c.json({ error: 'User not found' }, 401)
+  }
+
+  // Generate fresh JWT with updated user data
+  const newToken = await generateJWT(
+    {
+      sub: user.id,
+      email: user.email || email,
+      name: user.display_name || name,
+      picture: user.avatar_url || picture,
+    },
+    c.env.JWT_SECRET
+  )
+
+  return c.json({ token: newToken })
 })
 
 // --- /api/auth/me (JWT required) ---

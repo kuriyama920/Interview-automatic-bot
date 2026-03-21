@@ -47,7 +47,7 @@ app.post('/token', async (c) => {
       },
     })
   } catch (error) {
-    console.error('Deepgram token generation error:', error)
+    console.error('Deepgram token generation error:', error instanceof Error ? error.message : String(error))
     return c.json(
       {
         error:

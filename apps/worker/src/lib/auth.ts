@@ -143,7 +143,7 @@ export async function generateJWT(
   const fullPayload: JWTPayload = {
     ...payload,
     iat: now,
-    exp: now + 60 * 60 * 24 * 7, // 7日間有効
+    exp: now + 60 * 60 * 24, // 24時間有効
   }
 
   const encoder = new TextEncoder()

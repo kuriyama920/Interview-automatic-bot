@@ -82,7 +82,7 @@ app.post('/', async (c) => {
     }
 
     const chunkTexts = chunks.map((ch) => ch.content)
-    const embeddings = await generateEmbeddings(chunkTexts, c.env.OPENAI_API_KEY)
+    const embeddings = await generateEmbeddings(chunkTexts, c.env.OPENAI_API_KEY, c.env)
 
     const { data: document, error: docError } = await supabase
       .from('documents')
@@ -321,7 +321,7 @@ app.post('/search', async (c) => {
     )
   }
 
-  const queryEmbedding = await generateEmbedding(query, c.env.OPENAI_API_KEY)
+  const queryEmbedding = await generateEmbedding(query, c.env.OPENAI_API_KEY, c.env)
 
   const { data: matches, error: matchError } = await supabase.rpc('match_documents', {
     query_embedding: queryEmbedding,
