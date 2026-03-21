@@ -49,7 +49,7 @@ main.tsx
 | useAudioCapture | Mic + system audio capture | isCapturing, audioSource |
 | useAIResponse | SSE streaming AI responses | response, streamingText, isGenerating, currentPhase |
 | useProgressiveAI | Cached Q&A + AI fallback | matchedAnswer, isGenerating |
-| useQuestionCache | Bigram similarity matching | findMatch (>0.65), findPartialMatch (>0.4) |
+| useQuestionCache | Bigram similarity matching | findMatch (>0.65) |
 | useConversationHistory | Sliding window + LLM summary | history (max 2000 chars) |
 | useDocumentContextCache | Prefetch RAG context on start | cachedContext ref |
 | useDocuments | Document CRUD | documents[], isLoading |
