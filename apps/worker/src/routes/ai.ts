@@ -7,8 +7,6 @@
  */
 
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
-import OpenAI from 'openai'
 import type { Env, Variables } from '../types'
 import { createSupabaseAdmin } from '../lib/supabase'
 import { authRequired } from '../middleware/auth'
@@ -17,238 +15,275 @@ import {
   adjustReservedUsage,
   recordUsage,
 } from '../lib/usage'
-import { generateEmbedding, generateEmbeddings } from '../lib/openai'
-import { SYSTEM_PROMPT } from '../lib/prompts'
+import { generateEmbedding, generateEmbeddings, createOpenAIClient } from '../lib/openai'
+import { getCachedOrGenerateEmbedding } from '../lib/embedding-cache'
+import { SYSTEM_PROMPT, SPECULATIVE_SYSTEM_PROMPT, wrapUserInput } from '../lib/prompts'
 import { formatProfileContext } from '../lib/profile'
+import { withSoftDeadline, RAG_SOFT_DEADLINE_MS } from '../lib/latency-budget'
+import {
+  validateGenerateRequest,
+  validateSummarizeRequest,
+  validateGenerateV2Request,
+  validateEmbeddingsRequest,
+  sanitizeTurnId,
+  MODELS_WITH_REASONING,
+  MAX_CONTEXT_LENGTH,
+} from '../lib/ai-validation'
+import { processOpenAIStream, mapOpenAIErrorToMessage, createSSEResponse, ERROR_MESSAGES } from '../lib/ai-streaming'
+import type { SSEWriter } from '../lib/ai-streaming'
+import { groupDocumentChunks, formatGroupedContext, deferDbWrite } from '../lib/ai-generate'
+import { createRateLimiter } from '../middleware/rate-limit'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
 app.use('*', authRequired)
+app.use('*', createRateLimiter())
 
 // --- Generate constants ---
-
-// gpt-5-nano (minimal): TTFT ~0.77s — reasoning_effort:'minimal'で推論トークンほぼゼロ
-// gpt-4o-mini: TTFT ~3.1s — 非reasoningだがTTFTが遅い
-// gpt-5-nano (low/high): TTFT 1-100s+ — reasoning_effortが高いほど遅い
-const DEFAULT_MODEL = 'gpt-5-nano'
-const DEFAULT_MAX_TOKENS = 800
-const MAX_QUESTION_LENGTH = 2000
-const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5-nano', 'gpt-5-mini']
-// gpt-4o-mini, gpt-4.1-mini/nano: 非reasoning、temperature対応
-// gpt-5-nano/mini: reasoning常時ON、temperature非対応
-const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-nano', 'gpt-5-mini']
-const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini']
 const DEFAULT_TOP_K = 3
 const DEFAULT_MIN_SIMILARITY = 0.7
-const MAX_CONTEXT_LENGTH = 30000
-const MAX_PREDICTED_ANSWER_LENGTH = 5000
-
-const CASCADING_QUICK_MODEL = 'gpt-5-nano' // minimal reasoning → TTFT ~0.77s（gpt-4o-miniの~3.1sより4倍速い）
-
-const CASCADING_QUICK_PROMPT = `面接官の質問に対して、まずどう切り出せばいいか1文でアドバイスして。
-- 面接で実際に口に出せる自然な話し言葉
-- 「です・ます」調
-- 方向性がわかる具体的な一言（抽象的にならない）`
-
-// --- Embeddings constants ---
-
-const MAX_TEXTS = 20
-const MAX_TEXT_LENGTH = 8000
 
 // --- Summarize constants ---
-
 const SUMMARIZE_SYSTEM_PROMPT =
   '面接の対話から候補者の主張・数値・エピソードを構造化して抽出・要約するアシスタントです。要約には必ず具体的な企業名・技術名・プロジェクト名・数値を保持し、指示語（これ・それ・あの等）は使用しないでください。'
 const SUMMARIZE_MAX_TOKENS = 300
-const MAX_SUMMARY_INPUT_LENGTH = 1000
-const MAX_TURN_TEXT_LENGTH = 5000
+const SUMMARIZE_MODEL = 'gpt-5.4-nano'
 
-// --- Validation ---
+const SPECULATIVE_MODEL = 'gpt-5-nano'
+const COMMITTED_MODEL = 'gpt-5.4-nano'
+const SPECULATIVE_MAX_TOKENS = 200
+const COMMITTED_MAX_TOKENS = 800
 
-interface MatchResult {
+interface MatchResultWithInfo {
   id: string
-  document_id: string
   content: string
   similarity: number
+  document_id: string
+  document_name: string
+  document_type: string
 }
 
-interface ValidatedGenerateRequest {
-  question: string
-  context: string | undefined
-  includeDocumentContext: boolean
-  model: string
-  maxTokens: number
-  temperature: number | undefined
-  predictedAnswer: string | undefined
-  cascading: boolean
-}
-
-function validateGenerateRequest(body: unknown): ValidatedGenerateRequest | { error: string } {
-  if (!body || typeof body !== 'object') {
-    return { error: 'Request body is required' }
-  }
-
-  const data = body as Record<string, unknown>
-
-  if (!data.question || typeof data.question !== 'string') {
-    return { error: 'question is required and must be a string' }
-  }
-
-  const question = data.question.trim()
-  if (question.length === 0) {
-    return { error: 'question cannot be empty' }
-  }
-  if (question.length > MAX_QUESTION_LENGTH) {
-    return { error: `question must be less than ${MAX_QUESTION_LENGTH} characters` }
-  }
-
-  const context = typeof data.context === 'string' ? data.context : undefined
-  if (context && context.length > MAX_CONTEXT_LENGTH) {
-    return { error: `context must be less than ${MAX_CONTEXT_LENGTH} characters` }
-  }
-  const includeDocumentContext = data.includeDocumentContext !== false
-  const requestedModel = typeof data.model === 'string' ? data.model : DEFAULT_MODEL
-  const model = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : DEFAULT_MODEL
-  const maxTokens =
-    typeof data.maxTokens === 'number' && data.maxTokens > 0 && data.maxTokens <= 4000
-      ? data.maxTokens
-      : DEFAULT_MAX_TOKENS
-  const supportsTemperature = !MODELS_WITHOUT_TEMPERATURE.includes(model)
-  const temperature = supportsTemperature
-    ? typeof data.temperature === 'number' && data.temperature >= 0 && data.temperature <= 2
-      ? data.temperature
-      : 0.7
-    : undefined
-
-  const predictedAnswer =
-    typeof data.predictedAnswer === 'string' && data.predictedAnswer.length > 0
-      ? data.predictedAnswer.substring(0, MAX_PREDICTED_ANSWER_LENGTH)
-      : undefined
-
-  const cascading = data.cascading === true
-
-  return { question, context, includeDocumentContext, model, maxTokens, temperature, predictedAnswer, cascading }
-}
-
-interface ValidatedSummarizeRequest {
-  previousSummary: string
-  interviewer: string
-  candidate: string
-}
-
-function validateSummarizeRequest(body: unknown): ValidatedSummarizeRequest | { error: string } {
-  if (!body || typeof body !== 'object') {
-    return { error: 'Request body is required' }
-  }
-
-  const data = body as Record<string, unknown>
-
-  if (!data.interviewer || typeof data.interviewer !== 'string') {
-    return { error: 'interviewer is required and must be a string' }
-  }
-  if (!data.candidate || typeof data.candidate !== 'string') {
-    return { error: 'candidate is required and must be a string' }
-  }
-
-  const interviewer = data.interviewer.trim()
-  const candidate = data.candidate.trim()
-  const previousSummary =
-    typeof data.previousSummary === 'string' ? data.previousSummary.trim() : ''
-
-  if (interviewer.length > MAX_TURN_TEXT_LENGTH) {
-    return { error: `interviewer must be less than ${MAX_TURN_TEXT_LENGTH} characters` }
-  }
-  if (candidate.length > MAX_TURN_TEXT_LENGTH) {
-    return { error: `candidate must be less than ${MAX_TURN_TEXT_LENGTH} characters` }
-  }
-  if (previousSummary.length > MAX_SUMMARY_INPUT_LENGTH) {
-    return { error: `previousSummary must be less than ${MAX_SUMMARY_INPUT_LENGTH} characters` }
-  }
-
-  return { previousSummary, interviewer, candidate }
-}
-
-// --- Document context fetching ---
-
-const RAG_TIMEOUT_MS = 2000 // RAG取得のタイムアウト（2秒）
-
-async function fetchDocumentContext(
+function fetchDocumentContext(
   supabase: ReturnType<typeof createSupabaseAdmin>,
   apiKey: string,
   userId: string,
-  question: string
+  question: string,
+  env?: { CF_ACCOUNT_ID?: string; CF_AI_GATEWAY_ID?: string },
+  ctx?: ExecutionContext,
 ): Promise<string> {
+  const inner = async (): Promise<string> => {
+    const queryEmbedding = await getCachedOrGenerateEmbedding(question, apiKey, ctx, env)
+    const { data: matches } = await supabase.rpc('match_documents_with_info', {
+      query_embedding: queryEmbedding,
+      match_threshold: DEFAULT_MIN_SIMILARITY,
+      match_count: DEFAULT_TOP_K,
+      p_user_id: userId,
+    })
+    if (!matches || matches.length === 0) return ''
+    const items = (matches as MatchResultWithInfo[]).map((m) => ({
+      key: m.document_id, type: m.document_type, name: m.document_name, content: m.content,
+    }))
+    return formatGroupedContext(groupDocumentChunks(items))
+  }
+  return withSoftDeadline(inner(), '', RAG_SOFT_DEADLINE_MS)
+}
+
+function getSafeExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionContext | undefined {
+  try { return c.executionCtx } catch { return undefined }
+}
+
+/** DB書き込み用のバインド済みヘルパーを作成 */
+function createDbWriteHelpers(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  userId: string,
+) {
+  return {
+    adjust: (reserved: number, actual: number) =>
+      adjustReservedUsage(supabase, userId, 'ai_tokens', reserved, actual),
+    record: (amount: number, metadata: Record<string, unknown>) =>
+      recordUsage(supabase, userId, 'ai_completion', amount, 'tokens', metadata, true),
+  }
+}
+
+// ---------- /generate-v2 ----------
+
+app.post('/generate-v2', async (c) => {
+  const supabase = createSupabaseAdmin(c.env)
+  const { sub: userId } = c.get('jwtPayload')
+
+  let body: unknown
   try {
-    // RAGにタイムアウトを設定（遅延時はスキップして生成を優先）
-    const result = await Promise.race([
-      fetchDocumentContextInner(supabase, apiKey, userId, question),
-      new Promise<string>((resolve) =>
-        setTimeout(() => {
-          console.warn('RAG context fetch timed out, skipping')
-          resolve('')
-        }, RAG_TIMEOUT_MS)
-      ),
-    ])
-    return result
-  } catch (error) {
-    console.error('Failed to fetch document context:', error)
-    return ''
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
   }
-}
 
-async function fetchDocumentContextInner(
-  supabase: ReturnType<typeof createSupabaseAdmin>,
-  apiKey: string,
-  userId: string,
-  question: string
-): Promise<string> {
-  const queryEmbedding = await generateEmbedding(question, apiKey)
+  const validation = validateGenerateV2Request(body)
+  if ('error' in validation) {
+    return c.json({ error: validation.error }, 400)
+  }
 
-  const { data: matches } = await supabase.rpc('match_documents', {
-    query_embedding: queryEmbedding,
-    match_threshold: DEFAULT_MIN_SIMILARITY,
-    match_count: DEFAULT_TOP_K,
-    p_user_id: userId,
-    p_document_types: null,
+  const { question, phase, context, turnId, previousResponseId, storeEnabled } = validation
+
+  const isSpeculative = phase === 'speculative'
+  const model = isSpeculative ? SPECULATIVE_MODEL : COMMITTED_MODEL
+  const maxTokens = isSpeculative ? SPECULATIVE_MAX_TOKENS : COMMITTED_MAX_TOKENS
+
+  const m4_workerReceived = Date.now()
+
+  const usagePromise = checkAndReserveUsage(supabase, userId, 'ai_tokens', maxTokens)
+
+  const profilePromise = isSpeculative
+    ? Promise.resolve({ data: null })
+    : supabase.from('profiles').select('interview_profile').eq('id', userId).single()
+
+  const safeCtxV2 = getSafeExecutionCtx(c)
+  const docContextPromise = isSpeculative
+    ? Promise.resolve('')
+    : fetchDocumentContext(supabase, c.env.OPENAI_API_KEY, userId, question, c.env, safeCtxV2)
+
+  const usage = await usagePromise
+  const m5_usageCompleted = Date.now()
+
+  if (!usage.allowed) {
+    Promise.resolve(profilePromise).catch(() => {})
+    docContextPromise.catch(() => {})
+    return c.json(
+      {
+        error: ERROR_MESSAGES.USAGE_LIMIT,
+        usage: { used: usage.used, limit: usage.limit, remaining: 0 },
+      },
+      429
+    )
+  }
+
+  const contextResult = await Promise.all([profilePromise, docContextPromise]).catch(async () => {
+    await adjustReservedUsage(supabase, userId, 'ai_tokens', maxTokens, 0).catch(() => {})
+    return null
   })
+  if (!contextResult) {
+    return c.json({ error: 'コンテキストの取得に失敗しました' }, 500)
+  }
+  const [profileResult, docContext] = contextResult
+  const m6_ragCompleted = Date.now()
+  const m6_ragTimedOut = !isSpeculative && (m6_ragCompleted - m4_workerReceived) > RAG_SOFT_DEADLINE_MS
 
-  if (!matches || matches.length === 0) return ''
+  const profileContext = isSpeculative
+    ? ''
+    : formatProfileContext((profileResult as { data: { interview_profile?: import('../lib/profile').InterviewProfile | null } | null }).data?.interview_profile)
 
-  const documentIds = [...new Set((matches as MatchResult[]).map((m) => m.document_id))]
-  const { data: documents } = await supabase
-    .from('documents')
-    .select('id, name, type')
-    .in('id', documentIds)
-    .eq('user_id', userId)
+  const instructions = isSpeculative
+    ? SPECULATIVE_SYSTEM_PROMPT
+    : profileContext
+      ? `${SYSTEM_PROMPT}\n\n【候補者プロフィール】\n${profileContext}`
+      : SYSTEM_PROMPT
 
-  if (!documents) return ''
+  const input: Array<{ role: 'user'; content: string }> = []
+  if (!isSpeculative && docContext) {
+    input.push({ role: 'user', content: wrapUserInput('document_context', docContext) })
+  }
+  if (context) {
+    input.push({ role: 'user', content: wrapUserInput('conversation_history', context) })
+  }
+  input.push({ role: 'user', content: wrapUserInput('interviewer_question', question) })
 
-  const docMap = new Map(documents.map((d) => [d.id, d]))
+  const { adjust, record } = createDbWriteHelpers(supabase, userId)
 
-  const grouped = new Map<string, { label: string; chunks: string[] }>()
+  async function executeOpenAIStream(
+    stream: SSEWriter,
+    openai: ReturnType<typeof createOpenAIClient>,
+    params: { usePreviousResponseId: boolean },
+  ): Promise<void> {
+    const effectiveMaxTokens = MODELS_WITH_REASONING.includes(model)
+      ? maxTokens + 300
+      : maxTokens
 
-  for (const match of matches as MatchResult[]) {
-    const doc = docMap.get(match.document_id)
-    if (!doc) continue
+    const m7_openaiCalled = Date.now()
+    const openaiStream = await openai.responses.create({
+      model,
+      instructions,
+      input,
+      max_output_tokens: effectiveMaxTokens,
+      ...(MODELS_WITH_REASONING.includes(model) && {
+        reasoning: { effort: model === COMMITTED_MODEL ? 'none' as const : 'minimal' as const },
+      }),
+      ...(isSpeculative ? {} : { temperature: 0.7 }),
+      ...(params.usePreviousResponseId && !isSpeculative && previousResponseId
+        ? { previous_response_id: previousResponseId }
+        : {}),
+      store: storeEnabled,
+      stream: true as const,
+    })
 
-    if (!grouped.has(match.document_id)) {
-      const labelMap: Record<string, string> = {
-        resume: '履歴書',
-        job_posting: '求人票',
-        expected_qa: '想定質問',
-      }
-      const label = labelMap[doc.type] || doc.type
-      grouped.set(match.document_id, { label: `${label}: ${doc.name}`, chunks: [] })
-    }
-    grouped.get(match.document_id)!.chunks.push(match.content)
+    const result = await processOpenAIStream(stream, openaiStream as AsyncIterable<{ type: string; delta?: string; response?: { id?: string; usage?: { total_tokens?: number } | null; error?: { message?: string } } }>, {
+      turnId,
+      phase,
+      m4: m4_workerReceived,
+      m5: m5_usageCompleted,
+      m6: m6_ragCompleted,
+      m6_timedOut: m6_ragTimedOut,
+      m7: m7_openaiCalled,
+    })
+
+    await stream.writeSSE({
+      data: JSON.stringify({
+        type: 'done',
+        tokensUsed: result.totalTokensUsed,
+        responseId: result.responseId,
+        phase,
+        model,
+      }),
+    })
+
+    deferDbWrite({
+      adjustReservedUsage: adjust,
+      recordUsage: record,
+      reservedAmount: maxTokens,
+      actualAmount: result.totalTokensUsed,
+      metadata: { model, phase, questionLength: question.length },
+      ctx: safeCtxV2,
+    })
   }
 
-  return Array.from(grouped.values())
-    .map((g) => `【${g.label}】\n${g.chunks.join('\n')}`)
-    .join('\n\n')
-}
+  const hasPreviousResponseId = !isSpeculative && !!previousResponseId
 
-// --- POST /api/ai/generate (SSE) ---
+  return createSSEResponse(async (stream) => {
+    try {
+      const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 15_000)
+      await executeOpenAIStream(stream, openai, { usePreviousResponseId: true })
+    } catch (error) {
+      console.error('generate-v2 OpenAI error:', {
+        phase,
+        model,
+        error: error instanceof Error ? { name: error.name, message: error.message, status: (error as unknown as Record<string, unknown>).status } : String(error),
+        hasPreviousResponseId: !!previousResponseId && !isSpeculative,
+      })
+
+      if (hasPreviousResponseId) {
+        console.info('generate-v2 retrying without previous_response_id', { phase, model })
+        try {
+          const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 15_000)
+          await executeOpenAIStream(stream, openai, { usePreviousResponseId: false })
+          return
+        } catch (retryError) {
+          console.error('generate-v2 retry also failed:', {
+            phase,
+            model,
+            error: retryError instanceof Error ? { name: retryError.name, message: retryError.message } : String(retryError),
+          })
+        }
+      }
+
+      await adjust(maxTokens, 0).catch(() => {})
+
+      await stream.writeSSE({
+        data: JSON.stringify({ type: 'error', error: mapOpenAIErrorToMessage(error) }),
+      })
+    }
+  }, safeCtxV2)
+})
+
+// ---------- /generate ----------
 
 app.post('/generate', async (c) => {
   const supabase = createSupabaseAdmin(c.env)
@@ -266,183 +301,125 @@ app.post('/generate', async (c) => {
     return c.json({ error: validation.error }, 400)
   }
 
-  const { question, context, includeDocumentContext, model, maxTokens, temperature, predictedAnswer, cascading } = validation
+  const { question, context, includeDocumentContext, model, maxTokens, temperature, previousResponseId, storeEnabled } = validation
 
-  const serverStartTime = Date.now()
-
-  // 最適化: usage check を先行実行し、profile + RAG は並列で取得
-  // usage check が最速で完了するため、NGなら即座に429を返せる
+  const turnId = sanitizeTurnId(c.req.header('X-Turn-Id'))
+  const m4_workerReceived = Date.now()
   const usagePromise = checkAndReserveUsage(supabase, userId, 'ai_tokens', maxTokens)
   const profilePromise = supabase.from('profiles').select('interview_profile').eq('id', userId).single()
+  const safeCtx = getSafeExecutionCtx(c)
   const docContextPromise = includeDocumentContext
-    ? fetchDocumentContext(supabase, c.env.OPENAI_API_KEY, userId, question)
+    ? fetchDocumentContext(supabase, c.env.OPENAI_API_KEY, userId, question, c.env, safeCtx)
     : Promise.resolve('')
 
-  // usage check を最優先で待つ（最も高速、NG時は他のPromiseを待たない）
   const usage = await usagePromise
+  const m5_usageCompleted = Date.now()
   if (!usage.allowed) {
-    // 先行実行済みPromiseの未ハンドル拒否を防止
-    profilePromise.catch(() => {})
+    Promise.resolve(profilePromise).catch(() => {})
     docContextPromise.catch(() => {})
     return c.json(
       {
-        error:
-          '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
+        error: ERROR_MESSAGES.USAGE_LIMIT,
         usage: { used: usage.used, limit: usage.limit, remaining: 0 },
       },
       429
     )
   }
 
-  // profile + RAG を並列で待つ（usage check中に既に実行開始済み）
-  const [profileResult, docContext] = await Promise.all([profilePromise, docContextPromise])
-  const prepMs = Date.now() - serverStartTime
-  console.debug(`[perf] Prep phase: ${prepMs}ms (usage+profile+RAG)`, { includeDocumentContext, docContextLen: docContext.length })
-
-  const profileContext = formatProfileContext(profileResult.data?.interview_profile)
-
-  // Prompt Caching最適化: 静的プレフィックスを先頭に配置し、動的部分を末尾に
-  // OpenAI は先頭1024+トークンの安定プレフィックスを自動キャッシュ → TTFT最大80%削減
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-  ]
-  if (profileContext) {
-    messages.push({ role: 'user', content: `【候補者プロフィール】\n${profileContext}` })
+  const contextResult = await Promise.all([profilePromise, docContextPromise]).catch(async () => {
+    await adjustReservedUsage(supabase, userId, 'ai_tokens', maxTokens, 0).catch(() => {})
+    return null
+  })
+  if (!contextResult) {
+    return c.json({ error: 'コンテキストの取得に失敗しました' }, 500)
   }
+  const [profileResult, docContext] = contextResult
+  const m6_ragCompleted = Date.now()
+  const m6_ragTimedOut = (m6_ragCompleted - m4_workerReceived) > RAG_SOFT_DEADLINE_MS
+
+  const profileContext = formatProfileContext((profileResult as { data: { interview_profile?: unknown } | null }).data?.interview_profile as import('../lib/profile').InterviewProfile | null | undefined)
+  const instructions = profileContext
+    ? `${SYSTEM_PROMPT}\n\n【候補者プロフィール】\n${profileContext}`
+    : SYSTEM_PROMPT
+
+  const input: Array<{ role: 'user'; content: string }> = []
   if (docContext) {
-    messages.push({ role: 'user', content: `【参考資料】\n${docContext}` })
+    input.push({ role: 'user', content: wrapUserInput('document_context', docContext) })
   }
   if (context) {
-    messages.push({ role: 'user', content: `【これまでの対話】\n${context}` })
+    input.push({ role: 'user', content: wrapUserInput('conversation_history', context) })
   }
-  messages.push({ role: 'user', content: `面接官の質問: ${question}` })
+  input.push({ role: 'user', content: wrapUserInput('interviewer_question', question) })
 
-  // SSEバッファリング防止: Cloudflare/プロキシがレスポンスをバッファリングして
-  // 一括送信するのを防ぐ。これがないとストリーミングが「一発で出力」される原因になる
-  c.header('X-Accel-Buffering', 'no')
-  c.header('Cache-Control', 'no-cache, no-transform')
+  const { adjust, record } = createDbWriteHelpers(supabase, userId)
 
-  return streamSSE(c, async (stream) => {
+  return createSSEResponse(async (stream) => {
     let totalTokensUsed = 0
-    let fullContent = ''
 
     try {
-      const openai = new OpenAI({ apiKey: c.env.OPENAI_API_KEY, timeout: 15_000 })
+      const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 15_000)
 
-      // Cascading Phase 1: 軽量プロンプトで即座に方向性を返す
-      if (cascading) {
-        await stream.writeSSE({
-          data: JSON.stringify({ type: 'phase', phase: 'quick' }),
-        })
-
-        const quickStream = await openai.chat.completions.create({
-          model: CASCADING_QUICK_MODEL,
-          messages: [
-            { role: 'system', content: CASCADING_QUICK_PROMPT },
-            { role: 'user', content: `面接官の質問: ${question}` },
-          ],
-          max_completion_tokens: 200,
-          reasoning_effort: 'minimal' as const,
-          stream: true,
-          stream_options: { include_usage: true },
-          store: false,
-        })
-
-        for await (const chunk of quickStream) {
-          const content = chunk.choices[0]?.delta?.content || ''
-          if (content) {
-            await stream.writeSSE({
-              data: JSON.stringify({ type: 'chunk', content }),
-            })
-          }
-          if (chunk.usage) {
-            totalTokensUsed += chunk.usage.total_tokens
-          }
-        }
-
-        // Phase 2 への切り替え
-        await stream.writeSSE({
-          data: JSON.stringify({ type: 'phase', phase: 'detailed' }),
-        })
-      }
-
-      // Phase 2（または cascading=false の場合は通常生成）
-      // Reasoningモデルはmax_completion_tokensに思考トークンも含まれるため、
-      // 出力が途切れないよう余裕を持たせる（+300トークン）
+      const m7_openaiCalled = Date.now()
       const effectiveMaxTokens = MODELS_WITH_REASONING.includes(model)
         ? maxTokens + 300
         : maxTokens
-      const openaiStream = await openai.chat.completions.create({
+
+      const openaiStream = await openai.responses.create({
         model,
-        messages,
-        max_completion_tokens: effectiveMaxTokens,
-        ...(MODELS_WITH_REASONING.includes(model) && { reasoning_effort: 'minimal' as const }),
+        instructions,
+        input,
+        max_output_tokens: effectiveMaxTokens,
+        ...(MODELS_WITH_REASONING.includes(model) && {
+          reasoning: { effort: model === COMMITTED_MODEL ? 'none' as const : 'minimal' as const },
+        }),
         ...(temperature !== undefined && { temperature }),
-        ...(predictedAnswer && { prediction: { type: 'content' as const, content: predictedAnswer } }),
-        stream: true,
-        stream_options: { include_usage: true },
-        store: false,
-        service_tier: 'auto' as const,
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+        store: storeEnabled,
+        stream: true as const,
       })
 
-      for await (const chunk of openaiStream) {
-        const content = chunk.choices[0]?.delta?.content || ''
-        if (content) {
-          fullContent += content
-          await stream.writeSSE({
-            data: JSON.stringify({ type: 'chunk', content }),
-          })
-        }
-        if (chunk.usage) {
-          totalTokensUsed += chunk.usage.total_tokens
-        }
-      }
+      const result = await processOpenAIStream(stream, openaiStream as AsyncIterable<{ type: string; delta?: string; response?: { id?: string; usage?: { total_tokens?: number } | null; error?: { message?: string } } }>, {
+        turnId,
+        m4: m4_workerReceived,
+        m5: m5_usageCompleted,
+        m6: m6_ragCompleted,
+        m6_timedOut: m6_ragTimedOut,
+        m7: m7_openaiCalled,
+      })
 
-      await adjustReservedUsage(supabase, userId, 'ai_tokens', maxTokens, totalTokensUsed)
-      if (totalTokensUsed > 0) {
-        await recordUsage(
-          supabase,
-          userId,
-          'ai_completion',
-          totalTokensUsed,
-          'tokens',
-          { model, questionLength: question.length },
-          true
-        )
-      }
+      totalTokensUsed = result.totalTokensUsed
 
       await stream.writeSSE({
         data: JSON.stringify({
           type: 'done',
-          tokensUsed: totalTokensUsed,
+          tokensUsed: result.totalTokensUsed,
+          responseId: result.responseId,
+          model,
         }),
       })
+
+      deferDbWrite({
+        adjustReservedUsage: adjust,
+        recordUsage: record,
+        reservedAmount: maxTokens,
+        actualAmount: result.totalTokensUsed,
+        metadata: { model, questionLength: question.length },
+        ctx: safeCtx,
+      })
     } catch (error) {
-      // ストリーム中断時: 実際に消費されたトークン分を計上（0の場合は全額返却）
       if (totalTokensUsed > 0) {
         console.warn('Stream interrupted with partial consumption', { totalTokensUsed, maxTokens })
       }
-      await adjustReservedUsage(supabase, userId, 'ai_tokens', maxTokens, totalTokensUsed).catch(() => {})
-
-      let errorMessage = 'AI処理中にエラーが発生しました。しばらく待ってから再度お試しください。'
-      if (error instanceof Error) {
-        if ('status' in error && (error as { status: number }).status === 429) {
-          errorMessage = 'AIサービスが混み合っています。しばらく待ってから再度お試しください。'
-        } else if ('status' in error && (error as { status: number }).status === 401) {
-          errorMessage = 'AIサービスの認証エラーが発生しました。'
-        } else if (error.message.includes('timeout')) {
-          errorMessage = 'AIの応答がタイムアウトしました。再度お試しください。'
-        }
-      }
+      await adjust(maxTokens, totalTokensUsed).catch(() => {})
 
       await stream.writeSSE({
-        data: JSON.stringify({ type: 'error', error: errorMessage }),
+        data: JSON.stringify({ type: 'error', error: mapOpenAIErrorToMessage(error) }),
       })
     }
-  })
+  }, safeCtx)
 })
 
-// --- POST /api/ai/summarize ---
+// ---------- /summarize ----------
 
 app.post('/summarize', async (c) => {
   const supabase = createSupabaseAdmin(c.env)
@@ -471,57 +448,55 @@ app.post('/summarize', async (c) => {
   if (!summarizeUsage.allowed) {
     return c.json(
       {
-        error: '今月のAIトークン上限に達しました。',
+        error: ERROR_MESSAGES.USAGE_LIMIT,
         usage: { used: summarizeUsage.used, limit: summarizeUsage.limit, remaining: 0 },
       },
       429
     )
   }
 
+  const wrappedInterviewer = wrapUserInput('interviewer', interviewer)
+  const wrappedCandidate = wrapUserInput('candidate', candidate)
   const userMessage = previousSummary
-    ? `【現在の要約】\n${previousSummary}\n\n【新しい対話】\n面接官: ${interviewer}\n候補者: ${candidate}\n\n上記を統合した要約を出力してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソードを明記（例: 「○○PJでの△△経験を言及済み」）。\n100-200文字で簡潔に。`
-    : `【対話】\n面接官: ${interviewer}\n候補者: ${candidate}\n\n候補者の回答を要約してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソード: 「○○PJでの△△経験」の形式で記録。\n50-100文字で簡潔に。`
+    ? `【現在の要約】\n${previousSummary}\n\n【新しい対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n上記を統合した要約を出力してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソードを明記（例: 「○○PJでの△△経験を言及済み」）。\n100-200文字で簡潔に。`
+    : `【対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n候補者の回答を要約してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソード: 「○○PJでの△△経験」の形式で記録。\n50-100文字で簡潔に。`
+
+  const { adjust, record } = createDbWriteHelpers(supabase, userId)
 
   try {
-    const openai = new OpenAI({ apiKey: c.env.OPENAI_API_KEY, timeout: 10_000 })
+    const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 10_000)
     const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+      model: SUMMARIZE_MODEL,
       messages: [
         { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
       ],
       max_completion_tokens: SUMMARIZE_MAX_TOKENS,
-      reasoning_effort: 'minimal' as const,
       store: false,
     })
 
     const content = response.choices[0]?.message?.content || ''
     const tokensUsed = response.usage?.total_tokens || 0
 
-    await adjustReservedUsage(supabase, userId, 'ai_tokens', SUMMARIZE_MAX_TOKENS, tokensUsed)
-    if (tokensUsed > 0) {
-      await recordUsage(
-        supabase,
-        userId,
-        'ai_completion',
-        tokensUsed,
-        'tokens',
-        { model: DEFAULT_MODEL, type: 'summarize' },
-        true
-      )
-    }
+    const safeCtxSummarize = getSafeExecutionCtx(c)
+    deferDbWrite({
+      adjustReservedUsage: adjust,
+      recordUsage: record,
+      reservedAmount: SUMMARIZE_MAX_TOKENS,
+      actualAmount: tokensUsed,
+      metadata: { model: SUMMARIZE_MODEL, type: 'summarize' },
+      ctx: safeCtxSummarize,
+    })
 
     return c.json({ success: true, summary: content.trim() })
   } catch (error) {
-    await adjustReservedUsage(supabase, userId, 'ai_tokens', SUMMARIZE_MAX_TOKENS, 0).catch(
-      () => {}
-    )
-    console.error('Summarization failed:', error)
+    await adjust(SUMMARIZE_MAX_TOKENS, 0).catch(() => {})
+    console.error('Summarization failed:', error instanceof Error ? error.message : String(error))
     return c.json({ error: '要約生成に失敗しました。' }, 500)
   }
 })
 
-// --- POST /api/ai/prefetch-context ---
+// ---------- /prefetch-context ----------
 
 app.post('/prefetch-context', async (c) => {
   const supabase = createSupabaseAdmin(c.env)
@@ -531,7 +506,7 @@ app.post('/prefetch-context', async (c) => {
     .from('document_chunks')
     .select('content, documents!inner (type, name)')
     .eq('user_id', userId)
-    .in('documents.type', ['resume', 'job_posting'])
+    .in('documents.type', ['resume', 'job_posting', 'expected_qa'])
 
   if (error) {
     return c.json({ error: 'Failed to fetch document context' }, 500)
@@ -541,73 +516,43 @@ app.post('/prefetch-context', async (c) => {
     return c.json({ success: true, context: '' })
   }
 
-  const grouped = new Map<string, { label: string; chunks: string[] }>()
-  for (const chunk of chunks) {
+  const items = chunks.map((chunk) => {
     const doc = chunk.documents as unknown as { type: string; name: string }
-    const key = `${doc.type}:${doc.name}`
-    if (!grouped.has(key)) {
-      const labelMap: Record<string, string> = { resume: '履歴書', job_posting: '求人票' }
-      const label = labelMap[doc.type] || doc.type
-      grouped.set(key, { label: `${label}: ${doc.name}`, chunks: [] })
+    return {
+      key: `${doc.type}:${doc.name}`,
+      type: doc.type,
+      name: doc.name,
+      content: chunk.content,
     }
-    grouped.get(key)!.chunks.push(chunk.content)
-  }
+  })
 
-  const contextText = Array.from(grouped.values())
-    .map((g) => `【${g.label}】\n${g.chunks.join('\n')}`)
-    .join('\n\n')
-    .slice(0, MAX_CONTEXT_LENGTH)
+  const contextText = formatGroupedContext(
+    groupDocumentChunks(items),
+    MAX_CONTEXT_LENGTH
+  )
 
   return c.json({ success: true, context: contextText })
 })
 
-// --- POST /api/ai/embeddings ---
+// ---------- /embeddings ----------
 
 app.post('/embeddings', async (c) => {
   const supabase = createSupabaseAdmin(c.env)
   const { sub: userId } = c.get('jwtPayload')
 
-  let body: { text?: string; texts?: string[] }
+  let body: unknown
   try {
-    body = await c.req.json<{ text?: string; texts?: string[] }>()
+    body = await c.req.json()
   } catch {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  const { text, texts } = body
-
-  if (!text && !texts) {
-    return c.json({ error: 'text or texts is required' }, 400)
+  const validation = validateEmbeddingsRequest(body)
+  if ('error' in validation) {
+    return c.json({ error: validation.error }, 400)
   }
 
-  let inputTexts: string[]
-
-  if (text) {
-    if (typeof text !== 'string' || text.trim().length === 0) {
-      return c.json({ error: 'text must be a non-empty string' }, 400)
-    }
-    if (text.length > MAX_TEXT_LENGTH) {
-      return c.json({ error: `text must be less than ${MAX_TEXT_LENGTH} characters` }, 400)
-    }
-    inputTexts = [text]
-  } else {
-    if (!Array.isArray(texts) || texts.length === 0) {
-      return c.json({ error: 'texts must be a non-empty array' }, 400)
-    }
-    if (texts.length > MAX_TEXTS) {
-      return c.json({ error: `texts must have at most ${MAX_TEXTS} items` }, 400)
-    }
-    for (const t of texts) {
-      if (typeof t !== 'string' || t.trim().length === 0) {
-        return c.json({ error: 'Each text must be a non-empty string' }, 400)
-      }
-      if (t.length > MAX_TEXT_LENGTH) {
-        return c.json({ error: `Each text must be less than ${MAX_TEXT_LENGTH} characters` }, 400)
-      }
-    }
-    inputTexts = texts
-  }
-
+  const { inputTexts } = validation
   const totalChars = inputTexts.reduce((sum, t) => sum + t.length, 0)
   const estimatedTokens = Math.ceil(totalChars * 0.5)
 
@@ -615,8 +560,7 @@ app.post('/embeddings', async (c) => {
   if (!embeddingUsage.allowed) {
     return c.json(
       {
-        error:
-          '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
+        error: ERROR_MESSAGES.USAGE_LIMIT,
         usage: { used: embeddingUsage.used, limit: embeddingUsage.limit, remaining: 0 },
       },
       429
@@ -624,31 +568,19 @@ app.post('/embeddings', async (c) => {
   }
 
   try {
-    let embeddings: number[][]
+    const embeddings = inputTexts.length === 1
+      ? [await generateEmbedding(inputTexts[0], c.env.OPENAI_API_KEY, c.env)]
+      : await generateEmbeddings(inputTexts, c.env.OPENAI_API_KEY, c.env)
 
-    if (inputTexts.length === 1) {
-      const embedding = await generateEmbedding(inputTexts[0], c.env.OPENAI_API_KEY)
-      embeddings = [embedding]
-    } else {
-      embeddings = await generateEmbeddings(inputTexts, c.env.OPENAI_API_KEY)
-    }
-
-    await recordUsage(
-      supabase,
-      userId,
-      'embedding',
-      estimatedTokens,
-      'tokens',
-      { textCount: inputTexts.length, totalChars },
-      true
-    )
+    await recordUsage(supabase, userId, 'embedding', estimatedTokens, 'tokens',
+      { textCount: inputTexts.length, totalChars }, true)
     await adjustReservedUsage(supabase, userId, 'ai_tokens', estimatedTokens, estimatedTokens)
 
     return c.json({ success: true, embeddings })
   } catch (error) {
     await adjustReservedUsage(supabase, userId, 'ai_tokens', estimatedTokens, 0)
-    console.error('Embedding generation failed:', error)
-    throw new Error('Failed to generate embeddings')
+    console.error('Embedding generation failed:', error instanceof Error ? error.message : String(error))
+    return c.json({ error: 'Failed to generate embeddings' }, 500)
   }
 })
 

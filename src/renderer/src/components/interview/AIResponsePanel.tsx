@@ -1,6 +1,7 @@
 /**
  * AI回答パネル
  * ストリーミングAI回答 + 想定質問マッチ表示 + 自動スクロール
+ * Phase 2: Speculative（薄い色・下書き）/ Committed（通常色・確定）フェーズ別スタイリング
  */
 
 import { useRef, useEffect, useCallback } from 'react'
@@ -23,8 +24,36 @@ function AIResponseSkeleton() {
   )
 }
 
+function PhaseIndicator({ phase, isGenerating }: { phase: string | null; isGenerating: boolean }) {
+  if (!isGenerating) return null
+
+  if (phase === 'speculative') {
+    return (
+      <span className="text-[10px] text-accent/60 flex items-center gap-1.5 animate-pulse">
+        <Spinner size="sm" className="text-accent/60" />
+        下書き中...
+      </span>
+    )
+  }
+
+  if (phase === 'transitioning') {
+    return (
+      <span className="text-[10px] text-success flex items-center gap-1.5">
+        確認中...
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-[10px] text-accent flex items-center gap-1.5 animate-pulse">
+      <Spinner size="sm" className="text-accent" />
+      生成中...
+    </span>
+  )
+}
+
 export function AIResponsePanel() {
-  const { aiResponse, streamingText, isGenerating, cachedMatch } = useInterview()
+  const { aiResponse, streamingText, isGenerating, currentPhase, cachedMatch } = useInterview()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -47,6 +76,8 @@ export function AIResponsePanel() {
     ? (streamingText || aiResponse?.answer)
     : (aiResponse?.answer || streamingText)
 
+  const isSpeculative = currentPhase === 'speculative'
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-accent/[0.02]">
       {/* ヘッダー */}
@@ -59,10 +90,7 @@ export function AIResponsePanel() {
           {cachedMatch ? (
             <span className="text-[10px] text-success font-medium">即時マッチ</span>
           ) : isGenerating ? (
-            <span className="text-[10px] text-accent flex items-center gap-1.5 animate-pulse">
-              <Spinner size="sm" className="text-accent" />
-              生成中...
-            </span>
+            <PhaseIndicator phase={currentPhase} isGenerating={isGenerating} />
           ) : aiResponse ? (
             <span className="text-[10px] text-success font-medium">完了</span>
           ) : null}
@@ -104,13 +132,29 @@ export function AIResponsePanel() {
         ) : (
           <div className="space-y-3">
             <div className="chat chat-start">
-              <div className="chat-header text-[10px] text-content-secondary mb-0.5">
-                AI アシスタント
+              <div className="chat-header text-[10px] mb-0.5">
+                {isSpeculative ? (
+                  <span className="text-accent/50 italic">下書き（確定前）</span>
+                ) : (
+                  <span className="text-content-secondary">AI アシスタント</span>
+                )}
               </div>
-              <div className="chat-bubble bg-accent/10 text-content text-[13px] leading-relaxed min-h-0 font-medium whitespace-pre-wrap">
+              <div
+                className={[
+                  'chat-bubble text-[13px] leading-relaxed min-h-0 font-medium whitespace-pre-wrap transition-all duration-300',
+                  isSpeculative
+                    ? 'bg-accent/5 text-content/50 italic'
+                    : 'bg-accent/10 text-content',
+                ].join(' ')}
+              >
                 {displayText}
                 {isGenerating && streamingText && (
-                  <span className="inline-block w-0.5 h-3.5 bg-accent ml-0.5 animate-pulse" />
+                  <span
+                    className={[
+                      'inline-block w-0.5 h-3.5 ml-0.5 animate-pulse',
+                      isSpeculative ? 'bg-accent/40' : 'bg-accent',
+                    ].join(' ')}
+                  />
                 )}
               </div>
             </div>

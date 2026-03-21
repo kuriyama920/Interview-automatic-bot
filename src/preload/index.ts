@@ -100,11 +100,13 @@ const ALLOWED_INVOKE_CHANNELS = [
   'ai:init',
   'ai:generate',
   'ai:generateStream',
+  'ai:generateStreamV2',
   'ai:summarize',
   'ai:prefetchContext',
   'ai:abort',
+  'ai:isV2Available',
+  'ai:resetV2',
   'ai:status',
-  'ai:warm',
   'context:init',
   'document:upload',
   'document:list',
@@ -202,14 +204,19 @@ const electronAPI = {
     init: (apiKey?: string) => ipcRenderer.invoke('ai:init', apiKey),
     generate: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
       ipcRenderer.invoke('ai:generate', question, context, options),
-    generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number; predictedAnswer?: string }) =>
+    generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
       ipcRenderer.invoke('ai:generateStream', question, context, options),
+    generateStreamV2: (question: string, context?: string, phase?: 'speculative' | 'committed', options?: { includeDocumentContext?: boolean; maxTokens?: number; speculativeText?: string; turnId?: string }) =>
+      ipcRenderer.invoke('ai:generateStreamV2', question, context, phase, options),
     summarize: (previousSummary: string, interviewer: string, candidate: string): Promise<{ success: boolean; summary?: string; error?: string }> =>
       ipcRenderer.invoke('ai:summarize', previousSummary, interviewer, candidate),
     prefetchContext: (): Promise<{ success: boolean; context?: string; error?: string }> =>
       ipcRenderer.invoke('ai:prefetchContext'),
     abort: () => ipcRenderer.invoke('ai:abort'),
-    warm: (): Promise<{ success: boolean }> => ipcRenderer.invoke('ai:warm'),
+    isV2Available: (): Promise<{ success: boolean; available?: boolean }> =>
+      ipcRenderer.invoke('ai:isV2Available'),
+    resetV2: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('ai:resetV2'),
     status: () => ipcRenderer.invoke('ai:status'),
     onChunk: (callback: (chunk: string) => void) => {
       ipcRenderer.on('ai:chunk', (_event, chunk) => callback(chunk))

@@ -4,13 +4,15 @@
  * InterviewPage表示時のみマウント（他ページで不要なhook初期化を防ぐ）
  */
 
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { shouldAdoptSpeculative } from '../utils/speculative-adoption'
 import { useSTT } from '../hooks/useSTT'
 import { useAudioCapture } from '../hooks/useAudioCapture'
 import { useAIResponse } from '../hooks/useAIResponse'
 import { useProgressiveAI } from '../hooks/useProgressiveAI'
 import { useConversationHistory } from '../hooks/useConversationHistory'
 import { useDocumentContextCache } from '../hooks/useDocumentContextCache'
+import { useLatencyMetrics } from '../hooks/useLatencyMetrics'
 import { useToast } from '../hooks/useToast'
 import { useNavigation } from './NavigationContext'
 
@@ -28,7 +30,7 @@ interface InterviewContextValue {
   aiResponse: AIResponse | null
   streamingText: string
   isGenerating: boolean
-  currentPhase: string | null
+  currentPhase: AIPhase | null
   cachedMatch: { answer: string; similarity: number } | null
   // Actions
   handleStart: () => Promise<void>
@@ -69,6 +71,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     stopCapture,
   } = useAudioCapture()
 
+  // レイテンシ計測基盤（Phase 1 A-17） — useAIResponseより先に初期化
+  const latencyMetrics = useLatencyMetrics()
+
   const {
     response: aiResponse,
     streamingText,
@@ -76,9 +81,18 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     error: aiError,
     currentPhase,
     generateStreamResponse,
+    generateStreamResponseV2,
     abortGeneration,
     clearResponse,
-  } = useAIResponse()
+  } = useAIResponse({ onMetrics: latencyMetrics })
+
+  // speculativeTextRef: Speculative生成中のstreamingTextを保持（Committed Laneでの比較用）
+  const speculativeTextRef = useRef<string>('')
+  useEffect(() => {
+    if (currentPhase === 'speculative') {
+      speculativeTextRef.current = streamingText
+    }
+  }, [currentPhase, streamingText])
 
   const conversationHistory = useConversationHistory({
     transcripts,
@@ -96,6 +110,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     refreshQuestionCache,
     clearQuestionCache,
     resetProgressiveAI,
+    pendingCommittedTurnIdRef,
   } = useProgressiveAI({
     currentText,
     currentSource,
@@ -106,12 +121,37 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     cachedDocumentContextRef,
     generateStreamResponse,
     abortGeneration,
+    generateStreamResponseV2,
+    speculativeTextRef,
+    onMetrics: latencyMetrics,
   })
 
   // 録音状態をナビゲーションコンテキストに同期
   useEffect(() => {
     setIsRecording(isCapturing)
   }, [isCapturing, setIsRecording])
+
+  // W-01: Speculative採用判定（Committed完了後に実行）
+  const prevIsGeneratingRef = useRef(false)
+  useEffect(() => {
+    const wasGenerating = prevIsGeneratingRef.current
+    prevIsGeneratingRef.current = isGenerating
+
+    // isGenerating: true → false の遷移を検知
+    if (wasGenerating && !isGenerating && pendingCommittedTurnIdRef.current) {
+      const turnId = pendingCommittedTurnIdRef.current
+      const specText = speculativeTextRef.current
+      const committedText = aiResponse?.answer || streamingText
+
+      if (specText && committedText) {
+        const result = shouldAdoptSpeculative(specText, committedText)
+        latencyMetrics.record(turnId, 'speculative_adopted', result.adopted)
+        latencyMetrics.record(turnId, 'speculative_changeRate', result.changeRate)
+        latencyMetrics.record(turnId, 'speculative_reason', result.reason)
+      }
+      pendingCommittedTurnIdRef.current = null
+    }
+  }, [isGenerating, aiResponse, streamingText, latencyMetrics, pendingCommittedTurnIdRef])
 
   const handleStart = useCallback(async () => {
     setIsLoading(true)
@@ -120,9 +160,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     clearResponse()
 
     try {
-      // 並列で事前処理: ドキュメントコンテキスト取得 + OpenAI接続プリウォーム
+      // ドキュメントコンテキスト事前取得
       prefetchDocumentContext()
-      window.electron.ai.warm().catch(() => {})
       await connect()
       await startCapture()
       toast.success('録音を開始しました')

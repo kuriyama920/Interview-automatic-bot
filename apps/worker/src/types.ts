@@ -28,6 +28,10 @@ export type Env = {
 
   // Deepgram
   DEEPGRAM_API_KEY: string
+
+  // Cloudflare AI Gateway (Optional)
+  CF_ACCOUNT_ID?: string
+  CF_AI_GATEWAY_ID?: string
 }
 
 /**

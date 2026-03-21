@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
 import * as fs from 'fs/promises'
 import { STTService, type TranscriptResult } from '../services/stt.service'
 import { aiService, type AIResponse, type GenerateOptions } from '../services/ai.service'
+import { interviewSession } from '../services/session.service'
 import { contextService } from '../services/context.service'
 import { questionsService } from '../services/questions.service'
 import { authService } from '../services/auth.service'
@@ -14,6 +15,17 @@ type AudioSource = 'mic' | 'system' | 'both'
 
 const log = createLogger('IPC')
 
+/** Stripe の checkout/portal URL のみ外部ブラウザで開く（SSRF/任意URL防止） */
+const ALLOWED_STRIPE_HOSTS = ['checkout.stripe.com', 'billing.stripe.com']
+function isStripeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && ALLOWED_STRIPE_HOSTS.includes(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
 // 音声ソースごとに独立したSTT接続を管理
 // 'both'モード: mic用とsystem用の2つの接続
 // 'mic'/'system'モード: 単一接続
@@ -25,6 +37,13 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
 
   const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+
+  /** Lazy-initialize AI service if not already initialized */
+  function ensureAIInitialized(): void {
+    if (!aiService.isInitialized()) {
+      aiService.initialize({ apiBaseUrl: API_BASE_URL })
+    }
+  }
 
   // ウィンドウ操作
   ipcMain.handle('window:minimize', () => {
@@ -129,6 +148,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('stt:start', async () => {
     log.info('stt:start called')
     try {
+      interviewSession.startSession()
       audioChunkCount = 0
       const audioSource = currentAudioSource
 
@@ -200,6 +220,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // 音声認識停止（使用量を報告）
   ipcMain.handle('stt:stop', async () => {
     log.info('stt:stop called', { connections: sttServices.size })
+    interviewSession.endSession()
     try {
       let totalMinutes = 0
       for (const [source, service] of sttServices) {
@@ -294,9 +315,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('ai:generate', async (_event: unknown, question: string, context?: string, options?: GenerateOptions) => {
     log.info('ai:generate called', { questionLength: question.length })
     try {
-      if (!aiService.isInitialized()) {
-        aiService.initialize({ apiBaseUrl: API_BASE_URL })
-      }
+      ensureAIInitialized()
       const response: AIResponse = await aiService.generateResponse(question, context, options)
       log.info('AI response generated')
       return { success: true, response }
@@ -329,25 +348,36 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     const { signal } = currentAIAbortController
 
     try {
-      if (!aiService.isInitialized()) {
-        aiService.initialize({ apiBaseUrl: API_BASE_URL })
+      ensureAIInitialized()
+
+      const optionsWithSession: GenerateOptions = {
+        ...options,
+        previousResponseId: interviewSession.getPreviousResponseId() ?? undefined,
+        storeEnabled: true,  // Responses API のターン連鎖に必要
       }
 
       const response = await aiService.generateStreamResponse(
         question,
         explicitContext || undefined,
-        (chunk: string) => {
-          if (!signal.aborted) {
-            mainWindow.webContents.send('ai:chunk', chunk)
-          }
+        {
+          onChunk: (chunk: string) => {
+            if (!signal.aborted) {
+              mainWindow.webContents.send('ai:chunk', chunk)
+            }
+          },
+          onPhase: (phase: string) => {
+            if (!signal.aborted) {
+              mainWindow.webContents.send('ai:phase', phase)
+            }
+          },
+          onDone: (doneData) => {
+            if (doneData.responseId) {
+              interviewSession.setPreviousResponseId(doneData.responseId)
+            }
+          },
         },
         signal,
-        options,
-        (phase: string) => {
-          if (!signal.aborted) {
-            mainWindow.webContents.send('ai:phase', phase)
-          }
-        },
+        optionsWithSession,
       )
 
       const totalMs = Date.now() - ipcStartTime
@@ -372,6 +402,80 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
+  // AIストリーム回答生成 v2（Speculative/Committed Lane分離）
+  ipcMain.handle('ai:generateStreamV2', async (_event, question: string, explicitContext?: string, phase?: 'speculative' | 'committed', options?: GenerateOptions) => {
+    const ipcStartTime = Date.now()
+    const effectivePhase = phase ?? 'committed'
+    log.info('ai:generateStreamV2 called', { questionLength: question.length, phase: effectivePhase })
+
+    if (currentAIAbortController) {
+      log.info('Aborting previous AI generation (v2)')
+      currentAIAbortController.abort()
+    }
+    currentAIAbortController = new AbortController()
+    const { signal } = currentAIAbortController
+
+    try {
+      ensureAIInitialized()
+
+      // Committed Laneのみ previousResponseId を注入（Speculative は独立して生成）
+      // モデルミスマッチ防止: V1フォールバック(gpt-5-nano)のIDをV2 committed(gpt-5.4-nano)に渡さない
+      const optionsWithSession: GenerateOptions = {
+        ...options,
+        ...(effectivePhase === 'committed' && {
+          previousResponseId: interviewSession.getPreviousResponseIdForModel('gpt-5.4-nano') ?? undefined,
+          storeEnabled: true,  // Responses API のターン連鎖に必要
+        }),
+      }
+
+      const response = await aiService.generateStreamResponseV2(
+        question,
+        explicitContext || undefined,
+        effectivePhase,
+        {
+          onChunk: (chunk: string) => {
+            if (!signal.aborted) {
+              mainWindow.webContents.send('ai:chunk', chunk)
+            }
+          },
+          onPhase: (p: string) => {
+            if (!signal.aborted) {
+              mainWindow.webContents.send('ai:phase', p)
+            }
+          },
+          onDone: (doneData) => {
+            // Committed Lane完了時のみ previousResponseId を更新（モデル情報も記録）
+            if (effectivePhase === 'committed' && doneData.responseId) {
+              interviewSession.setPreviousResponseId(doneData.responseId, doneData.model ?? undefined)
+            }
+          },
+        },
+        signal,
+        optionsWithSession,
+      )
+
+      const totalMs = Date.now() - ipcStartTime
+      if (!signal.aborted) {
+        log.info('Sending ai:complete to renderer (v2)', {
+          answerLength: response.answer.length,
+          phase: effectivePhase,
+          totalMs,
+        })
+        mainWindow.webContents.send('ai:complete', response)
+      }
+      return { success: true, response }
+    } catch (error) {
+      const errorStr = String(error)
+      if (signal.aborted || errorStr.includes('aborted')) {
+        log.info('AI v2 generation aborted (intentional)')
+        return { success: false, error: 'aborted' }
+      }
+      log.error('Failed to generate AI stream v2 response', { error: errorStr })
+      mainWindow.webContents.send('ai:error', errorStr)
+      return { success: false, error: errorStr }
+    }
+  })
+
   // AI要約
   ipcMain.handle('ai:summarize', async (_event, previousSummary: unknown, interviewer: unknown, candidate: unknown) => {
     if (typeof interviewer !== 'string' || typeof candidate !== 'string') {
@@ -385,9 +489,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
 
     log.debug('ai:summarize called', { interviewerLength: interviewer.length })
     try {
-      if (!aiService.isInitialized()) {
-        aiService.initialize({ apiBaseUrl: API_BASE_URL })
-      }
+      ensureAIInitialized()
       const summary = await aiService.summarizeTurn(safePreviousSummary, interviewer, candidate)
       return { success: true, summary }
     } catch (error) {
@@ -400,9 +502,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   ipcMain.handle('ai:prefetchContext', async () => {
     log.debug('ai:prefetchContext called')
     try {
-      if (!aiService.isInitialized()) {
-        aiService.initialize({ apiBaseUrl: API_BASE_URL })
-      }
+      ensureAIInitialized()
       const context = await aiService.prefetchContext()
       return { success: true, context }
     } catch (error) {
@@ -411,23 +511,19 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     }
   })
 
-  ipcMain.handle('ai:status', () => {
-    return { initialized: aiService.isInitialized() }
+  ipcMain.handle('ai:isV2Available', () => {
+    ensureAIInitialized()
+    return { success: true, available: aiService.isV2Available() }
   })
 
-  // OpenAI接続プリウォーム（セッション開始時にHTTP/2接続を事前確立）
-  ipcMain.handle('ai:warm', async () => {
-    log.debug('ai:warm called')
-    try {
-      if (!aiService.isInitialized()) {
-        aiService.initialize({ apiBaseUrl: API_BASE_URL })
-      }
-      await aiService.warmConnection()
-      return { success: true }
-    } catch (error) {
-      log.warn('AI warm-up failed (non-blocking)', { error: String(error) })
-      return { success: true }
-    }
+  ipcMain.handle('ai:resetV2', () => {
+    ensureAIInitialized()
+    aiService.resetV2()
+    return { success: true }
+  })
+
+  ipcMain.handle('ai:status', () => {
+    return { initialized: aiService.isInitialized() }
   })
 
   // Context初期化
@@ -547,8 +643,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         return { success: false, error: errorData.error || 'Failed to create checkout session' }
       }
       const { url } = await response.json() as { url?: string }
-      if (url) {
+      if (url && isStripeUrl(url)) {
         await shell.openExternal(url)
+      } else if (url) {
+        log.warn('Blocked non-Stripe URL from openExternal', { url })
       }
       return { success: true }
     } catch (error) {
@@ -573,8 +671,10 @@ export function setupIPC(mainWindow: BrowserWindow): void {
         return { success: false, error: errorData.error || 'Failed to create portal session' }
       }
       const { url } = await response.json() as { url?: string }
-      if (url) {
+      if (url && isStripeUrl(url)) {
         await shell.openExternal(url)
+      } else if (url) {
+        log.warn('Blocked non-Stripe URL from openExternal', { url })
       }
       return { success: true }
     } catch (error) {

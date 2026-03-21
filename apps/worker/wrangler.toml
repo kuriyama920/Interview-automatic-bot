@@ -8,12 +8,17 @@ workers_dev = true
 [placement]
 mode = "smart"
 
-# カスタムドメイン: ネームサーバー変更後に有効化
-# Cloudflareネームサーバー: hassan.ns.cloudflare.com, josephine.ns.cloudflare.com
-# 現在: ns1.vercel-dns.com → 要切替
+# カスタムドメイン: 現在 workers.dev サブドメインを使用
+# URL: interview-bot-api.interviewautomaticbot92.workers.dev
 # routes = [
-#   { pattern = "api.interviewbot.app", custom_domain = true }
+#   { pattern = "interview-bot-api.interviewautomaticbot92.workers.dev", custom_domain = true }
 # ]
 
 [triggers]
 crons = ["0 0 1 * *"]
+
+# Cloudflare AI Gateway
+# CF_ACCOUNT_ID と CF_AI_GATEWAY_ID は Cloudflare Dashboard > Workers > Settings > Variables で設定
+# または: npx wrangler secret put CF_ACCOUNT_ID / npx wrangler secret put CF_AI_GATEWAY_ID
+[vars]
+CF_AI_GATEWAY_ID = "interview-bot-gw"

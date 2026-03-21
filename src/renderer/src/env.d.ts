@@ -53,6 +53,8 @@ interface InterviewProfile {
   additionalNotes?: string
 }
 
+type AIPhase = 'speculative' | 'committed' | 'detailed'
+
 type AudioSource = 'mic' | 'system' | 'both'
 
 interface DocumentInfo {
@@ -89,11 +91,19 @@ interface AuthState {
   error: string | null
 }
 
+/**
+ * AI生成オプション（レンダラー → IPC層への公開インターフェース）
+ *
+ * NOTE: previousResponseId と storeEnabled は意図的に含めない。
+ * - previousResponseId: ipc.ts が session.service からセッション単位で注入する
+ * - storeEnabled: ipc.ts が設定値から注入する予定（ユーザーの同意状態）
+ * サーバーサイド内部オプションは ai.service.ts の GenerateOptions に定義される。
+ */
 interface GenerateOptions {
   includeDocumentContext?: boolean
   maxTokens?: number
-  predictedAnswer?: string
-  cascading?: boolean
+  turnId?: string
+  speculativeText?: string
 }
 
 interface Window {
@@ -126,6 +136,12 @@ interface Window {
         context?: string,
         options?: GenerateOptions
       ) => Promise<{ success: boolean; response?: AIResponse; error?: string }>
+      generateStreamV2: (
+        question: string,
+        context?: string,
+        phase?: 'speculative' | 'committed',
+        options?: GenerateOptions
+      ) => Promise<{ success: boolean; response?: AIResponse; error?: string }>
       summarize: (
         previousSummary: string,
         interviewer: string,
@@ -133,7 +149,8 @@ interface Window {
       ) => Promise<{ success: boolean; summary?: string; error?: string }>
       prefetchContext: () => Promise<{ success: boolean; context?: string; error?: string }>
       abort: () => Promise<void>
-      warm: () => Promise<{ success: boolean }>
+      isV2Available: () => Promise<{ success: boolean; available?: boolean }>
+      resetV2: () => Promise<{ success: boolean }>
       status: () => Promise<{ initialized: boolean }>
       onChunk: (callback: (chunk: string) => void) => void
       onComplete: (callback: (response: AIResponse) => void) => void

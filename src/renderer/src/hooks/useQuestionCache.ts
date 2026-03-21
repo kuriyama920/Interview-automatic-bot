@@ -23,7 +23,6 @@ export interface QuestionMatch {
 }
 
 const MATCH_THRESHOLD = 0.65
-const PARTIAL_MATCH_THRESHOLD = 0.4
 const MIN_QUERY_LENGTH = 6
 
 /** テキストからビグラムセットを生成（日本語対応） */
@@ -34,6 +33,32 @@ export function computeBigrams(text: string): Set<string> {
     set.add(normalized.substring(i, i + 2))
   }
   return set
+}
+
+/** モジュールレベルのBigramキャッシュ（セッション内有効） */
+const bigramCache = new Map<string, Set<string>>()
+
+const BIGRAM_CACHE_MAX_SIZE = 200
+
+/** Bigramキャッシュをクリア（テスト用） */
+export function clearBigramCache(): void {
+  bigramCache.clear()
+}
+
+/** キャッシュ付きBigram取得（セッション内メモ化） */
+export function getCachedBigrams(text: string): Set<string> {
+  const cached = bigramCache.get(text)
+  if (cached !== undefined) {
+    return cached
+  }
+  if (bigramCache.size >= BIGRAM_CACHE_MAX_SIZE) {
+    // キャッシュサイズ制限（メモリリーク防止）- 最古のエントリを削除
+    const oldestKey = bigramCache.keys().next().value!
+    bigramCache.delete(oldestKey)
+  }
+  const bigrams = computeBigrams(text)
+  bigramCache.set(text, bigrams)
+  return bigrams
 }
 
 /** Jaccard 類似度（ビグラム） */
@@ -84,7 +109,7 @@ export function useQuestionCache() {
     const trimmed = query.replace(/[\s、。？！「」（）\u3000]/g, '')
     if (trimmed.length < MIN_QUERY_LENGTH) return null
 
-    const queryBigrams = computeBigrams(query)
+    const queryBigrams = getCachedBigrams(query)
     let bestMatch: QuestionMatch | null = null
     let bestSimilarity = 0
 
@@ -111,46 +136,13 @@ export function useQuestionCache() {
     return bestMatch
   }, [])
 
-  /** 部分マッチ: 完全マッチ未満だが類似度0.4以上の場合にPredicted Outputs用として返す */
-  const findPartialMatch = useCallback((query: string): QuestionMatch | null => {
-    if (!loadedRef.current || cacheRef.current.length === 0) return null
-
-    const trimmed = query.replace(/[\s、。？！「」（）\u3000]/g, '')
-    if (trimmed.length < MIN_QUERY_LENGTH) return null
-
-    const queryBigrams = computeBigrams(query)
-    let bestMatch: QuestionMatch | null = null
-    let bestSimilarity = 0
-
-    for (const item of cacheRef.current) {
-      const similarity = bigramSimilarity(queryBigrams, item.bigrams)
-      if (similarity > bestSimilarity && similarity >= PARTIAL_MATCH_THRESHOLD && similarity < MATCH_THRESHOLD) {
-        bestSimilarity = similarity
-        bestMatch = {
-          question: item.question,
-          answer: item.answer,
-          similarity,
-        }
-      }
-    }
-
-    if (bestMatch) {
-      log.debug('Partial question match found (for Predicted Outputs)', {
-        query: query.substring(0, 30),
-        matched: bestMatch.question.substring(0, 30),
-        similarity: bestMatch.similarity.toFixed(3),
-      })
-    }
-
-    return bestMatch
-  }, [])
-
   /** キャッシュをクリア（ログアウト時等） */
   const clearCache = useCallback(() => {
     cacheRef.current = []
     loadedRef.current = false
+    clearBigramCache()
     log.info('Question cache cleared')
   }, [])
 
-  return { findMatch, findPartialMatch, refreshCache: loadCache, clearCache }
+  return { findMatch, refreshCache: loadCache, clearCache }
 }
