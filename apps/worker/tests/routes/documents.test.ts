@@ -1,0 +1,512 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Hono } from 'hono'
+import type { Env, Variables } from '../../src/types'
+import { generateJWT } from '../../src/lib/auth'
+
+const TEST_JWT_SECRET = 'test-jwt-secret-key-for-testing-purposes-only'
+const TEST_USER_ID = 'user-123'
+
+// --- Mock setup ---
+
+const mockChain: Record<string, ReturnType<typeof vi.fn>> = {}
+const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'single', 'is', 'order', 'in', 'limit']
+for (const m of chainMethods) {
+  mockChain[m] = vi.fn().mockReturnValue(mockChain)
+}
+const mockRpc = vi.fn()
+
+vi.mock('../../src/lib/supabase', () => ({
+  createSupabaseAdmin: () => ({
+    from: vi.fn().mockReturnValue(mockChain),
+    rpc: mockRpc,
+  }),
+}))
+
+vi.mock('../../src/lib/usage', () => ({
+  checkUsageLimit: vi.fn(),
+}))
+
+vi.mock('../../src/lib/openai', () => ({
+  generateEmbedding: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+  generateEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2], [0.3, 0.4]]),
+}))
+
+vi.mock('../../src/lib/document-parser', () => ({
+  parseDocument: vi.fn().mockResolvedValue({
+    text: 'parsed document text content',
+    pageCount: 1,
+    wordCount: 5,
+  }),
+  chunkText: vi.fn().mockReturnValue([
+    { content: 'chunk1 content', chunkIndex: 0 },
+    { content: 'chunk2 content', chunkIndex: 1 },
+  ]),
+  estimateTokens: vi.fn().mockReturnValue(100),
+}))
+
+import documentsRoutes from '../../src/routes/documents'
+import { checkUsageLimit } from '../../src/lib/usage'
+
+const TEST_ENV = {
+  JWT_SECRET: TEST_JWT_SECRET,
+  SUPABASE_URL: 'https://test.supabase.co',
+  SUPABASE_SERVICE_ROLE_KEY: 'test-key',
+  OPENAI_API_KEY: 'test-openai-key',
+} as Env
+
+async function createAuthHeaders(): Promise<Record<string, string>> {
+  const token = await generateJWT(
+    { sub: TEST_USER_ID, email: 'test@example.com', name: 'Test', picture: '' },
+    TEST_JWT_SECRET
+  )
+  return { Authorization: `Bearer ${token}` }
+}
+
+function createApp() {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>()
+  app.route('/api/documents', documentsRoutes)
+  return app
+}
+
+function resetMocks() {
+  vi.clearAllMocks()
+  for (const m of chainMethods) {
+    mockChain[m] = vi.fn().mockReturnValue(mockChain)
+  }
+}
+
+// --- Tests ---
+
+describe('GET /api/documents', () => {
+  beforeEach(resetMocks)
+
+  it('returns 401 without auth', async () => {
+    const app = createApp()
+    const res = await app.request('/api/documents', {}, TEST_ENV)
+    expect(res.status).toBe(401)
+  })
+
+  it('returns documents list', async () => {
+    const docs = [
+      {
+        id: 'doc-1',
+        name: 'resume.pdf',
+        type: 'resume',
+        status: 'ready',
+        chunk_count: 3,
+        word_count: 500,
+        uploaded_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+
+    mockChain.order = vi.fn().mockResolvedValue({ data: docs, error: null })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents', { headers }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.documents).toHaveLength(1)
+    expect(body.documents[0].id).toBe('doc-1')
+    expect(body.documents[0].chunkCount).toBe(3)
+    expect(body.documents[0].wordCount).toBe(500)
+  })
+
+  it('returns 500 on database error', async () => {
+    mockChain.order = vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents', { headers }, TEST_ENV)
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+  })
+})
+
+describe('DELETE /api/documents/:id', () => {
+  beforeEach(resetMocks)
+
+  it('returns 401 without auth', async () => {
+    const app = createApp()
+    const res = await app.request('/api/documents/some-id', { method: 'DELETE' }, TEST_ENV)
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 400 for invalid UUID', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/not-a-uuid', {
+      method: 'DELETE',
+      headers,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('Invalid document ID')
+  })
+
+  it('returns 404 for non-existent document', async () => {
+    const validUUID = '550e8400-e29b-41d4-a716-446655440000'
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'not found' },
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request(`/api/documents/${validUUID}`, {
+      method: 'DELETE',
+      headers,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when document belongs to different user', async () => {
+    const validUUID = '550e8400-e29b-41d4-a716-446655440000'
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: { id: validUUID, user_id: 'other-user' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request(`/api/documents/${validUUID}`, {
+      method: 'DELETE',
+      headers,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 500 when delete operation fails', async () => {
+    const validUUID = '550e8400-e29b-41d4-a716-446655440000'
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: { id: validUUID, user_id: TEST_USER_ID },
+      error: null,
+    })
+
+    // delete chain returns error
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    let eqCount = 0
+    mockChain.eq = vi.fn().mockImplementation(() => {
+      eqCount++
+      // chunks delete resolves ok, documents delete returns error
+      if (eqCount === 4) return Promise.resolve({})
+      if (eqCount === 6) return Promise.resolve({ error: { message: 'delete failed' } })
+      return mockChain
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request(`/api/documents/${validUUID}`, {
+      method: 'DELETE',
+      headers,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(500)
+  })
+})
+
+describe('POST /api/documents/search', () => {
+  beforeEach(resetMocks)
+
+  it('returns 401 without auth', async () => {
+    const app = createApp()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 400 for missing query', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('Query is required')
+  })
+
+  it('returns 400 for empty query', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '   ' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('empty')
+  })
+
+  it('returns 400 for query exceeding max length', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'a'.repeat(1001) }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('1000')
+  })
+
+  it('returns 400 for invalid topK', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test', topK: 0 }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('topK')
+  })
+
+  it('returns 400 for invalid minSimilarity', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test', minSimilarity: 1.5 }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('minSimilarity')
+  })
+
+  it('returns 400 for invalid documentTypes', async () => {
+    const app = createApp()
+    const headers = await createAuthHeaders()
+
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test', documentTypes: ['invalid_type'] }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('documentTypes')
+  })
+
+  it('returns 429 when AI token limit exceeded', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: false,
+      used: 30000,
+      limit: 30000,
+      remaining: 0,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test query' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(429)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+  })
+
+  it('returns empty results when no matches found', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 100,
+      limit: 30000,
+      remaining: 29900,
+    })
+
+    mockRpc.mockResolvedValue({ data: [], error: null })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test query' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.results).toEqual([])
+  })
+
+  it('returns 500 on search RPC error', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 100,
+      limit: 30000,
+      remaining: 29900,
+    })
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'search failed' } })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test query' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(500)
+  })
+
+  it('returns grouped results on successful search', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 100,
+      limit: 30000,
+      remaining: 29900,
+    })
+
+    const matches = [
+      { id: 'chunk-1', document_id: 'doc-1', content: 'matched content 1', similarity: 0.95 },
+      { id: 'chunk-2', document_id: 'doc-1', content: 'matched content 2', similarity: 0.85 },
+    ]
+
+    mockRpc.mockResolvedValue({ data: matches, error: null })
+
+    // Documents lookup
+    mockChain.in = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockResolvedValue({
+      data: [{ id: 'doc-1', name: 'resume.pdf', type: 'resume' }],
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/documents/search', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test query' }),
+    }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.results).toHaveLength(1)
+    expect(body.results[0].documentId).toBe('doc-1')
+    expect(body.results[0].documentName).toBe('resume.pdf')
+    expect(body.results[0].chunks).toHaveLength(2)
+  })
+})
+
+describe('POST /api/documents (upload)', () => {
+  beforeEach(resetMocks)
+
+  it('returns 401 without auth', async () => {
+    const app = createApp()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['test'], 'test.txt'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(401)
+  })
+
+  it('returns 429 when document limit exceeded', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: false,
+      used: 3,
+      limit: 3,
+      remaining: 0,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['test content'], 'test.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(429)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+  })
+
+  it('returns 400 for invalid document type', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 0,
+      limit: 3,
+      remaining: 3,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'invalid_type')
+    formData.append('file', new File(['test'], 'test.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('Invalid document type')
+  })
+
+  it('returns 400 when no file uploaded', async () => {
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 0,
+      limit: 3,
+      remaining: 3,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('No file')
+  })
+})

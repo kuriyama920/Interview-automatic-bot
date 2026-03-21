@@ -64,12 +64,12 @@ describe('CORS on /api/*', () => {
     const req = new Request('http://localhost/api/test', {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://interviewbot.app',
+        Origin: 'https://interview-bot-web.pages.dev',
         'Access-Control-Request-Method': 'POST',
       },
     })
     const res = await mod.default.fetch(req, TEST_ENV, {} as ExecutionContext)
 
-    expect(res.headers.get('access-control-allow-origin')).toBe('https://interviewbot.app')
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://interview-bot-web.pages.dev')
   })
 })

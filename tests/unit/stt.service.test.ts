@@ -63,10 +63,16 @@ describe('STTService', () => {
 
       expect(mockClient.listen.live).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'nova-2',
+          model: 'nova-3',
           language: 'ja',
+          smart_format: true,
+          interim_results: true,
+          utterance_end_ms: 1000,
+          endpointing: 300,
+          vad_events: true,
           encoding: 'linear16',
           sample_rate: 16000,
+          channels: 1,
         })
       )
     })

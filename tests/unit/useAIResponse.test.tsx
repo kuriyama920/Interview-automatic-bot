@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 
 vi.mock('../../src/renderer/src/utils/logger', () => ({
   createLogger: () => ({
@@ -17,11 +17,8 @@ const mockAI = window.electron.ai
 describe('useAIResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(mockAI.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
-      success: true,
-      response: { answer: 'テスト回答', suggestions: [], confidence: 0.9 },
-    })
     ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true })
+    ;(mockAI.generateStreamV2 as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true })
     ;(mockAI.abort as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
     ;(mockAI.onChunk as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
     ;(mockAI.onComplete as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
@@ -53,44 +50,6 @@ describe('useAIResponse', () => {
     expect(mockAI.removeListeners).toHaveBeenCalled()
   })
 
-  it('should generate response', async () => {
-    const { result } = renderHook(() => useAIResponse())
-
-    await act(async () => {
-      await result.current.generateResponse('面接の質問です')
-    })
-
-    expect(mockAI.generate).toHaveBeenCalledWith('面接の質問です', undefined, undefined)
-    expect(result.current.response?.answer).toBe('テスト回答')
-    expect(result.current.isGenerating).toBe(false)
-  })
-
-  it('should not generate for empty question', async () => {
-    const { result } = renderHook(() => useAIResponse())
-
-    await act(async () => {
-      await result.current.generateResponse('')
-    })
-
-    expect(mockAI.generate).not.toHaveBeenCalled()
-  })
-
-  it('should set error when generation fails', async () => {
-    ;(mockAI.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
-      success: false,
-      error: 'AI エラー',
-    })
-
-    const { result } = renderHook(() => useAIResponse())
-
-    await act(async () => {
-      await result.current.generateResponse('質問')
-    })
-
-    expect(result.current.error).toBe('AI エラー')
-    expect(result.current.response).toBeNull()
-  })
-
   it('should generate stream response', async () => {
     const { result } = renderHook(() => useAIResponse())
 
@@ -99,6 +58,31 @@ describe('useAIResponse', () => {
     })
 
     expect(mockAI.generateStream).toHaveBeenCalledWith('ストリーム質問', undefined, undefined)
+  })
+
+  it('should not generate stream for empty question', async () => {
+    const { result } = renderHook(() => useAIResponse())
+
+    await act(async () => {
+      await result.current.generateStreamResponse('')
+    })
+
+    expect(mockAI.generateStream).not.toHaveBeenCalled()
+  })
+
+  it('should set error when stream generation fails', async () => {
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      error: 'AI エラー',
+    })
+
+    const { result } = renderHook(() => useAIResponse())
+
+    await act(async () => {
+      await result.current.generateStreamResponse('質問')
+    })
+
+    expect(result.current.error).toBe('AI エラー')
   })
 
   it('should abort generation', () => {
@@ -127,16 +111,245 @@ describe('useAIResponse', () => {
     expect(result.current.currentPhase).toBeNull()
   })
 
-  it('should handle generation exception', async () => {
-    ;(mockAI.generate as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ネットワークエラー'))
+  it('should handle stream generation exception', async () => {
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ネットワークエラー'))
 
     const { result } = renderHook(() => useAIResponse())
 
     await act(async () => {
-      await result.current.generateResponse('質問')
+      await result.current.generateStreamResponse('質問')
     })
 
     expect(result.current.error).toBe('ネットワークエラー')
     expect(result.current.isGenerating).toBe(false)
+  })
+
+  it('should set response from successful stream IPC return', async () => {
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      response: { answer: 'ストリーム回答', suggestions: [], confidence: 0.8 },
+    })
+
+    const { result } = renderHook(() => useAIResponse())
+
+    await act(async () => {
+      await result.current.generateStreamResponse('質問')
+    })
+
+    expect(result.current.response?.answer).toBe('ストリーム回答')
+    expect(result.current.isGenerating).toBe(false)
+  })
+
+  it('should generate stream response v2', async () => {
+    const { result } = renderHook(() => useAIResponse())
+
+    await act(async () => {
+      await result.current.generateStreamResponseV2('質問', 'コンテキスト', 'committed', { maxTokens: 800 })
+    })
+
+    expect(mockAI.generateStreamV2).toHaveBeenCalledWith('質問', 'コンテキスト', 'committed', { maxTokens: 800 })
+  })
+})
+
+describe('useAIResponse metrics (A-17: m10-m12)', () => {
+  const mockRecord = vi.fn()
+  const mockFinalize = vi.fn()
+  const mockMetrics = { record: mockRecord, finalize: mockFinalize }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(mockAI.abort as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    ;(mockAI.onChunk as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
+    ;(mockAI.onComplete as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
+    ;(mockAI.onError as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
+    ;(mockAI.onPhase as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
+    ;(mockAI.removeListeners as ReturnType<typeof vi.fn>).mockReturnValue(undefined)
+  })
+
+  /** Get the onChunk handler that the hook registered via useEffect */
+  function getChunkHandler(): (chunk: string) => void {
+    const calls = (mockAI.onChunk as ReturnType<typeof vi.fn>).mock.calls
+    const handler = calls[calls.length - 1]?.[0]
+    if (!handler) throw new Error('onChunk handler was not registered')
+    return handler
+  }
+
+  it('should record m10_chunkReceived on first chunk', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't1' }) })
+    act(() => { handler('チャンク') })
+
+    expect(mockRecord).toHaveBeenCalledWith('t1', 'm10_chunkReceived', expect.any(Number))
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should record m12_uiRendered on every chunk', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't2' }) })
+    act(() => { handler('チャンク1') })
+    act(() => { handler('チャンク2') })
+
+    const m12Calls = mockRecord.mock.calls.filter((c: unknown[]) => c[1] === 'm12_uiRendered')
+    expect(m12Calls.length).toBe(2)
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should record m10 only once across multiple chunks', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't3' }) })
+    act(() => { handler('a') })
+    act(() => { handler('b') })
+    act(() => { handler('c') })
+
+    const m10Calls = mockRecord.mock.calls.filter((c: unknown[]) => c[1] === 'm10_chunkReceived')
+    expect(m10Calls.length).toBe(1)
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should record m11_stateUpdated after chunk', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't4' }) })
+    act(() => { handler('チャンク') })
+
+    expect(mockRecord).toHaveBeenCalledWith('t4', 'm11_stateUpdated', expect.any(Number))
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should finalize metrics on successful completion', async () => {
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true })
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+
+    await act(async () => {
+      await result.current.generateStreamResponse('質問', undefined, { turnId: 't5' })
+    })
+
+    expect(mockFinalize).toHaveBeenCalledWith('t5')
+  })
+
+  it('should not finalize metrics on failure', async () => {
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      error: 'エラー',
+    })
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+
+    await act(async () => {
+      await result.current.generateStreamResponse('質問', undefined, { turnId: 't6' })
+    })
+
+    expect(mockFinalize).not.toHaveBeenCalled()
+  })
+
+  it('should not record metrics without turnId', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問') })
+    act(() => { handler('チャンク') })
+
+    const metricsCalls = mockRecord.mock.calls.filter(
+      (c: unknown[]) => ['m10_chunkReceived', 'm11_stateUpdated', 'm12_uiRendered'].includes(c[1] as string)
+    )
+    expect(metricsCalls.length).toBe(0)
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should not record metrics without onMetrics', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse())
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't7' }) })
+    act(() => { handler('チャンク') })
+
+    // Should not throw, and streamingText should update
+    expect(result.current.streamingText).toBe('チャンク')
+
+    await act(async () => { resolveIpc({ success: true }) })
+  })
+
+  it('should record metrics for v2 generation', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStreamV2 as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponseV2('質問', undefined, 'committed', { turnId: 't8' }) })
+    act(() => { handler('チャンク') })
+
+    expect(mockRecord).toHaveBeenCalledWith('t8', 'm10_chunkReceived', expect.any(Number))
+    expect(mockRecord).toHaveBeenCalledWith('t8', 'm12_uiRendered', expect.any(Number))
+    expect(mockRecord).toHaveBeenCalledWith('t8', 'm11_stateUpdated', expect.any(Number))
+
+    await act(async () => { resolveIpc({ success: true }) })
+    expect(mockFinalize).toHaveBeenCalledWith('t8')
+  })
+
+  it('should reset metrics on abort', async () => {
+    let resolveIpc!: (v: { success: boolean }) => void
+    ;(mockAI.generateStream as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => { resolveIpc = r })
+    )
+
+    const { result } = renderHook(() => useAIResponse({ onMetrics: mockMetrics }))
+    const handler = getChunkHandler()
+
+    act(() => { result.current.generateStreamResponse('質問', undefined, { turnId: 't9' }) })
+    act(() => { result.current.abortGeneration() })
+
+    mockRecord.mockClear()
+    act(() => { handler('遅延チャンク') })
+
+    const metricsCalls = mockRecord.mock.calls.filter(
+      (c: unknown[]) => ['m10_chunkReceived', 'm11_stateUpdated', 'm12_uiRendered'].includes(c[1] as string)
+    )
+    expect(metricsCalls.length).toBe(0)
   })
 })

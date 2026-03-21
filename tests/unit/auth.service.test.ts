@@ -98,6 +98,34 @@ describe('authService', () => {
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(false)
     })
+
+    it('should return unauthenticated when token is within 5-minute buffer', () => {
+      // Token expires in 4 minutes - within the 5-minute buffer, should be treated as expired
+      const nearExp = Date.now() + 4 * 60 * 1000
+      const tokens = { accessToken: 'near-expiry-token', expiresAt: nearExp }
+      const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
+
+      mockStoreGet
+        .mockReturnValueOnce(tokens)
+        .mockReturnValueOnce(user)
+
+      const state = authService.getAuthState()
+      expect(state.isAuthenticated).toBe(false)
+    })
+
+    it('should return authenticated when token is beyond 5-minute buffer', () => {
+      // Token expires in 6 minutes - outside the 5-minute buffer, should be valid
+      const safeExp = Date.now() + 6 * 60 * 1000
+      const tokens = { accessToken: 'safe-token', expiresAt: safeExp }
+      const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
+
+      mockStoreGet
+        .mockReturnValueOnce(tokens)
+        .mockReturnValueOnce(user)
+
+      const state = authService.getAuthState()
+      expect(state.isAuthenticated).toBe(true)
+    })
   })
 
   describe('getAccessToken', () => {
@@ -282,17 +310,154 @@ describe('authService', () => {
   })
 
   describe('initialize', () => {
-    it('should warn when called again (already initialized)', () => {
+    it('should skip re-initialization and keep existing state', () => {
       // authService is already initialized in beforeAll
-      // Calling again should just warn and return
-      expect(() => authService.initialize(mockMainWindow as never)).not.toThrow()
+      const stateBefore = authService.getAuthState()
+      authService.initialize(mockMainWindow as never)
+      const stateAfter = authService.getAuthState()
+
+      // State should be unchanged (not reset or corrupted)
+      expect(stateAfter.isLoading).toBe(stateBefore.isLoading)
+      expect(stateAfter.error).toBe(stateBefore.error)
     })
   })
 
   describe('setMainWindow', () => {
-    it('should update mainWindow', () => {
-      const newWindow = { isMinimized: () => false, restore: vi.fn(), focus: vi.fn() }
-      expect(() => authService.setMainWindow(newWindow as never)).not.toThrow()
+    it('should update mainWindow and use it for auth callback focus', async () => {
+      const newWindow = {
+        isMinimized: () => true,
+        restore: vi.fn(),
+        focus: vi.fn(),
+      }
+      authService.setMainWindow(newWindow as never)
+
+      // Trigger auth callback to verify window focus behavior
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+      const payload = btoa(JSON.stringify({
+        sub: 'user-w',
+        email: 'window@test.com',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }))
+      const token = `${header}.${payload}.signature`
+
+      mockNetFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          user: { id: 'user-w', email: 'window@test.com', name: 'Win User' },
+        }),
+      })
+
+      await authService.handleAuthCallback(`interview-bot://auth/callback?token=${token}`)
+
+      // mainWindow was minimized, so restore should be called, then focus
+      expect(newWindow.restore).toHaveBeenCalled()
+      expect(newWindow.focus).toHaveBeenCalled()
+    })
+  })
+
+  describe('notifyListeners error handling', () => {
+    it('should catch errors thrown by listeners', () => {
+      const throwingListener = vi.fn().mockImplementation(() => {
+        throw new Error('Listener exploded')
+      })
+      const normalListener = vi.fn()
+
+      const unsub1 = authService.addAuthStateListener(throwingListener)
+      const unsub2 = authService.addAuthStateListener(normalListener)
+
+      // logout calls notifyListeners - should not throw even if listener does
+      expect(() => authService.logout()).not.toThrow()
+      expect(throwingListener).toHaveBeenCalled()
+      expect(normalListener).toHaveBeenCalled()
+
+      unsub1()
+      unsub2()
+    })
+  })
+
+  describe('authenticatedFetch with custom options', () => {
+    it('should pass through method and body', async () => {
+      const futureExp = Date.now() + 60 * 60 * 1000
+      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockNetFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+
+      await authService.authenticatedFetch('/api/data', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'value' }),
+      })
+
+      const callArgs = mockNetFetch.mock.calls[0]
+      expect(callArgs[1].method).toBe('POST')
+      expect(callArgs[1].body).toBe(JSON.stringify({ key: 'value' }))
+      const headers = callArgs[1].headers as Headers
+      expect(headers.get('Authorization')).toBe('Bearer valid-token')
+    })
+
+    it('should merge existing headers with Authorization', async () => {
+      const futureExp = Date.now() + 60 * 60 * 1000
+      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockNetFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+
+      await authService.authenticatedFetch('/api/data', {
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      const callArgs = mockNetFetch.mock.calls[0]
+      const headers = callArgs[1].headers as Headers
+      expect(headers.get('Authorization')).toBe('Bearer valid-token')
+      expect(headers.get('Content-Type')).toBe('application/json')
+    })
+  })
+
+  describe('handleAuthCallback additional coverage', () => {
+    it('should store tokens and user on valid JWT callback', async () => {
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+      const payload = btoa(JSON.stringify({
+        sub: 'user-2',
+        email: 'new@example.com',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }))
+      const token = `${header}.${payload}.signature`
+
+      const userInfo = {
+        success: true,
+        user: { id: 'user-2', email: 'new@example.com', name: 'New User' },
+      }
+      mockNetFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(userInfo),
+      })
+
+      const url = `interview-bot://auth/callback?token=${token}`
+      const state = await authService.handleAuthCallback(url)
+
+      expect(state.isAuthenticated).toBe(true)
+      expect(mockStoreSet).toHaveBeenCalledWith('tokens', expect.objectContaining({
+        accessToken: token,
+      }))
+      expect(mockStoreSet).toHaveBeenCalledWith('user', userInfo.user)
+    })
+
+    it('should handle fetchUserInfo failure in callback', async () => {
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+      const payload = btoa(JSON.stringify({
+        sub: 'user-3',
+        email: 'fail@example.com',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }))
+      const token = `${header}.${payload}.signature`
+
+      mockNetFetch.mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ error: 'Invalid token' }),
+      })
+
+      const url = `interview-bot://auth/callback?token=${token}`
+      const state = await authService.handleAuthCallback(url)
+
+      expect(state.isAuthenticated).toBe(false)
+      expect(state.error).toContain('Invalid token')
     })
   })
 })

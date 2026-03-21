@@ -118,7 +118,7 @@ describe('POST /api/auth/session', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnUrl: 'https://interviewbot.app/checkout' }),
+        body: JSON.stringify({ returnUrl: 'https://interview-bot-web.pages.dev/checkout' }),
       },
       TEST_ENV
     )
@@ -187,6 +187,31 @@ describe('GET /api/auth/session (polling)', () => {
     const res = await app.request('/api/auth/session?id=nonexistent', {}, TEST_ENV)
     expect(res.status).toBe(404)
   })
+
+  it('does not return token in fallback path when RPC fails (M-3: prevent non-atomic token retrieval)', async () => {
+    // RPC returns empty (failed to consume atomically)
+    mockRpc.mockResolvedValueOnce({ data: [], error: null })
+
+    // Fallback query finds a 'completed' session with token
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: {
+        status: 'completed',
+        token: 'jwt-token-value',
+        user_data: { id: 'user-1', email: 'test@test.com' },
+        expires_at: new Date(Date.now() + 300000).toISOString(),
+        error: null,
+      },
+      error: null,
+    })
+
+    const app = createApp()
+    const res = await app.request('/api/auth/session?id=test-session', {}, TEST_ENV)
+    const body = await res.json()
+
+    // Should NOT return token in fallback - only atomic RPC should return tokens
+    expect(body.token).toBeUndefined()
+    expect(body.status).toBe('completed')
+  })
 })
 
 describe('GET /api/auth/me', () => {
@@ -245,6 +270,91 @@ describe('GET /api/auth/me', () => {
     expect(body.user.subscriptionTier).toBe('free')
     expect(body.settings.theme).toBe('dark')
     expect(body.settings.aiModel).toBe('gpt-5-mini')
+  })
+})
+
+describe('POST /api/auth/refresh (M-4: JWT refresh)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    for (const m of chainMethods) {
+      mockChain[m] = vi.fn().mockReturnValue(mockChain)
+    }
+  })
+
+  it('returns 401 without auth header', async () => {
+    const app = createApp()
+    const res = await app.request('/api/auth/refresh', {
+      method: 'POST',
+    }, TEST_ENV)
+    expect(res.status).toBe(401)
+  })
+
+  it('returns new JWT when given a valid token and user exists', async () => {
+    // Mock user exists check
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: {
+        id: 'user-123',
+        email: 'test@example.com',
+        display_name: 'Test',
+        avatar_url: '',
+      },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers,
+    }, TEST_ENV)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.token).toBeDefined()
+    expect(typeof body.token).toBe('string')
+    expect(body.token.split('.')).toHaveLength(3)
+  })
+
+  it('returns 401 when user no longer exists', async () => {
+    // Mock user not found
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: null,
+      error: { message: 'not found' },
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers,
+    }, TEST_ENV)
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toContain('User not found')
+  })
+
+  it('returns 401 with expired token', async () => {
+    // Generate an expired token by manually creating one with past expiry
+    // verifyJWT will reject it, so authRequired will return 401
+    const app = createApp()
+    const res = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer invalid.token.here' },
+    }, TEST_ENV)
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('JWT expiry (M-4)', () => {
+  it('generates JWT with 24-hour expiry instead of 7 days', async () => {
+    const token = await generateJWT(
+      { sub: 'user-123', email: 'test@example.com', name: 'Test', picture: '' },
+      TEST_JWT_SECRET
+    )
+
+    // Decode the payload
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    const expectedExpiry = payload.iat + 60 * 60 * 24 // 24 hours
+    expect(payload.exp).toBe(expectedExpiry)
   })
 })
 

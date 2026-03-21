@@ -33,7 +33,7 @@ describe('JWT round-trip', () => {
     expect(decoded!.exp).toBeGreaterThan(decoded!.iat)
   })
 
-  it('sets 7-day expiration', async () => {
+  it('sets 24-hour expiration', async () => {
     const payload = {
       sub: 'user-id',
       email: 'test@example.com',
@@ -45,8 +45,8 @@ describe('JWT round-trip', () => {
     const decoded = await verifyJWT(token, TEST_JWT_SECRET)
     expect(decoded).not.toBeNull()
 
-    const sevenDays = 60 * 60 * 24 * 7
-    expect(decoded!.exp - decoded!.iat).toBe(sevenDays)
+    const oneDay = 60 * 60 * 24
+    expect(decoded!.exp - decoded!.iat).toBe(oneDay)
   })
 
   it('rejects tampered token', async () => {

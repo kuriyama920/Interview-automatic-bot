@@ -3,8 +3,7 @@ import { isAllowedOrigin, ALLOWED_ORIGINS } from '../../src/lib/allowed-origins'
 
 describe('ALLOWED_ORIGINS', () => {
   it('includes production domains', () => {
-    expect(ALLOWED_ORIGINS).toContain('https://interviewbot.app')
-    expect(ALLOWED_ORIGINS).toContain('https://www.interviewbot.app')
+    expect(ALLOWED_ORIGINS).toContain('https://interview-bot-web.pages.dev')
   })
 
   it('includes development domains', () => {
@@ -15,13 +14,12 @@ describe('ALLOWED_ORIGINS', () => {
 
 describe('isAllowedOrigin', () => {
   it('allows explicit production origins', () => {
-    expect(isAllowedOrigin('https://interviewbot.app')).toBe(true)
-    expect(isAllowedOrigin('https://www.interviewbot.app')).toBe(true)
+    expect(isAllowedOrigin('https://interview-bot-web.pages.dev')).toBe(true)
   })
 
   it('allows production origins with paths', () => {
-    expect(isAllowedOrigin('https://interviewbot.app/checkout')).toBe(true)
-    expect(isAllowedOrigin('https://interviewbot.app/auth/callback?code=123')).toBe(true)
+    expect(isAllowedOrigin('https://interview-bot-web.pages.dev/checkout')).toBe(true)
+    expect(isAllowedOrigin('https://interview-bot-web.pages.dev/auth/callback?code=123')).toBe(true)
   })
 
   it('allows localhost for development', () => {
@@ -30,9 +28,8 @@ describe('isAllowedOrigin', () => {
   })
 
   it('allows Cloudflare Pages preview deployments', () => {
-    expect(isAllowedOrigin('https://abc123.interview-bot.pages.dev')).toBe(true)
-    expect(isAllowedOrigin('https://preview-xyz.interview-bot.pages.dev')).toBe(true)
-    expect(isAllowedOrigin('https://feature-branch.interview-bot-dashboard.pages.dev')).toBe(true)
+    expect(isAllowedOrigin('https://abc123.interview-bot-web.pages.dev')).toBe(true)
+    expect(isAllowedOrigin('https://preview-xyz.interview-bot-web.pages.dev')).toBe(true)
   })
 
   it('rejects unrelated Cloudflare Pages deployments', () => {
@@ -51,7 +48,7 @@ describe('isAllowedOrigin', () => {
   })
 
   it('rejects similar but not matching domains', () => {
-    expect(isAllowedOrigin('https://interviewbot.app.evil.com')).toBe(false)
-    expect(isAllowedOrigin('https://fakeinterviewbot.app')).toBe(false)
+    expect(isAllowedOrigin('https://interview-bot-web.pages.dev.evil.com')).toBe(false)
+    expect(isAllowedOrigin('https://fakeinterview-bot-web.pages.dev')).toBe(false)
   })
 })

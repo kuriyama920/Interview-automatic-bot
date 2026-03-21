@@ -3,6 +3,7 @@ import {
   SYSTEM_PROMPT,
   STANDARD_INTERVIEW_QUESTIONS,
   QUESTION_GENERATION_PROMPT,
+  wrapUserInput,
 } from '../../src/lib/prompts'
 
 describe('SYSTEM_PROMPT', () => {
@@ -52,5 +53,27 @@ describe('QUESTION_GENERATION_PROMPT', () => {
 
   it('specifies output format', () => {
     expect(QUESTION_GENERATION_PROMPT).toContain('"answers"')
+  })
+})
+
+describe('wrapUserInput', () => {
+  it('wraps content with XML-style markers', () => {
+    expect(wrapUserInput('user_question', '自己紹介をお願いします'))
+      .toBe('<user_question>自己紹介をお願いします</user_question>')
+  })
+
+  it('handles empty content', () => {
+    expect(wrapUserInput('label', '')).toBe('<label></label>')
+  })
+
+  it('preserves special characters in content', () => {
+    const content = '質問に<script>alert("xss")</script>が含まれる場合'
+    const result = wrapUserInput('user_question', content)
+    expect(result).toBe(`<user_question>${content}</user_question>`)
+  })
+
+  it('works with different label names', () => {
+    expect(wrapUserInput('context', 'テスト')).toBe('<context>テスト</context>')
+    expect(wrapUserInput('document', '資料')).toBe('<document>資料</document>')
   })
 })

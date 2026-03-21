@@ -41,12 +41,29 @@ const mockAIService = vi.hoisted(() => ({
   initialize: vi.fn(),
   generateResponse: vi.fn(),
   generateStreamResponse: vi.fn(),
+  generateStreamResponseV2: vi.fn(),
   isInitialized: vi.fn(() => false),
+  isV2Available: vi.fn(() => true),
+  resetV2: vi.fn(),
   summarizeTurn: vi.fn(),
 }))
 
 vi.mock('../../src/services/ai.service', () => ({
   aiService: mockAIService,
+}))
+
+// Mock interviewSession (session.service)
+const mockInterviewSession = vi.hoisted(() => ({
+  startSession: vi.fn(),
+  endSession: vi.fn(),
+  getPreviousResponseId: vi.fn(() => null),
+  getPreviousResponseIdForModel: vi.fn(() => null),
+  getPreviousResponseModel: vi.fn(() => null),
+  setPreviousResponseId: vi.fn(),
+}))
+
+vi.mock('../../src/services/session.service', () => ({
+  interviewSession: mockInterviewSession,
 }))
 
 // Mock authService
@@ -119,7 +136,14 @@ describe('IPC Handlers', () => {
     mockAIService.initialize.mockClear()
     mockAIService.generateResponse.mockReset()
     mockAIService.generateStreamResponse.mockReset()
+    mockAIService.generateStreamResponseV2.mockReset()
     mockAIService.isInitialized.mockReturnValue(false)
+
+    // Reset session mock implementations
+    mockInterviewSession.getPreviousResponseId.mockReturnValue(null)
+    mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue(null)
+    mockInterviewSession.getPreviousResponseModel.mockReturnValue(null)
+    mockInterviewSession.setPreviousResponseId.mockClear()
 
     // Default authenticatedFetch mock (proxy token for STT)
     mockAuthService.authenticatedFetch.mockResolvedValue({
@@ -146,6 +170,9 @@ describe('IPC Handlers', () => {
       expect(mockIpcHandlers['ai:init']).toBeDefined()
       expect(mockIpcHandlers['ai:generate']).toBeDefined()
       expect(mockIpcHandlers['ai:generateStream']).toBeDefined()
+      expect(mockIpcHandlers['ai:generateStreamV2']).toBeDefined()
+      expect(mockIpcHandlers['ai:isV2Available']).toBeDefined()
+      expect(mockIpcHandlers['ai:resetV2']).toBeDefined()
       expect(mockIpcHandlers['ai:status']).toBeDefined()
 
       // Phase 7: Subscription handlers
@@ -411,9 +438,9 @@ describe('IPC Handlers', () => {
 
     it('should send chunks via callback', async () => {
       mockAIService.generateStreamResponse.mockImplementation(
-        async (_q: string, _c: string | undefined, onChunk: (chunk: string) => void) => {
-          onChunk('Hello ')
-          onChunk('World')
+        async (_q: string, _c: string | undefined, callbacks: { onChunk?: (chunk: string) => void }) => {
+          callbacks.onChunk?.('Hello ')
+          callbacks.onChunk?.('World')
           return mockResponse
         }
       )
@@ -432,6 +459,311 @@ describe('IPC Handlers', () => {
       await mockIpcHandlers['ai:generateStream'](null, 'Test question')
 
       expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('ai:error', expect.stringContaining('Stream error'))
+    })
+  })
+
+  describe('ai:generateStreamV2 handler', () => {
+    const mockResponse = {
+      answer: 'V2 streaming answer',
+      suggestions: ['Tip 1'],
+      confidence: 0.9,
+    }
+
+    beforeEach(() => {
+      mockAIService.isInitialized.mockReturnValue(true)
+      mockAIService.generateStreamResponseV2.mockResolvedValue(mockResponse)
+    })
+
+    it('should generate speculative phase with no previousResponseId injection', async () => {
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', 'Some context', 'speculative', { speculativeText: 'draft' }
+      )
+
+      expect(result).toEqual({ success: true, response: mockResponse })
+      expect(mockAIService.generateStreamResponseV2).toHaveBeenCalledWith(
+        'Test question',
+        'Some context',
+        'speculative',
+        expect.objectContaining({
+          onChunk: expect.any(Function),
+          onPhase: expect.any(Function),
+          onDone: expect.any(Function),
+        }),
+        expect.any(AbortSignal),
+        expect.objectContaining({
+          speculativeText: 'draft',
+        }),
+      )
+      // Speculative phase should NOT include previousResponseId or storeEnabled
+      const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
+      expect(passedOptions.previousResponseId).toBeUndefined()
+      expect(passedOptions.storeEnabled).toBeUndefined()
+      expect(mockInterviewSession.getPreviousResponseIdForModel).not.toHaveBeenCalled()
+    })
+
+    it('should inject previousResponseId in committed phase when model matches', async () => {
+      mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue('resp_prev123')
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
+      const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
+      expect(passedOptions.previousResponseId).toBe('resp_prev123')
+      expect(passedOptions.storeEnabled).toBe(true)
+    })
+
+    it('should pass null previousResponseId in committed phase on model mismatch', async () => {
+      // getPreviousResponseIdForModel returns null when model doesn't match
+      mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue(null)
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
+      const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
+      expect(passedOptions.previousResponseId).toBeUndefined()
+      expect(passedOptions.storeEnabled).toBe(true)
+    })
+
+    it('should abort previous generation and create new AbortController', async () => {
+      setupIPC(mockMainWindow)
+
+      // First call to set up an AbortController
+      const firstPromise = mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question 1', undefined, 'committed', {}
+      )
+      await firstPromise
+
+      // Second call should abort the first
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question 2', undefined, 'committed', {}
+      )
+
+      // Both calls should complete; the second call's signal should be fresh (not aborted)
+      const secondCallSignal = mockAIService.generateStreamResponseV2.mock.calls[1][4]
+      expect(secondCallSignal.aborted).toBe(false)
+    })
+
+    it('should update session state with responseId and model via onDone callback in committed phase', async () => {
+      mockAIService.generateStreamResponseV2.mockImplementation(
+        async (
+          _q: string,
+          _c: string | undefined,
+          _phase: string,
+          callbacks: { onDone?: (data: { responseId: string | null; totalTokensUsed: number; model: string | null }) => void },
+        ) => {
+          callbacks.onDone?.({
+            responseId: 'resp_new456',
+            totalTokensUsed: 100,
+            model: 'gpt-5.4-nano',
+          })
+          return mockResponse
+        }
+      )
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockInterviewSession.setPreviousResponseId).toHaveBeenCalledWith('resp_new456', 'gpt-5.4-nano')
+    })
+
+    it('should NOT update session state via onDone callback in speculative phase', async () => {
+      mockAIService.generateStreamResponseV2.mockImplementation(
+        async (
+          _q: string,
+          _c: string | undefined,
+          _phase: string,
+          callbacks: { onDone?: (data: { responseId: string | null; totalTokensUsed: number; model: string | null }) => void },
+        ) => {
+          callbacks.onDone?.({
+            responseId: 'resp_spec789',
+            totalTokensUsed: 50,
+            model: 'gpt-5-nano',
+          })
+          return mockResponse
+        }
+      )
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'speculative', {}
+      )
+
+      expect(mockInterviewSession.setPreviousResponseId).not.toHaveBeenCalled()
+    })
+
+    it('should send ai:error event on failure', async () => {
+      mockAIService.generateStreamResponseV2.mockRejectedValue(new Error('V2 Stream error'))
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(result).toEqual({
+        success: false,
+        error: expect.stringContaining('V2 Stream error'),
+      })
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(
+        'ai:error',
+        expect.stringContaining('V2 Stream error')
+      )
+    })
+
+    it('should return aborted result when signal is aborted', async () => {
+      mockAIService.generateStreamResponseV2.mockRejectedValue(new Error('aborted'))
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(result).toEqual({ success: false, error: 'aborted' })
+      // Should NOT send ai:error for intentional aborts
+      expect(mockMainWindow.webContents.send).not.toHaveBeenCalledWith(
+        'ai:error',
+        expect.any(String)
+      )
+    })
+
+    it('should auto-initialize AI service if not initialized', async () => {
+      mockAIService.isInitialized.mockReturnValue(false)
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockAIService.initialize).toHaveBeenCalledWith({
+        apiBaseUrl: expect.any(String),
+      })
+    })
+
+    it('should not re-initialize if already initialized', async () => {
+      mockAIService.isInitialized.mockReturnValue(true)
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockAIService.initialize).not.toHaveBeenCalled()
+    })
+
+    it('should forward options including includeDocumentContext and speculativeText', async () => {
+      setupIPC(mockMainWindow)
+
+      const options = {
+        includeDocumentContext: true,
+        speculativeText: 'draft answer',
+        turnId: 'turn-123',
+      }
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', 'context', 'speculative', options
+      )
+
+      const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
+      expect(passedOptions.includeDocumentContext).toBe(true)
+      expect(passedOptions.speculativeText).toBe('draft answer')
+      expect(passedOptions.turnId).toBe('turn-123')
+    })
+
+    it('should default to committed phase when phase is not provided', async () => {
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, undefined, {}
+      )
+
+      // Should call getPreviousResponseIdForModel since defaulting to committed
+      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
+      expect(mockAIService.generateStreamResponseV2).toHaveBeenCalledWith(
+        'Test question',
+        undefined,
+        'committed',
+        expect.any(Object),
+        expect.any(AbortSignal),
+        expect.any(Object),
+      )
+    })
+
+    it('should send ai:complete with response on success', async () => {
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('ai:complete', mockResponse)
+    })
+
+    it('should send chunks and phase events via callbacks', async () => {
+      mockAIService.generateStreamResponseV2.mockImplementation(
+        async (
+          _q: string,
+          _c: string | undefined,
+          _phase: string,
+          callbacks: { onChunk?: (chunk: string) => void; onPhase?: (phase: string) => void },
+        ) => {
+          callbacks.onChunk?.('Hello ')
+          callbacks.onChunk?.('World')
+          callbacks.onPhase?.('reasoning')
+          return mockResponse
+        }
+      )
+      setupIPC(mockMainWindow)
+
+      await mockIpcHandlers['ai:generateStreamV2'](
+        null, 'Test question', undefined, 'committed', {}
+      )
+
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('ai:chunk', 'Hello ')
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('ai:chunk', 'World')
+      expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('ai:phase', 'reasoning')
+    })
+  })
+
+  describe('ai:isV2Available handler', () => {
+    it('should return v2 availability status', async () => {
+      mockAIService.isInitialized.mockReturnValue(false)
+      mockAIService.isV2Available.mockReturnValue(true)
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:isV2Available']()
+
+      expect(result).toEqual({ success: true, available: true })
+    })
+
+    it('should return false when v2 is disabled', async () => {
+      mockAIService.isInitialized.mockReturnValue(false)
+      mockAIService.isV2Available.mockReturnValue(false)
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:isV2Available']()
+
+      expect(result).toEqual({ success: true, available: false })
+    })
+  })
+
+  describe('ai:resetV2 handler', () => {
+    it('should reset v2 and return success', async () => {
+      mockAIService.isInitialized.mockReturnValue(false)
+      setupIPC(mockMainWindow)
+
+      const result = await mockIpcHandlers['ai:resetV2']()
+
+      expect(result).toEqual({ success: true })
+      expect(mockAIService.resetV2).toHaveBeenCalled()
     })
   })
 

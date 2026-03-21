@@ -3,8 +3,8 @@ import { getBaseUrl } from '../../src/lib/url'
 
 describe('getBaseUrl', () => {
   it('extracts base URL from HTTPS request', () => {
-    const req = new Request('https://api.interviewbot.app/api/auth/callback?code=123')
-    expect(getBaseUrl(req)).toBe('https://api.interviewbot.app')
+    const req = new Request('https://interview-bot-api.interviewautomaticbot92.workers.dev/api/auth/callback?code=123')
+    expect(getBaseUrl(req)).toBe('https://interview-bot-api.interviewautomaticbot92.workers.dev')
   })
 
   it('extracts base URL from HTTP localhost request', () => {
