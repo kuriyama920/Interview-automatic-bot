@@ -142,7 +142,7 @@ cp .env.example .env
 
 ```env
 # SaaS接続（プロキシモード: APIキー不要）
-API_BASE_URL=https://api.interviewbot.app
+API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
 # DEEPGRAM_API_KEY=your_deepgram_api_key_here

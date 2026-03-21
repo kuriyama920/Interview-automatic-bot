@@ -6,7 +6,7 @@
 #   .\scripts\e2e-stripe-test.ps1 -JwtToken "eyJhbG..."   # 認証テスト含む
 
 param(
-    [string]$BaseUrl = "https://api.interviewbot.app",
+    [string]$BaseUrl = "https://interview-bot-api.interviewautomaticbot92.workers.dev",
     [string]$JwtToken = ""
 )
 

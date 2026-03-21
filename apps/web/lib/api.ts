@@ -5,7 +5,7 @@
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'https://api.interviewbot.app'
+  'https://interview-bot-api.interviewautomaticbot92.workers.dev'
 
 export interface AuthSessionResponse {
   sessionId: string
