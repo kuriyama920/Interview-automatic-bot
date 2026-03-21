@@ -47,7 +47,7 @@ export class STTService {
 
     return new Promise((resolve, reject) => {
       this.connection = this.client!.listen.live({
-        model: 'nova-2',
+        model: 'nova-3',
         language: 'ja',
         smart_format: true,
         interim_results: true,
