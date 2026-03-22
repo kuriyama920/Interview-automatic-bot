@@ -1,32 +1,14 @@
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
+import type { AIResponse, GenerateOptions } from '../types/shared'
+
+export type { AIResponse, GenerateOptions }
 
 const log = createLogger('ai-service')
-
-/**
- * @see AIResponse in src/renderer/src/env.d.ts for the canonical renderer-side type.
- * This main-process definition intentionally duplicates it (cross-process boundary).
- */
-export interface AIResponse {
-  answer: string
-  suggestions: string[]
-  /** Confidence score 0-1, or -1 if not computed (SSE streaming mode) */
-  confidence: number
-}
-
-export interface GenerateOptions {
-  includeDocumentContext?: boolean
-  maxTokens?: number
-  turnId?: string
-  previousResponseId?: string
-  storeEnabled?: boolean
-  speculativeText?: string
-}
 
 export interface DoneData {
   responseId: string | null
   totalTokensUsed: number
-  /** レスポンスを生成したモデル名（previousResponseId のモデルミスマッチ防止に使用） */
   model: string | null
 }
 
@@ -190,8 +172,6 @@ export class AIService {
           includeDocumentContext,
           model: this.config.model,
           maxTokens,
-          ...(options?.previousResponseId && { previousResponseId: options.previousResponseId }),
-          ...(options?.storeEnabled !== undefined && { storeEnabled: options.storeEnabled }),
         }),
         signal,
       }
@@ -381,8 +361,6 @@ export class AIService {
             context,
             phase,
             ...(options?.turnId && { turnId: options.turnId }),
-            ...(options?.previousResponseId && { previousResponseId: options.previousResponseId }),
-            ...(options?.storeEnabled !== undefined && { storeEnabled: options.storeEnabled }),
             ...(options?.speculativeText && { speculativeText: options.speculativeText }),
           }),
           signal,
