@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   validateQuestion,
   validateContext,
-  validatePreviousResponseId,
   sanitizeTurnId,
   validateGenerateRequest,
   validateSummarizeRequest,
@@ -68,37 +67,6 @@ describe('validateContext', () => {
   })
 })
 
-describe('validatePreviousResponseId', () => {
-  it('returns undefined when not a string', () => {
-    const result = validatePreviousResponseId({ previousResponseId: 123 })
-    expect(result).toEqual({ previousResponseId: undefined })
-  })
-
-  it('returns undefined when empty string', () => {
-    const result = validatePreviousResponseId({ previousResponseId: '' })
-    expect(result).toEqual({ previousResponseId: undefined })
-  })
-
-  it('returns undefined when too long', () => {
-    const result = validatePreviousResponseId({ previousResponseId: 'resp_' + 'a'.repeat(200) })
-    expect(result).toEqual({ previousResponseId: undefined })
-  })
-
-  it('returns undefined when format is invalid', () => {
-    const result = validatePreviousResponseId({ previousResponseId: 'invalid_id' })
-    expect(result).toEqual({ previousResponseId: undefined })
-  })
-
-  it('returns the id when format is valid', () => {
-    const result = validatePreviousResponseId({ previousResponseId: 'resp_abc123' })
-    expect(result).toEqual({ previousResponseId: 'resp_abc123' })
-  })
-
-  it('accepts hyphens and underscores in id', () => {
-    const result = validatePreviousResponseId({ previousResponseId: 'resp_abc-def_123' })
-    expect(result).toEqual({ previousResponseId: 'resp_abc-def_123' })
-  })
-})
 
 describe('sanitizeTurnId', () => {
   it('returns "unknown" for non-string input', () => {

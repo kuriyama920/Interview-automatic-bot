@@ -16,7 +16,7 @@ export const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5.4-
 export const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5.4-nano']
 
 // --- Summarize constants ---
-export const MAX_SUMMARY_INPUT_LENGTH = 1000
+export const MAX_SUMMARY_INPUT_LENGTH = 2000
 export const MAX_TURN_TEXT_LENGTH = 5000
 
 // --- V2 constants ---
@@ -72,24 +72,6 @@ export function validateContext(
   return { context }
 }
 
-/**
- * previousResponseId フィールドのバリデーション
- * - オプショナル
- * - 形式: resp_[a-zA-Z0-9_-]+、最大200文字
- */
-export function validatePreviousResponseId(
-  data: Record<string, unknown>
-): { previousResponseId: string | undefined } {
-  const previousResponseId =
-    typeof data.previousResponseId === 'string'
-    && data.previousResponseId.length > 0
-    && data.previousResponseId.length <= 200
-    && /^resp_[a-zA-Z0-9_-]+$/.test(data.previousResponseId)
-      ? data.previousResponseId
-      : undefined
-
-  return { previousResponseId }
-}
 
 // --- Composite validators ---
 
@@ -100,8 +82,6 @@ export interface ValidatedGenerateRequest {
   model: string
   maxTokens: number
   temperature: number | undefined
-  previousResponseId: string | undefined
-  storeEnabled: boolean
 }
 
 export function validateGenerateRequest(body: unknown): ValidatedGenerateRequest | { error: string } {
@@ -133,10 +113,7 @@ export function validateGenerateRequest(body: unknown): ValidatedGenerateRequest
       : 0.7
     : undefined
 
-  const { previousResponseId } = validatePreviousResponseId(data)
-  const storeEnabled = data.storeEnabled === true
-
-  return { question, context, includeDocumentContext, model, maxTokens, temperature, previousResponseId, storeEnabled }
+  return { question, context, includeDocumentContext, model, maxTokens, temperature }
 }
 
 export interface ValidatedSummarizeRequest {
@@ -182,8 +159,6 @@ export interface ValidatedGenerateV2Request {
   phase: 'speculative' | 'committed'
   context: string | undefined
   turnId: string
-  previousResponseId: string | undefined
-  storeEnabled: boolean
   /** D-2拡張用: Committed Lane側でSpeculativeテキストとの比較に使用予定 */
   speculativeText: string | undefined
 }
@@ -257,13 +232,10 @@ export function validateGenerateV2Request(body: unknown): ValidatedGenerateV2Req
 
   const turnId = sanitizeTurnId(data.turnId)
 
-  const { previousResponseId } = validatePreviousResponseId(data)
-  const storeEnabled = data.storeEnabled === true
-
   const speculativeText =
     typeof data.speculativeText === 'string' && data.speculativeText.length > 0
       ? data.speculativeText.substring(0, MAX_SPECULATIVE_TEXT_LENGTH)
       : undefined
 
-  return { question, phase, context, turnId, previousResponseId, storeEnabled, speculativeText }
+  return { question, phase, context, turnId, speculativeText }
 }

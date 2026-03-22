@@ -17,6 +17,7 @@ import {
 } from '../lib/usage'
 import { generateEmbedding, generateEmbeddings, createOpenAIClient } from '../lib/openai'
 import { getCachedOrGenerateEmbedding } from '../lib/embedding-cache'
+import { getCachedProfile } from '../lib/profile-cache'
 import { SYSTEM_PROMPT, SPECULATIVE_SYSTEM_PROMPT, wrapUserInput } from '../lib/prompts'
 import { formatProfileContext } from '../lib/profile'
 import { withSoftDeadline, RAG_SOFT_DEADLINE_MS } from '../lib/latency-budget'
@@ -46,7 +47,7 @@ const DEFAULT_MIN_SIMILARITY = 0.7
 // --- Summarize constants ---
 const SUMMARIZE_SYSTEM_PROMPT =
   '面接の対話から候補者の主張・数値・エピソードを構造化して抽出・要約するアシスタントです。要約には必ず具体的な企業名・技術名・プロジェクト名・数値を保持し、指示語（これ・それ・あの等）は使用しないでください。'
-const SUMMARIZE_MAX_TOKENS = 300
+const SUMMARIZE_MAX_TOKENS = 500
 const SUMMARIZE_MODEL = 'gpt-5.4-nano'
 
 const SPECULATIVE_MODEL = 'gpt-5-nano'
@@ -123,7 +124,7 @@ app.post('/generate-v2', async (c) => {
     return c.json({ error: validation.error }, 400)
   }
 
-  const { question, phase, context, turnId, previousResponseId, storeEnabled } = validation
+  const { question, phase, context, turnId } = validation
 
   const isSpeculative = phase === 'speculative'
   const model = isSpeculative ? SPECULATIVE_MODEL : COMMITTED_MODEL
@@ -133,11 +134,11 @@ app.post('/generate-v2', async (c) => {
 
   const usagePromise = checkAndReserveUsage(supabase, userId, 'ai_tokens', maxTokens)
 
-  const profilePromise = isSpeculative
-    ? Promise.resolve({ data: null })
-    : supabase.from('profiles').select('interview_profile').eq('id', userId).single()
-
   const safeCtxV2 = getSafeExecutionCtx(c)
+
+  const profilePromise = isSpeculative
+    ? Promise.resolve(null as import('../lib/profile').InterviewProfile | null)
+    : getCachedProfile(userId, supabase, safeCtxV2).catch(() => null)
   const docContextPromise = isSpeculative
     ? Promise.resolve('')
     : fetchDocumentContext(supabase, c.env.OPENAI_API_KEY, userId, question, c.env, safeCtxV2)
@@ -170,7 +171,7 @@ app.post('/generate-v2', async (c) => {
 
   const profileContext = isSpeculative
     ? ''
-    : formatProfileContext((profileResult as { data: { interview_profile?: import('../lib/profile').InterviewProfile | null } | null }).data?.interview_profile)
+    : formatProfileContext(profileResult as import('../lib/profile').InterviewProfile | null)
 
   const instructions = isSpeculative
     ? SPECULATIVE_SYSTEM_PROMPT
@@ -192,7 +193,6 @@ app.post('/generate-v2', async (c) => {
   async function executeOpenAIStream(
     stream: SSEWriter,
     openai: ReturnType<typeof createOpenAIClient>,
-    params: { usePreviousResponseId: boolean },
   ): Promise<void> {
     const effectiveMaxTokens = MODELS_WITH_REASONING.includes(model)
       ? maxTokens + 300
@@ -208,10 +208,7 @@ app.post('/generate-v2', async (c) => {
         reasoning: { effort: model === COMMITTED_MODEL ? 'none' as const : 'minimal' as const },
       }),
       ...(isSpeculative ? {} : { temperature: 0.7 }),
-      ...(params.usePreviousResponseId && !isSpeculative && previousResponseId
-        ? { previous_response_id: previousResponseId }
-        : {}),
-      store: storeEnabled,
+      store: false,
       stream: true as const,
     })
 
@@ -245,34 +242,16 @@ app.post('/generate-v2', async (c) => {
     })
   }
 
-  const hasPreviousResponseId = !isSpeculative && !!previousResponseId
-
   return createSSEResponse(async (stream) => {
     try {
       const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 15_000)
-      await executeOpenAIStream(stream, openai, { usePreviousResponseId: true })
+      await executeOpenAIStream(stream, openai)
     } catch (error) {
       console.error('generate-v2 OpenAI error:', {
         phase,
         model,
         error: error instanceof Error ? { name: error.name, message: error.message, status: (error as unknown as Record<string, unknown>).status } : String(error),
-        hasPreviousResponseId: !!previousResponseId && !isSpeculative,
       })
-
-      if (hasPreviousResponseId) {
-        console.info('generate-v2 retrying without previous_response_id', { phase, model })
-        try {
-          const openai = createOpenAIClient(c.env.OPENAI_API_KEY, c.env, 15_000)
-          await executeOpenAIStream(stream, openai, { usePreviousResponseId: false })
-          return
-        } catch (retryError) {
-          console.error('generate-v2 retry also failed:', {
-            phase,
-            model,
-            error: retryError instanceof Error ? { name: retryError.name, message: retryError.message } : String(retryError),
-          })
-        }
-      }
 
       await adjust(maxTokens, 0).catch(() => {})
 
@@ -301,13 +280,13 @@ app.post('/generate', async (c) => {
     return c.json({ error: validation.error }, 400)
   }
 
-  const { question, context, includeDocumentContext, model, maxTokens, temperature, previousResponseId, storeEnabled } = validation
+  const { question, context, includeDocumentContext, model, maxTokens, temperature } = validation
 
   const turnId = sanitizeTurnId(c.req.header('X-Turn-Id'))
   const m4_workerReceived = Date.now()
   const usagePromise = checkAndReserveUsage(supabase, userId, 'ai_tokens', maxTokens)
-  const profilePromise = supabase.from('profiles').select('interview_profile').eq('id', userId).single()
   const safeCtx = getSafeExecutionCtx(c)
+  const profilePromise = getCachedProfile(userId, supabase, safeCtx).catch(() => null)
   const docContextPromise = includeDocumentContext
     ? fetchDocumentContext(supabase, c.env.OPENAI_API_KEY, userId, question, c.env, safeCtx)
     : Promise.resolve('')
@@ -337,7 +316,7 @@ app.post('/generate', async (c) => {
   const m6_ragCompleted = Date.now()
   const m6_ragTimedOut = (m6_ragCompleted - m4_workerReceived) > RAG_SOFT_DEADLINE_MS
 
-  const profileContext = formatProfileContext((profileResult as { data: { interview_profile?: unknown } | null }).data?.interview_profile as import('../lib/profile').InterviewProfile | null | undefined)
+  const profileContext = formatProfileContext(profileResult as import('../lib/profile').InterviewProfile | null)
   const instructions = profileContext
     ? `${SYSTEM_PROMPT}\n\n【候補者プロフィール】\n${profileContext}`
     : SYSTEM_PROMPT
@@ -373,8 +352,7 @@ app.post('/generate', async (c) => {
           reasoning: { effort: model === COMMITTED_MODEL ? 'none' as const : 'minimal' as const },
         }),
         ...(temperature !== undefined && { temperature }),
-        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-        store: storeEnabled,
+        store: false,
         stream: true as const,
       })
 
@@ -457,9 +435,10 @@ app.post('/summarize', async (c) => {
 
   const wrappedInterviewer = wrapUserInput('interviewer', interviewer)
   const wrappedCandidate = wrapUserInput('candidate', candidate)
+  const wrappedPreviousSummary = previousSummary ? wrapUserInput('previous_summary', previousSummary) : ''
   const userMessage = previousSummary
-    ? `【現在の要約】\n${previousSummary}\n\n【新しい対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n上記を統合した要約を出力してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソードを明記（例: 「○○PJでの△△経験を言及済み」）。\n100-200文字で簡潔に。`
-    : `【対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n候補者の回答を要約してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソード: 「○○PJでの△△経験」の形式で記録。\n50-100文字で簡潔に。`
+    ? `【現在の要約】\n${wrappedPreviousSummary}\n\n【新しい対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n上記を統合した要約を出力してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソードを明記（例: 「○○PJでの△△経験を言及済み」）。\n300-500文字で出力。`
+    : `【対話】\n${wrappedInterviewer}\n${wrappedCandidate}\n\n候補者の回答を要約してください。\n抽出必須: 企業名、技術名、PJ名、具体的数値、候補者の主張。\n使用済みエピソード: 「○○PJでの△△経験」の形式で記録。\n100-200文字で出力。`
 
   const { adjust, record } = createDbWriteHelpers(supabase, userId)
 

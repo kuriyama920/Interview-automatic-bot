@@ -460,52 +460,7 @@ describe('POST /api/ai/generate', () => {
     expect(typeof doneEvent!.tokensUsed).toBe('number')
   })
 
-  it('passes previousResponseId to OpenAI when provided', async () => {
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request(
-      '/api/ai/generate',
-      {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: 'test question',
-          previousResponseId: 'resp_prev_xyz',
-        }),
-      },
-      TEST_ENV
-    )
-    expect(res.status).toBe(200)
-
-    // Verify OpenAI was called with previous_response_id
-    expect(mockOpenAICreate).toHaveBeenCalledTimes(1)
-    const callArgs = mockOpenAICreate.mock.calls[0][0]
-    expect(callArgs.previous_response_id).toBe('resp_prev_xyz')
-  })
-
-  it('calls OpenAI with store: false when storeEnabled is false', async () => {
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request(
-      '/api/ai/generate',
-      {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: 'test question',
-          storeEnabled: false,
-        }),
-      },
-      TEST_ENV
-    )
-    expect(res.status).toBe(200)
-
-    expect(mockOpenAICreate).toHaveBeenCalledTimes(1)
-    const callArgs = mockOpenAICreate.mock.calls[0][0]
-    expect(callArgs.store).toBe(false)
-  })
-
-  it('works without previousResponseId (backward compatible)', async () => {
+  it('always calls OpenAI with store: false (fixed)', async () => {
     const app = createApp()
     const headers = await createAuthHeaders()
     const res = await app.request(
@@ -519,9 +474,10 @@ describe('POST /api/ai/generate', () => {
     )
     expect(res.status).toBe(200)
 
-    // Verify OpenAI was called without previous_response_id
     expect(mockOpenAICreate).toHaveBeenCalledTimes(1)
     const callArgs = mockOpenAICreate.mock.calls[0][0]
+    expect(callArgs.store).toBe(false)
+    // previousResponseId は送信されない
     expect(callArgs.previous_response_id).toBeUndefined()
 
     const body = await res.text()
@@ -1204,7 +1160,7 @@ describe('POST /api/ai/generate-v2', () => {
     expect(generateEmbedding).not.toHaveBeenCalled()
   })
 
-  it('committed phase passes previous_response_id', async () => {
+  it('committed phase does not pass previous_response_id (store: false fixed)', async () => {
     const app = createApp()
     const headers = await createAuthHeaders()
     await app.request(
@@ -1215,14 +1171,14 @@ describe('POST /api/ai/generate-v2', () => {
         body: JSON.stringify({
           question: 'test question',
           phase: 'committed',
-          previousResponseId: 'resp_prev_abc',
         }),
       },
       TEST_ENV
     )
 
     const callArgs = mockOpenAICreate.mock.calls[0][0]
-    expect(callArgs.previous_response_id).toBe('resp_prev_abc')
+    expect(callArgs.previous_response_id).toBeUndefined()
+    expect(callArgs.store).toBe(false)
   })
 
   it('done event contains responseId', async () => {
