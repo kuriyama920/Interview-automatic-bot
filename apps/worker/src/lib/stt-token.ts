@@ -26,7 +26,10 @@ export async function generateTemporaryToken(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ expires_in_seconds: clampedTtl }),
+      body: JSON.stringify({
+        usage_type: 'transcribe_websocket',
+        expires_in_seconds: clampedTtl,
+      }),
     })
 
     if (response.ok) {

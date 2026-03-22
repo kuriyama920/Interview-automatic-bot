@@ -34,7 +34,7 @@ describe('generateTemporaryToken', () => {
           Authorization: 'Bearer api-key-123',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ expires_in_seconds: 600 }),
+        body: JSON.stringify({ usage_type: 'transcribe_websocket', expires_in_seconds: 600 }),
       })
     )
   })
@@ -51,7 +51,7 @@ describe('generateTemporaryToken', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        body: JSON.stringify({ expires_in_seconds: 3600 }),
+        body: JSON.stringify({ usage_type: 'transcribe_websocket', expires_in_seconds: 3600 }),
       })
     )
   })
@@ -67,7 +67,7 @@ describe('generateTemporaryToken', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        body: JSON.stringify({ expires_in_seconds: 600 }),
+        body: JSON.stringify({ usage_type: 'transcribe_websocket', expires_in_seconds: 600 }),
       })
     )
   })
