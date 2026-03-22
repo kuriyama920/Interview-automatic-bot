@@ -1,17 +1,20 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
 import * as fs from 'fs/promises'
 import { STTService, type TranscriptResult } from '../services/stt.service'
-import { aiService, type AIResponse, type GenerateOptions } from '../services/ai.service'
+import { aiService } from '../services/ai.service'
 import { interviewSession } from '../services/session.service'
 import { contextService } from '../services/context.service'
 import { questionsService } from '../services/questions.service'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
-import type { DocumentType } from '../types/document'
-import type { QuestionInput } from '../types/question'
-import type { InterviewProfile } from '../types/auth'
-
-type AudioSource = 'mic' | 'system' | 'both'
+import type {
+  AIResponse,
+  GenerateOptions,
+  DocType as DocumentType,
+  QuestionInput,
+  InterviewProfile,
+  AudioSource,
+} from '../types/shared'
 
 const log = createLogger('IPC')
 
@@ -350,12 +353,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     try {
       ensureAIInitialized()
 
-      const optionsWithSession: GenerateOptions = {
-        ...options,
-        previousResponseId: interviewSession.getPreviousResponseId() ?? undefined,
-        storeEnabled: true,  // Responses API のターン連鎖に必要
-      }
-
       const response = await aiService.generateStreamResponse(
         question,
         explicitContext || undefined,
@@ -370,14 +367,9 @@ export function setupIPC(mainWindow: BrowserWindow): void {
               mainWindow.webContents.send('ai:phase', phase)
             }
           },
-          onDone: (doneData) => {
-            if (doneData.responseId) {
-              interviewSession.setPreviousResponseId(doneData.responseId)
-            }
-          },
         },
         signal,
-        optionsWithSession,
+        options,
       )
 
       const totalMs = Date.now() - ipcStartTime
@@ -418,16 +410,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     try {
       ensureAIInitialized()
 
-      // Committed Laneのみ previousResponseId を注入（Speculative は独立して生成）
-      // モデルミスマッチ防止: V1フォールバック(gpt-5-nano)のIDをV2 committed(gpt-5.4-nano)に渡さない
-      const optionsWithSession: GenerateOptions = {
-        ...options,
-        ...(effectivePhase === 'committed' && {
-          previousResponseId: interviewSession.getPreviousResponseIdForModel('gpt-5.4-nano') ?? undefined,
-          storeEnabled: true,  // Responses API のターン連鎖に必要
-        }),
-      }
-
       const response = await aiService.generateStreamResponseV2(
         question,
         explicitContext || undefined,
@@ -443,15 +425,9 @@ export function setupIPC(mainWindow: BrowserWindow): void {
               mainWindow.webContents.send('ai:phase', p)
             }
           },
-          onDone: (doneData) => {
-            // Committed Lane完了時のみ previousResponseId を更新（モデル情報も記録）
-            if (effectivePhase === 'committed' && doneData.responseId) {
-              interviewSession.setPreviousResponseId(doneData.responseId, doneData.model ?? undefined)
-            }
-          },
         },
         signal,
-        optionsWithSession,
+        options,
       )
 
       const totalMs = Date.now() - ipcStartTime
@@ -482,9 +458,14 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: false, error: 'Invalid input: interviewer and candidate must be strings' }
     }
     const safePreviousSummary = typeof previousSummary === 'string' ? previousSummary : ''
-    const MAX_IPC_TEXT_LENGTH = 10000
-    if (interviewer.length > MAX_IPC_TEXT_LENGTH || candidate.length > MAX_IPC_TEXT_LENGTH || safePreviousSummary.length > MAX_IPC_TEXT_LENGTH) {
-      return { success: false, error: `Input text exceeds maximum length of ${MAX_IPC_TEXT_LENGTH}` }
+    // Worker側の上限に合わせたバリデーション（無駄なネットワーク往復を防止）
+    const MAX_TURN_TEXT = 5000
+    const MAX_SUMMARY_TEXT = 2000
+    if (interviewer.length > MAX_TURN_TEXT || candidate.length > MAX_TURN_TEXT) {
+      return { success: false, error: `Turn text exceeds maximum length of ${MAX_TURN_TEXT}` }
+    }
+    if (safePreviousSummary.length > MAX_SUMMARY_TEXT) {
+      return { success: false, error: `Summary text exceeds maximum length of ${MAX_SUMMARY_TEXT}` }
     }
 
     log.debug('ai:summarize called', { interviewerLength: interviewer.length })
@@ -494,7 +475,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true, summary }
     } catch (error) {
       log.error('Failed to summarize turn', { error: String(error) })
-      return { success: false, error: String(error) }
+      return { success: false, error: '要約生成に失敗しました' }
     }
   })
 
@@ -747,6 +728,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: false, error: String(error) }
     }
   })
+
 
   // ============================================
   // 想定質問関連のIPCハンドラー
