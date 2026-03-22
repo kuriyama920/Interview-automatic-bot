@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 
 vi.mock('../../src/renderer/src/utils/logger', () => ({
   createLogger: () => ({
@@ -10,32 +10,132 @@ vi.mock('../../src/renderer/src/utils/logger', () => ({
   }),
 }))
 
-import { useConversationHistory } from '../../src/renderer/src/hooks/useConversationHistory'
+import { useConversationHistory, RECENT_TURN_COUNT } from '../../src/renderer/src/hooks/useConversationHistory'
 import type { Transcript } from '../../src/renderer/src/types'
 
-describe('useConversationHistory - simplified (no LLM summarization)', () => {
+describe('useConversationHistory - ローリングサマリー統合', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('LLM summarize を呼び出さない（window.electron.ai.summarize が呼ばれない）', () => {
-    // 7ターン分のデータを作成（旧実装なら要約が走るはず）
+  it('5ターン以下では triggerSummarize を呼んでも要約APIを呼ばない', () => {
+    const transcripts: Transcript[] = []
+    for (let i = 0; i < 4; i++) {
+      transcripts.push({ text: `質問${i}`, source: 'system' })
+      transcripts.push({ text: `回答${i}`, source: 'mic' })
+    }
+
+    const { result } = renderHook(() =>
+      useConversationHistory({ transcripts, audioSource: 'both' })
+    )
+
+    act(() => {
+      result.current.triggerSummarize()
+    })
+
+    expect(window.electron.ai.summarize).not.toHaveBeenCalled()
+  })
+
+  it('6ターン以上で triggerSummarize を呼ぶと要約APIを呼ぶ', async () => {
+    ;(window.electron.ai.summarize as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      summary: '候補者はReact5年の経験がある。DB移行PJ経験あり。',
+    })
+
     const transcripts: Transcript[] = []
     for (let i = 0; i < 7; i++) {
       transcripts.push({ text: `質問${i}`, source: 'system' })
       transcripts.push({ text: `回答${i}`, source: 'mic' })
     }
 
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
 
-    // summarize が呼ばれていないことを確認
-    expect(window.electron.ai.summarize).not.toHaveBeenCalled()
+    expect(result.current.turnCount).toBe(7)
+
+    await act(async () => {
+      result.current.triggerSummarize()
+      // Promiseを解決させる
+      await vi.waitFor(() => {
+        expect(window.electron.ai.summarize).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    // 要約APIが呼ばれたことを確認
+    expect(window.electron.ai.summarize).toHaveBeenCalledWith(
+      '', // previousSummary（初回は空）
+      expect.any(String), // interviewer
+      expect.any(String), // candidate
+    )
+  })
+
+  it('要約成功後に historyString に要約セクションが含まれる', async () => {
+    const mockSummary = '候補者はReact5年の経験がある'
+    ;(window.electron.ai.summarize as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      summary: mockSummary,
+    })
+
+    const transcripts: Transcript[] = []
+    for (let i = 0; i < 7; i++) {
+      transcripts.push({ text: `質問${i}`, source: 'system' })
+      transcripts.push({ text: `回答${i}`, source: 'mic' })
+    }
+
+    const { result } = renderHook(() =>
+      useConversationHistory({ transcripts, audioSource: 'both' })
+    )
+
+    await act(async () => {
+      result.current.triggerSummarize()
+      await vi.waitFor(() => {
+        expect(window.electron.ai.summarize).toHaveBeenCalled()
+      })
+    })
+
+    // フラッシュ後に要約が反映される
+    await vi.waitFor(() => {
+      expect(result.current.historyString).toContain('【会話要約】')
+      expect(result.current.historyString).toContain(mockSummary)
+    })
+  })
+
+  it('resetSummary でサマリーがクリアされる', async () => {
+    ;(window.electron.ai.summarize as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      summary: '要約テキスト',
+    })
+
+    const transcripts: Transcript[] = []
+    for (let i = 0; i < 7; i++) {
+      transcripts.push({ text: `質問${i}`, source: 'system' })
+      transcripts.push({ text: `回答${i}`, source: 'mic' })
+    }
+
+    const { result } = renderHook(() =>
+      useConversationHistory({ transcripts, audioSource: 'both' })
+    )
+
+    await act(async () => {
+      result.current.triggerSummarize()
+      await vi.waitFor(() => {
+        expect(window.electron.ai.summarize).toHaveBeenCalled()
+      })
+    })
+
+    await vi.waitFor(() => {
+      expect(result.current.historyString).toContain('【会話要約】')
+    })
+
+    act(() => {
+      result.current.resetSummary()
+    })
+
+    expect(result.current.historyString).not.toContain('【会話要約】')
   })
 
   it('直近5ターンの会話履歴を返す', () => {
-    // 6ターン分のデータを作成
     const transcripts: Transcript[] = []
     for (let i = 0; i < 6; i++) {
       transcripts.push({ text: `質問${i}`, source: 'system' })
@@ -47,14 +147,14 @@ describe('useConversationHistory - simplified (no LLM summarization)', () => {
     )
 
     // 直近5ターン（質問1-5）が含まれる
-    expect(result.current).toContain('質問1')
-    expect(result.current).toContain('質問5')
-    expect(result.current).toContain('回答1')
-    expect(result.current).toContain('回答5')
+    expect(result.current.historyString).toContain('質問1')
+    expect(result.current.historyString).toContain('質問5')
+    expect(result.current.historyString).toContain('回答1')
+    expect(result.current.historyString).toContain('回答5')
 
     // 最古のターン（質問0）は含まれない
-    expect(result.current).not.toContain('質問0')
-    expect(result.current).not.toContain('回答0')
+    expect(result.current.historyString).not.toContain('質問0')
+    expect(result.current.historyString).not.toContain('回答0')
   })
 
   it('audioSource が both でない場合は空文字列を返す', () => {
@@ -66,12 +166,12 @@ describe('useConversationHistory - simplified (no LLM summarization)', () => {
     const { result: micResult } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'mic' })
     )
-    expect(micResult.current).toBe('')
+    expect(micResult.current.historyString).toBe('')
 
     const { result: systemResult } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'system' })
     )
-    expect(systemResult.current).toBe('')
+    expect(systemResult.current.historyString).toBe('')
   })
 
   it('transcripts がリセット（減少）されても状態エラーにならない', () => {
@@ -88,32 +188,47 @@ describe('useConversationHistory - simplified (no LLM summarization)', () => {
       { initialProps: { transcripts, audioSource: 'both' } }
     )
 
-    expect(result.current).toContain('質問1')
-    expect(result.current).toContain('質問2')
+    expect(result.current.historyString).toContain('質問1')
+    expect(result.current.historyString).toContain('質問2')
 
-    // transcriptsがリセットされる
     rerender({ transcripts: [], audioSource: 'both' })
-    expect(result.current).toBe('')
+    expect(result.current.historyString).toBe('')
 
-    // 新しいデータが追加される
     const newTranscripts: Transcript[] = [
       { text: '新しい質問', source: 'system' },
       { text: '新しい回答', source: 'mic' },
     ]
     rerender({ transcripts: newTranscripts, audioSource: 'both' })
-    expect(result.current).toContain('新しい質問')
-    expect(result.current).toContain('新しい回答')
+    expect(result.current.historyString).toContain('新しい質問')
+    expect(result.current.historyString).toContain('新しい回答')
   })
 
   it('会話ターンが0件の場合は空文字列を返す', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts: [], audioSource: 'both' })
     )
-    expect(result.current).toBe('')
+    expect(result.current.historyString).toBe('')
   })
 
-  it('要約セクション（【対話の要約】）を含まない', () => {
-    // 7ターン分のデータ（旧実装なら要約セクションが表示されるはず）
+  it('turnCount が正しいターン数を返す', () => {
+    const transcripts: Transcript[] = []
+    for (let i = 0; i < 8; i++) {
+      transcripts.push({ text: `質問${i}`, source: 'system' })
+      transcripts.push({ text: `回答${i}`, source: 'mic' })
+    }
+
+    const { result } = renderHook(() =>
+      useConversationHistory({ transcripts, audioSource: 'both' })
+    )
+    expect(result.current.turnCount).toBe(8)
+  })
+
+  it('要約失敗時もエラーにならない（非ブロッキング）', async () => {
+    ;(window.electron.ai.summarize as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      error: 'Usage limit exceeded',
+    })
+
     const transcripts: Transcript[] = []
     for (let i = 0; i < 7; i++) {
       transcripts.push({ text: `質問${i}`, source: 'system' })
@@ -124,8 +239,16 @@ describe('useConversationHistory - simplified (no LLM summarization)', () => {
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
 
-    // 要約セクションが含まれないことを確認
-    expect(result.current).not.toContain('【対話の要約】')
+    await act(async () => {
+      result.current.triggerSummarize()
+      await vi.waitFor(() => {
+        expect(window.electron.ai.summarize).toHaveBeenCalled()
+      })
+    })
+
+    // エラーが起きても historyString は正常に動作する
+    expect(result.current.historyString).toContain('【直近の対話】')
+    expect(result.current.historyString).not.toContain('【会話要約】')
   })
 })
 
@@ -138,8 +261,8 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('自己紹介してください')
-    expect(result.current).toContain('田中と申します')
+    expect(result.current.historyString).toContain('自己紹介してください')
+    expect(result.current.historyString).toContain('田中と申します')
   })
 
   it('不完全なターン（面接官のみ）は空文字列を返す', () => {
@@ -149,7 +272,7 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toBe('')
+    expect(result.current.historyString).toBe('')
   })
 
   it('不完全なターン（候補者のみ）は空文字列を返す', () => {
@@ -159,7 +282,7 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toBe('')
+    expect(result.current.historyString).toBe('')
   })
 
   it('空のテキストを持つtranscriptsはスキップする', () => {
@@ -171,8 +294,8 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('質問')
-    expect(result.current).toContain('回答')
+    expect(result.current.historyString).toContain('質問')
+    expect(result.current.historyString).toContain('回答')
   })
 
   it('連続するsystemセグメントを1つの面接官発言として結合する', () => {
@@ -184,7 +307,7 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('最初の 質問です')
+    expect(result.current.historyString).toContain('最初の 質問です')
   })
 
   it('候補者回答後の面接官発言でターンを区切る', () => {
@@ -194,17 +317,15 @@ describe('useConversationHistory - parseTranscriptsToTurns', () => {
       { text: '質問2', source: 'system' },
       { text: '回答2', source: 'mic' },
       { text: '質問3', source: 'system' },
-      // 質問3は未回答なので含まれない
     ]
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('質問1')
-    expect(result.current).toContain('回答1')
-    expect(result.current).toContain('質問2')
-    expect(result.current).toContain('回答2')
-    // 未回答の質問3は含まれない
-    expect(result.current).not.toContain('質問3')
+    expect(result.current.historyString).toContain('質問1')
+    expect(result.current.historyString).toContain('回答1')
+    expect(result.current.historyString).toContain('質問2')
+    expect(result.current.historyString).toContain('回答2')
+    expect(result.current.historyString).not.toContain('質問3')
   })
 })
 
@@ -217,7 +338,7 @@ describe('useConversationHistory - formatting', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('これまでの対話')
+    expect(result.current.historyString).toContain('これまでの対話')
   })
 
   it('面接官とあなたラベルでフォーマットする', () => {
@@ -228,20 +349,19 @@ describe('useConversationHistory - formatting', () => {
     const { result } = renderHook(() =>
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
-    expect(result.current).toContain('面接官:')
-    expect(result.current).toContain('あなた:')
+    expect(result.current.historyString).toContain('面接官:')
+    expect(result.current.historyString).toContain('あなた:')
   })
 
-  it('MAX_HISTORY_CHARS（2000文字）を超える場合は空文字列を返す', () => {
-    // 5ターンの非常に長いテキストを作成
+  it('MAX_HISTORY_CHARS（4000文字）を超える場合は空文字列を返す', () => {
     const transcripts: Transcript[] = []
     for (let i = 0; i < 5; i++) {
       transcripts.push({
-        text: `${'非常に長い質問テキスト'.repeat(30)}${i}`,
+        text: `${'非常に長い質問テキスト'.repeat(60)}${i}`,
         source: 'system',
       })
       transcripts.push({
-        text: `${'非常に長い回答テキスト'.repeat(30)}${i}`,
+        text: `${'非常に長い回答テキスト'.repeat(60)}${i}`,
         source: 'mic',
       })
     }
@@ -250,9 +370,8 @@ describe('useConversationHistory - formatting', () => {
       useConversationHistory({ transcripts, audioSource: 'both' })
     )
 
-    // 直近ターンだけでも2000文字を超えるなら空文字列
-    if (result.current !== '') {
-      expect(result.current.length).toBeLessThanOrEqual(2100)
+    if (result.current.historyString !== '') {
+      expect(result.current.historyString.length).toBeLessThanOrEqual(4100)
     }
   })
 })

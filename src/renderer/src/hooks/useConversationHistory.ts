@@ -1,21 +1,26 @@
 /**
- * Conversation History Hook (簡素化版)
+ * Conversation History Hook
  *
- * Phase 1.5以降: Responses APIの previous_response_id によりサーバー側で
- * 会話状態を保持するため、クライアント側のLLM要約が不要になった。
- * このフックは表示用の直近5ターンを提供する。
+ * 直近5ターンの会話履歴 + ローリングサマリーをAIコンテキストとして提供する。
+ * store: false 固定により OpenAI 側に会話履歴は保存されないため、
+ * クライアント側で会話文脈を管理する。
  *
+ * - ローリングサマリー: 6ターン目以降、直近5ターンより前の会話を累積要約
  * - 直近5ターン: 原文そのまま（スライディングウィンドウ）
  * - audioSource === 'both' 時のみ有効（話者区別が必要）
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState, useCallback, useRef } from 'react'
 import type { Transcript } from '../types'
+import { createLogger } from '../utils/logger'
 
-const RECENT_TURN_COUNT = 5
-// 約500-1000トークン。RAGコンテキスト（~1000トークン）と合わせて
-// gpt-5-nanoのコンテキスト枠内に収まるサイズ。
-const MAX_HISTORY_CHARS = 2000
+const log = createLogger('useConversationHistory')
+
+export const RECENT_TURN_COUNT = 5
+// 50分面接（~20ターン）を想定: 直近5ターン原文(~1500文字) + 要約(~800文字) + ヘッダー(~200文字)
+// gpt-5-nano/gpt-5.4-nano のコンテキスト枠(128K+)に対して十分余裕あり。
+// コスト影響: ~2000トークン追加 → gpt-5.4-nano で $0.0004/回（無視可能）
+const MAX_HISTORY_CHARS = 4000
 
 export interface ConversationTurn {
   interviewer: string
@@ -73,32 +78,48 @@ export function parseTranscriptsToTurns(transcripts: Transcript[], maxTurns?: nu
 }
 
 /**
- * セクション文字列を組み立てる。
- * - 直近ターン: 面接官・候補者ともに原文（スライディングウィンドウ）
- */
-function buildSections(recentTurns: ConversationTurn[]): string {
-  if (recentTurns.length === 0) return ''
-
-  const recentLines = recentTurns.map((turn) => {
-    return `面接官: ${turn.interviewer}\nあなた: ${turn.candidate}`
-  })
-  return '【直近の対話】\n' + recentLines.join('\n')
-}
-
-/**
- * 履歴文字列を組み立てる。
+ * サマリー + 直近ターンから履歴文字列を構築（テスト用にexport）。
  * 文字数上限を超える場合は空文字列を返す。
  */
-function formatHistoryString(recentTurns: ConversationTurn[]): string {
-  if (recentTurns.length === 0) return ''
+export function formatHistoryWithSummary(
+  recentTurns: ConversationTurn[],
+  summary?: string,
+): string {
+  const hasSummary = !!summary && summary.length > 0
+  const hasRecentTurns = recentTurns.length > 0
 
-  const result = buildSections(recentTurns)
-  if (result.length <= MAX_HISTORY_CHARS) {
-    return `これまでの対話:\n${result}`
+  if (!hasSummary && !hasRecentTurns) return ''
+
+  const parts: string[] = []
+
+  if (hasSummary) {
+    parts.push(`【会話要約】\n${summary}`)
   }
 
-  // 直近ターンでも文字数上限を超える場合は空文字列
-  return ''
+  if (hasRecentTurns) {
+    const recentLines = recentTurns.map((turn) => {
+      return `面接官: ${turn.interviewer}\nあなた: ${turn.candidate}`
+    })
+    parts.push('【直近の対話】\n' + recentLines.join('\n'))
+  }
+
+  const result = `これまでの対話:\n${parts.join('\n\n')}`
+  if (result.length > MAX_HISTORY_CHARS) {
+    return ''
+  }
+
+  return result
+}
+
+export interface UseConversationHistoryResult {
+  /** AI contextに渡す履歴文字列 */
+  historyString: string
+  /** committed完了後に呼び出して要約を更新 */
+  triggerSummarize: () => void
+  /** 録音開始/クリア時に呼び出してサマリーをリセット */
+  resetSummary: () => void
+  /** 全ターン数（要約トリガー判定用） */
+  turnCount: number
 }
 
 interface UseConversationHistoryOptions {
@@ -106,24 +127,109 @@ interface UseConversationHistoryOptions {
   audioSource: string
 }
 
+// 要約呼び出しの最小間隔（トークン消費保護）
+const SUMMARIZE_COOLDOWN_MS = 15_000
+
 export function useConversationHistory({
   transcripts,
   audioSource,
-}: UseConversationHistoryOptions): string {
-  // ターン解析（useMemo で再計算を最小化）
-  // maxTurns を渡して末尾から RECENT_TURN_COUNT 分だけ解析（大量のtranscriptsで高速化）
-  const recentTurns = useMemo(() => {
+}: UseConversationHistoryOptions): UseConversationHistoryResult {
+  const [rollingSummary, setRollingSummary] = useState('')
+  const summarizingRef = useRef(false)
+  // 要約済みターン数を追跡（同じターンの二重要約防止）
+  const summarizedTurnCountRef = useRef(0)
+  // [HIGH fix] generation counter: resetSummary 後の stale write を防止
+  const generationRef = useRef(0)
+  // [MEDIUM fix] クールダウン: 連続呼び出しによるトークン消費を抑制
+  const lastSummarizeTimeRef = useRef(0)
+
+  // 全ターン解析（要約対象の判定に使用）
+  const allTurns = useMemo(() => {
     if (audioSource !== 'both') return []
-    const turns = parseTranscriptsToTurns(transcripts, RECENT_TURN_COUNT)
-    // parseTranscriptsToTurns が limit 付きで返すので slice 不要
-    return turns.length > RECENT_TURN_COUNT
-      ? turns.slice(turns.length - RECENT_TURN_COUNT)
-      : turns
+    return parseTranscriptsToTurns(transcripts)
   }, [transcripts, audioSource])
 
+  // 直近5ターン（AI contextに原文として渡す）
+  const recentTurns = useMemo(() => {
+    if (allTurns.length <= RECENT_TURN_COUNT) return allTurns
+    return allTurns.slice(allTurns.length - RECENT_TURN_COUNT)
+  }, [allTurns])
+
+  // [MEDIUM fix] refs で triggerSummarize を安定化（STTフラグメントごとの再作成を防止）
+  const allTurnsRef = useRef<ConversationTurn[]>([])
+  allTurnsRef.current = allTurns
+  const rollingSummaryRef = useRef('')
+  rollingSummaryRef.current = rollingSummary
+
+  // 要約トリガー: 直近5ターンより前の最新ターンを要約
+  const triggerSummarize = useCallback(() => {
+    if (audioSource !== 'both') return
+    if (summarizingRef.current) return
+
+    const turns = allTurnsRef.current
+    const summary = rollingSummaryRef.current
+
+    if (turns.length <= RECENT_TURN_COUNT) return
+
+    // クールダウンチェック
+    const now = Date.now()
+    if (now - lastSummarizeTimeRef.current < SUMMARIZE_COOLDOWN_MS) return
+
+    // 要約すべきターン: 直近5ターンの1つ前
+    const targetIndex = turns.length - RECENT_TURN_COUNT - 1
+    if (targetIndex < 0) return
+    // 既に要約済みなら何もしない
+    if (turns.length - RECENT_TURN_COUNT <= summarizedTurnCountRef.current) return
+
+    const turn = turns[targetIndex]
+    summarizingRef.current = true
+    lastSummarizeTimeRef.current = now
+    const generation = generationRef.current
+
+    log.info('Triggering rolling summary', {
+      turnIndex: targetIndex,
+      totalTurns: turns.length,
+      previousSummaryLength: summary.length,
+    })
+
+    window.electron.ai.summarize(summary, turn.interviewer, turn.candidate)
+      .then((result) => {
+        // [HIGH fix] リセット後の stale write を防止
+        if (generation !== generationRef.current) return
+        if (result.success && result.summary) {
+          setRollingSummary(result.summary)
+          summarizedTurnCountRef.current = allTurnsRef.current.length - RECENT_TURN_COUNT
+          log.info('Rolling summary updated', { summaryLength: result.summary.length })
+        } else {
+          log.warn('Summarization failed', { error: result.error })
+        }
+      })
+      .catch((error) => {
+        log.warn('Summarization error (non-blocking)', { error: String(error) })
+      })
+      .finally(() => {
+        summarizingRef.current = false
+      })
+  }, [audioSource]) // refs経由でアクセスするため依存は audioSource のみ
+
+  // サマリーリセット
+  const resetSummary = useCallback(() => {
+    setRollingSummary('')
+    summarizedTurnCountRef.current = 0
+    summarizingRef.current = false
+    generationRef.current += 1 // in-flight の Promise を無効化
+  }, [])
+
   // 最終的な履歴文字列を構築
-  return useMemo(() => {
+  const historyString = useMemo(() => {
     if (audioSource !== 'both') return ''
-    return formatHistoryString(recentTurns)
-  }, [recentTurns, audioSource])
+    return formatHistoryWithSummary(recentTurns, rollingSummary)
+  }, [recentTurns, audioSource, rollingSummary])
+
+  return {
+    historyString,
+    triggerSummarize,
+    resetSummary,
+    turnCount: allTurns.length,
+  }
 }
