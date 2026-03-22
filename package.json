@@ -32,7 +32,6 @@
     "test:e2e:marketing": "playwright test --project=marketing-site"
   },
   "dependencies": {
-    "@deepgram/sdk": "^3.4.0",
     "dotenv": "^17.2.3",
     "electron-store": "^8.1.0",
     "openai": "^4.28.0",
@@ -115,7 +114,7 @@
     "electron",
     "interview",
     "ai",
-    "deepgram",
+    "soniox",
     "openai",
     "speech-recognition",
     "desktop-app"

@@ -16,16 +16,19 @@ vi.mock('../../src/lib/supabase', () => ({
   }),
 }))
 
-// Mock Deepgram
-vi.mock('../../src/lib/deepgram', () => ({
+// Mock Soniox
+vi.mock('../../src/lib/stt-token', () => ({
   generateTemporaryToken: vi.fn().mockResolvedValue({
-    token: 'test-deepgram-token',
+    token: 'test-soniox-token',
     expiresIn: 600,
   }),
   DEFAULT_STT_CONFIG: {
-    model: 'nova-2',
-    language: 'ja',
-    smart_format: true,
+    model: 'stt-rt-preview',
+    audioFormat: 'pcm_s16le',
+    sampleRate: 16000,
+    numChannels: 1,
+    languageHints: ['ja'],
+    enableEndpointDetection: true,
   },
 }))
 
@@ -45,7 +48,7 @@ import { checkUsageLimit } from '../../src/lib/usage'
 
 const TEST_ENV = {
   JWT_SECRET: TEST_JWT_SECRET,
-  DEEPGRAM_API_KEY: 'test-deepgram-key',
+  SONIOX_API_KEY: 'test-soniox-key',
 } as Env
 
 async function createAuthHeaders(): Promise<Record<string, string>> {
@@ -84,8 +87,9 @@ describe('POST /api/stt/token', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
-    expect(body.token).toBe('test-deepgram-token')
+    expect(body.token).toBe('test-soniox-token')
     expect(body.config).toBeDefined()
+    expect(body.config.model).toBe('stt-rt-preview')
     expect(body.usage.used).toBe(10)
     expect(body.usage.limit).toBe(600)
   })

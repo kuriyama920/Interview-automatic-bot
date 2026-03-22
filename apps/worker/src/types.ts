@@ -26,8 +26,8 @@ export type Env = {
   // Cron
   CRON_SECRET: string
 
-  // Deepgram
-  DEEPGRAM_API_KEY: string
+  // Soniox
+  SONIOX_API_KEY: string
 
   // Cloudflare AI Gateway (Optional)
   CF_ACCOUNT_ID?: string

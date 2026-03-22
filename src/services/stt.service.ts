@@ -1,5 +1,4 @@
-import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk'
-import type { LiveClient } from '@deepgram/sdk'
+import WebSocket from 'ws'
 import { createLogger } from './logger.service'
 
 const log = createLogger('STT')
@@ -14,11 +13,27 @@ export interface TranscriptResult {
 
 type TranscriptCallback = (result: TranscriptResult) => void
 
-const KEEPALIVE_INTERVAL_MS = 5000 // 5秒ごとにキープアライブを送信
+const KEEPALIVE_INTERVAL_MS = 15000 // 15秒ごと（Soniox: 20秒制限に余裕を持たせる）
+const SONIOX_WS_URL = 'wss://stt-rt.soniox.com/transcribe-websocket'
+
+interface SonioxToken {
+  text: string
+  start_ms: number
+  end_ms: number
+  confidence: number
+  is_final: boolean
+}
+
+interface SonioxResponse {
+  tokens: SonioxToken[]
+  final_audio_proc_ms: number
+  total_audio_proc_ms: number
+  error_code?: number
+  error_message?: string
+}
 
 export class STTService {
-  private client: ReturnType<typeof createClient> | null = null
-  private connection: LiveClient | null = null
+  private ws: WebSocket | null = null
   private apiKey: string
   private onTranscript: TranscriptCallback | null = null
   private _isConnected = false
@@ -41,73 +56,109 @@ export class STTService {
   async connect(onTranscript: TranscriptCallback): Promise<void> {
     this.onTranscript = onTranscript
     this.sessionStartTime = Date.now()
-    this.client = createClient(this.apiKey)
 
-    log.info('Creating live connection...')
+    log.info('Creating Soniox WebSocket connection...')
 
     return new Promise((resolve, reject) => {
-      this.connection = this.client!.listen.live({
-        model: 'nova-3',
-        language: 'ja',
-        smart_format: true,
-        interim_results: true,
-        utterance_end_ms: 1000,
-        endpointing: 300,
-        vad_events: true,
-        encoding: 'linear16',
-        sample_rate: 16000,
-        channels: 1,
-      })
+      this.ws = new WebSocket(SONIOX_WS_URL)
 
       const timeout = setTimeout(() => {
-        // タイムアウト時のクリーンアップ
-        if (this.connection) {
-          this.connection.requestClose()
-          this.connection = null
+        if (this.ws) {
+          this.ws.close()
+          this.ws = null
         }
         this._isConnected = false
-        this.client = null
         reject(new Error('接続タイムアウト（10秒）'))
       }, 10000)
 
-      this.connection.on(LiveTranscriptionEvents.Open, () => {
-        log.info('Deepgram connection opened')
+      this.ws.on('open', () => {
+        log.info('Soniox WebSocket opened, sending config...')
+
+        const config = {
+          api_key: this.apiKey,
+          model: 'stt-rt-preview',
+          audio_format: 'pcm_s16le',
+          sample_rate: 16000,
+          num_channels: 1,
+          language_hints: ['ja'],
+          enable_endpoint_detection: true,
+        }
+
+        this.ws!.send(JSON.stringify(config))
         this._isConnected = true
         clearTimeout(timeout)
         this.startKeepAlive()
         resolve()
       })
 
-      this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-        const alternative = data.channel?.alternatives?.[0]
-        const transcript = alternative?.transcript
-        const confidence = alternative?.confidence ?? 0
+      this.ws.on('message', (data) => {
+        try {
+          const response: SonioxResponse = JSON.parse(data.toString())
 
-        if (transcript && this.onTranscript) {
-          if (data.is_final) {
-            log.debug('Final transcript', { length: transcript.length, confidence })
+          if (response.error_code) {
+            log.error('Soniox API error', {
+              code: response.error_code,
+              message: response.error_message,
+            })
+            const errorMessage = this.parseError(response.error_code, response.error_message)
+            this._isConnected = false
+            this.stopKeepAlive()
+            reject(new Error(errorMessage))
+            return
           }
-          this.onTranscript({
-            text: transcript,
-            isFinal: data.is_final ?? false,
-            confidence,
-            timestamp: Date.now(),
-          })
+
+          if (response.tokens && response.tokens.length > 0) {
+            const finalTokens = response.tokens.filter((t) => t.is_final)
+            const interimTokens = response.tokens.filter((t) => !t.is_final)
+
+            // Final tokens → confirmed transcript
+            if (finalTokens.length > 0) {
+              const text = finalTokens.map((t) => t.text).join('')
+              const avgConfidence =
+                finalTokens.reduce((sum, t) => sum + t.confidence, 0) / finalTokens.length
+
+              if (text.trim() && this.onTranscript) {
+                log.debug('Final transcript', { length: text.length, confidence: avgConfidence })
+                this.onTranscript({
+                  text: text.trim(),
+                  isFinal: true,
+                  confidence: avgConfidence,
+                  timestamp: Date.now(),
+                })
+              }
+            }
+
+            // Interim tokens → partial result
+            if (interimTokens.length > 0) {
+              const text = interimTokens.map((t) => t.text).join('')
+              const avgConfidence =
+                interimTokens.reduce((sum, t) => sum + t.confidence, 0) / interimTokens.length
+
+              if (text.trim() && this.onTranscript) {
+                this.onTranscript({
+                  text: text.trim(),
+                  isFinal: false,
+                  confidence: avgConfidence,
+                  timestamp: Date.now(),
+                })
+              }
+            }
+          }
+        } catch (err) {
+          log.error('Failed to parse Soniox response', { error: String(err) })
         }
       })
 
-      this.connection.on(LiveTranscriptionEvents.Error, (error) => {
-        log.error('Connection error', { error: String(error) })
+      this.ws.on('error', (error) => {
+        log.error('WebSocket error', { error: String(error) })
         this._isConnected = false
         this.stopKeepAlive()
         clearTimeout(timeout)
-
-        const errorMessage = this.parseError(error)
-        reject(new Error(errorMessage))
+        reject(new Error(this.parseError(0, String(error))))
       })
 
-      this.connection.on(LiveTranscriptionEvents.Close, () => {
-        log.info('Connection closed')
+      this.ws.on('close', (code, reason) => {
+        log.info('WebSocket closed', { code, reason: reason?.toString() })
         this._isConnected = false
         this.stopKeepAlive()
       })
@@ -116,11 +167,11 @@ export class STTService {
 
   private startKeepAlive(): void {
     this.stopKeepAlive()
-    log.debug('Starting keepalive')
+    log.debug('Starting keepalive (15s interval)')
     this.keepAliveInterval = setInterval(() => {
-      if (this.connection && this._isConnected) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
-          this.connection.keepAlive()
+          this.ws.send(JSON.stringify({ type: 'keepalive' }))
           log.debug('Keepalive sent')
         } catch (err) {
           log.error('Keepalive error', { error: String(err) })
@@ -137,32 +188,21 @@ export class STTService {
     }
   }
 
-  private parseError(error: unknown): string {
-    // Deepgramのエラーオブジェクトを適切に文字列化
-    let errorStr: string
-    if (error instanceof Error) {
-      errorStr = error.message
-    } else if (typeof error === 'object' && error !== null) {
-      const obj = error as Record<string, unknown>
-      errorStr = obj.message
-        ? String(obj.message)
-        : JSON.stringify(error)
-    } else {
-      errorStr = String(error)
-    }
+  private parseError(code: number, message?: string): string {
+    const errorStr = message || ''
 
-    log.error('Deepgram error details', { errorStr, rawType: typeof error })
+    log.error('Soniox error details', { code, errorStr })
 
-    if (errorStr.includes('401')) {
-      return 'APIキーが無効です。Deepgramダッシュボードで有効なキーを確認してください。'
+    if (code === 401 || errorStr.includes('401')) {
+      return 'APIキーが無効です。Sonioxダッシュボードで有効なキーを確認してください。'
     }
-    if (errorStr.includes('403')) {
-      return 'このAPIキーにはLive Transcription権限がありません。'
+    if (code === 402 || errorStr.includes('402')) {
+      return '残高不足です。Sonioxダッシュボードで残高を追加してください。'
     }
-    if (errorStr.includes('400')) {
-      return `Deepgramパラメータエラー: ${errorStr.substring(0, 150)}`
+    if (code === 403 || errorStr.includes('403')) {
+      return 'このAPIキーには音声認識の権限がありません。'
     }
-    if (errorStr.includes('429')) {
+    if (code === 429 || errorStr.includes('429')) {
       return 'レート制限に達しました。しばらく待ってから再試行してください。'
     }
     if (errorStr.includes('ENOTFOUND') || errorStr.includes('ECONNREFUSED')) {
@@ -173,9 +213,9 @@ export class STTService {
   }
 
   send(audioData: Buffer): void {
-    if (this.connection && this._isConnected) {
+    if (this.ws && this._isConnected && this.ws.readyState === WebSocket.OPEN) {
       try {
-        this.connection.send(new Uint8Array(audioData).buffer)
+        this.ws.send(audioData)
       } catch (err) {
         log.error('Failed to send audio data', { error: String(err) })
       }
@@ -185,12 +225,15 @@ export class STTService {
   async disconnect(): Promise<void> {
     log.info('Disconnecting...')
     this.stopKeepAlive()
-    if (this.connection) {
-      this.connection.requestClose()
-      this.connection = null
+    if (this.ws) {
+      if (this.ws.readyState === WebSocket.OPEN) {
+        // Soniox: 空フレーム送信でグレースフル切断
+        this.ws.send(Buffer.alloc(0))
+      }
+      this.ws.close()
+      this.ws = null
     }
     this._isConnected = false
-    this.client = null
   }
 
   isConnected(): boolean {

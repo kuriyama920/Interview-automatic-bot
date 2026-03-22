@@ -1,6 +1,6 @@
 /**
  * STT ルート
- * POST /api/stt/token - Deepgram 一時トークン発行
+ * POST /api/stt/token - Soniox 一時トークン発行
  * POST /api/stt/usage - STT 使用量報告
  */
 
@@ -9,7 +9,7 @@ import type { Env, Variables } from '../types'
 import { createSupabaseAdmin } from '../lib/supabase'
 import { authRequired } from '../middleware/auth'
 import { checkUsageLimit, recordUsage } from '../lib/usage'
-import { generateTemporaryToken, DEFAULT_STT_CONFIG } from '../lib/deepgram'
+import { generateTemporaryToken, DEFAULT_STT_CONFIG } from '../lib/stt-token'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
@@ -34,7 +34,7 @@ app.post('/token', async (c) => {
   }
 
   try {
-    const result = await generateTemporaryToken(c.env.DEEPGRAM_API_KEY, 600)
+    const result = await generateTemporaryToken(c.env.SONIOX_API_KEY, 600)
     return c.json({
       success: true,
       token: result.token,
@@ -47,7 +47,7 @@ app.post('/token', async (c) => {
       },
     })
   } catch (error) {
-    console.error('Deepgram token generation error:', error instanceof Error ? error.message : String(error))
+    console.error('Soniox token generation error:', error instanceof Error ? error.message : String(error))
     return c.json(
       {
         error:

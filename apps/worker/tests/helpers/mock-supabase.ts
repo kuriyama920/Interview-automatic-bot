@@ -47,5 +47,5 @@ export const TEST_ENV = {
   STRIPE_SECRET_KEY: 'sk_test_fake',
   STRIPE_WEBHOOK_SECRET: 'whsec_test_fake',
   CRON_SECRET: 'test-cron-secret',
-  DEEPGRAM_API_KEY: 'test-deepgram-key',
+  SONIOX_API_KEY: 'test-soniox-key',
 } as const

@@ -72,7 +72,7 @@ export function useSTT(): UseSTTReturn {
   }, [])
 
   const connect = useCallback(async () => {
-    log.info('Connecting to Deepgram...')
+    log.info('Connecting to Soniox STT...')
     if (!mountedRef.current) return
 
     setError(null)

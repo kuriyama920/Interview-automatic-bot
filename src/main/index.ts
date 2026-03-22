@@ -11,7 +11,7 @@ const log = createLogger('Main')
 const envPath = join(process.cwd(), '.env')
 const envResult = config({ path: envPath })
 log.info('.env load result', { path: envPath, success: !envResult.error })
-log.debug('DEEPGRAM_API_KEY found', { found: !!process.env.DEEPGRAM_API_KEY })
+log.debug('SONIOX_API_KEY found', { found: !!process.env.SONIOX_API_KEY })
 
 // Deep Linkプロトコル
 const PROTOCOL = 'interview-bot'
