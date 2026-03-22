@@ -75,8 +75,17 @@ vi.mock('../../src/renderer/src/hooks/useProgressiveAI', () => ({
   }),
 }))
 
+const mockTriggerSummarize = vi.fn()
+const mockResetSummary = vi.fn()
+
 vi.mock('../../src/renderer/src/hooks/useConversationHistory', () => ({
-  useConversationHistory: () => '',
+  RECENT_TURN_COUNT: 5,
+  useConversationHistory: () => ({
+    historyString: '',
+    triggerSummarize: mockTriggerSummarize,
+    resetSummary: mockResetSummary,
+    turnCount: 0,
+  }),
 }))
 
 vi.mock('../../src/renderer/src/hooks/useDocumentContextCache', () => ({

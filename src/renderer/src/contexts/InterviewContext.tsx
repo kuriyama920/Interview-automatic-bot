@@ -5,12 +5,13 @@
  */
 
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { shouldAdoptSpeculative } from '../utils/speculative-adoption'
+import { shouldAdoptSpeculative, DEFAULT_ADOPTION_CONFIG } from '../utils/speculative-adoption'
+import { AdaptiveThreshold } from '../utils/adaptive-threshold'
 import { useSTT } from '../hooks/useSTT'
 import { useAudioCapture } from '../hooks/useAudioCapture'
 import { useAIResponse } from '../hooks/useAIResponse'
 import { useProgressiveAI } from '../hooks/useProgressiveAI'
-import { useConversationHistory } from '../hooks/useConversationHistory'
+import { useConversationHistory, RECENT_TURN_COUNT } from '../hooks/useConversationHistory'
 import { useDocumentContextCache } from '../hooks/useDocumentContextCache'
 import { useLatencyMetrics } from '../hooks/useLatencyMetrics'
 import { useToast } from '../hooks/useToast'
@@ -94,7 +95,12 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     }
   }, [currentPhase, streamingText])
 
-  const conversationHistory = useConversationHistory({
+  const {
+    historyString: conversationHistory,
+    triggerSummarize,
+    resetSummary,
+    turnCount,
+  } = useConversationHistory({
     transcripts,
     audioSource,
   })
@@ -131,6 +137,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     setIsRecording(isCapturing)
   }, [isCapturing, setIsRecording])
 
+  // F-2b: Adaptive Threshold - 採用率ベースの動的閾値調整
+  const adaptiveThresholdRef = useRef(new AdaptiveThreshold())
+
   // W-01: Speculative採用判定（Committed完了後に実行）
   const prevIsGeneratingRef = useRef(false)
   useEffect(() => {
@@ -144,18 +153,33 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       const committedText = aiResponse?.answer || streamingText
 
       if (specText && committedText) {
-        const result = shouldAdoptSpeculative(specText, committedText)
+        const adaptiveConfig = {
+          ...DEFAULT_ADOPTION_CONFIG,
+          changeRateThreshold: adaptiveThresholdRef.current.getThreshold(),
+        }
+        const result = shouldAdoptSpeculative(specText, committedText, adaptiveConfig)
+
+        // 採用結果を記録して次回の閾値調整に反映
+        adaptiveThresholdRef.current.recordAdoption(result.adopted)
+
         latencyMetrics.record(turnId, 'speculative_adopted', result.adopted)
         latencyMetrics.record(turnId, 'speculative_changeRate', result.changeRate)
         latencyMetrics.record(turnId, 'speculative_reason', result.reason)
+        latencyMetrics.record(turnId, 'adaptive_threshold', adaptiveConfig.changeRateThreshold)
       }
       pendingCommittedTurnIdRef.current = null
+
+      // ローリングサマリー: 直近5ターンを超えたらcommitted完了ごとに要約を更新
+      if (turnCount > RECENT_TURN_COUNT) {
+        triggerSummarize()
+      }
     }
-  }, [isGenerating, aiResponse, streamingText, latencyMetrics, pendingCommittedTurnIdRef])
+  }, [isGenerating, aiResponse, streamingText, latencyMetrics, pendingCommittedTurnIdRef, turnCount, triggerSummarize])
 
   const handleStart = useCallback(async () => {
     setIsLoading(true)
     setAppError(null)
+    resetSummary()
     resetProgressiveAI()
     clearResponse()
 
@@ -173,7 +197,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [connect, startCapture, stopCapture, disconnect, prefetchDocumentContext, resetProgressiveAI, clearResponse, toast])
+  }, [connect, startCapture, stopCapture, disconnect, prefetchDocumentContext, resetSummary, resetProgressiveAI, clearResponse, toast])
 
   const handleStop = useCallback(async () => {
     setIsLoading(true)
@@ -195,9 +219,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     abortGeneration()
     clearTranscripts()
     clearResponse()
+    resetSummary()
     resetProgressiveAI()
     toast.info('クリアしました')
-  }, [abortGeneration, clearTranscripts, clearResponse, resetProgressiveAI, toast])
+  }, [abortGeneration, clearTranscripts, clearResponse, resetSummary, resetProgressiveAI, toast])
 
   // アンマウント時のクリーンアップ
   useEffect(() => {
