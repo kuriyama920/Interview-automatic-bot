@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'InterviewBotのプライバシーポリシーです。個人情報の取扱いについてご確認ください。',
 }
 
-const LAST_UPDATED = '2026年2月11日'
+const LAST_UPDATED = '2026年3月23日'
 
 export default function PrivacyPage() {
   return (
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
             <div className="p-4 rounded-xl bg-success-subtle border border-success/20">
               <p className="text-sm text-success-text leading-relaxed">
                 音声認識に使用される音声データは、リアルタイムで処理され、当方のサーバーに保存されることはありません。
-                音声データはDeepgramのサーバーで処理され、テキスト変換後に破棄されます。
+                音声データはSonioxのサーバーで処理され、テキスト変換後に破棄されます。
               </p>
             </div>
           </Section>
@@ -112,14 +112,14 @@ export default function PrivacyPage() {
                     <td className="py-2.5">決済情報（カード情報はStripeが管理）</td>
                   </tr>
                   <tr className="border-b border-border/50">
-                    <td className="py-2.5 pr-4"><a href="https://deepgram.com/privacy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">Deepgram</a></td>
+                    <td className="py-2.5 pr-4"><a href="https://soniox.com/privacy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">Soniox</a></td>
                     <td className="py-2.5 pr-4">音声認識</td>
                     <td className="py-2.5">音声ストリーム（処理後破棄）</td>
                   </tr>
                   <tr className="border-b border-border/50">
                     <td className="py-2.5 pr-4"><a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">OpenAI</a></td>
                     <td className="py-2.5 pr-4">AI生成</td>
-                    <td className="py-2.5">面接文脈テキスト</td>
+                    <td className="py-2.5">面接文脈テキスト（store: false設定によりOpenAI側に保存されません）</td>
                   </tr>
                   <tr className="border-b border-border/50">
                     <td className="py-2.5 pr-4"><a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover transition-colors">Supabase</a></td>
@@ -157,6 +157,8 @@ export default function PrivacyPage() {
               <li>JWT認証トークンによるアクセス管理</li>
               <li>Row Level Security（RLS）によるデータ分離</li>
               <li>定期的なセキュリティ監査の実施</li>
+              <li>OpenAI API呼び出し時のstore: false固定設定（AI側にデータを保存しない）</li>
+              <li>AIとの対話履歴はセッション終了後にサーバー側に残りません</li>
             </ul>
           </Section>
 
@@ -167,6 +169,7 @@ export default function PrivacyPage() {
               <li>利用ログ: 最大90日間保持後に自動削除</li>
               <li>決済情報: Stripeのポリシーに準じて保持</li>
               <li>音声データ: リアルタイム処理のみ、保存なし</li>
+              <li>AIテキストデータ: OpenAI APIにstore: false固定設定のため、OpenAI側でデータは保持されません</li>
             </ol>
           </Section>
 
@@ -190,8 +193,8 @@ export default function PrivacyPage() {
                 </p>
                 <p>
                   <span className="font-medium text-content">メール: </span>
-                  <a href="mailto:interviewautomaticbot@gmail.com" className="text-accent hover:text-accent-hover underline underline-offset-2 transition-colors">
-                    interviewautomaticbot@gmail.com
+                  <a href="mailto:interviewautomaticbot92@gmail.com" className="text-accent hover:text-accent-hover underline underline-offset-2 transition-colors">
+                    interviewautomaticbot92@gmail.com
                   </a>
                 </p>
                 <p>

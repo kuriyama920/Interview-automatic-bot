@@ -131,8 +131,8 @@ export default function TermsPage() {
             <div className="mt-3 p-4 rounded-xl bg-surface-secondary border border-border">
               <p className="text-sm text-content-secondary">
                 <span className="font-medium text-content">メール: </span>
-                <a href="mailto:interviewautomaticbot@gmail.com" className="text-accent hover:text-accent-hover underline underline-offset-2 transition-colors">
-                  interviewautomaticbot@gmail.com
+                <a href="mailto:interviewautomaticbot92@gmail.com" className="text-accent hover:text-accent-hover underline underline-offset-2 transition-colors">
+                  interviewautomaticbot92@gmail.com
                 </a>
               </p>
             </div>

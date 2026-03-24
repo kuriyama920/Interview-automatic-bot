@@ -36,6 +36,7 @@ export function Footer() {
             <ul className="space-y-2 text-sm text-content-secondary">
               <li><Link href="/privacy" className="hover:text-content transition-colors">プライバシーポリシー</Link></li>
               <li><Link href="/terms" className="hover:text-content transition-colors">利用規約</Link></li>
+              <li><Link href="/tokushoho" className="hover:text-content transition-colors">特定商取引法に基づく表記</Link></li>
             </ul>
           </div>
         </div>
