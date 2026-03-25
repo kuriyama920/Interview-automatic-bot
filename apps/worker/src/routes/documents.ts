@@ -14,6 +14,7 @@ import { parseDocument, chunkText, estimateTokens } from '../lib/document-parser
 import { generateEmbedding, generateEmbeddings } from '../lib/openai'
 import { isValidUUID } from '../lib/validation'
 import { checkUsageLimit } from '../lib/usage'
+import { invalidateEmbeddingCacheBatch } from '../lib/embedding-cache'
 import { Buffer } from 'node:buffer'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
@@ -29,11 +30,61 @@ const MAX_TOP_K = 10
 const VALID_DOCUMENT_TYPES = ['resume', 'job_posting', 'expected_qa'] as const
 type DocumentType = (typeof VALID_DOCUMENT_TYPES)[number]
 
+const UPLOADABLE_DOCUMENT_TYPES = ['resume', 'job_posting'] as const
+
 interface MatchResult {
   id: string
   document_id: string
   content: string
   similarity: number
+}
+
+/** 旧ドキュメント+チャンクを削除し、Embeddingキャッシュを無効化する共通ヘルパー (#5,#10) */
+async function deleteDocumentWithChunks(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  documentId: string,
+  userId: string,
+  executionCtx?: { waitUntil: (p: Promise<unknown>) => void },
+): Promise<{ error?: string }> {
+  // キャッシュ無効化用にチャンクコンテンツを取得（ベストエフォート）
+  const { data: chunks } = await supabase
+    .from('document_chunks')
+    .select('content')
+    .eq('document_id', documentId)
+    .eq('user_id', userId)
+
+  // #2: DELETE結果のエラーチェック
+  const { error: chunkDeleteError } = await supabase
+    .from('document_chunks')
+    .delete()
+    .eq('document_id', documentId)
+    .eq('user_id', userId)
+
+  if (chunkDeleteError) {
+    return { error: 'Failed to delete document chunks' }
+  }
+
+  const { error: docDeleteError } = await supabase
+    .from('documents')
+    .delete()
+    .eq('id', documentId)
+    .eq('user_id', userId)
+
+  if (docDeleteError) {
+    return { error: 'Failed to delete document' }
+  }
+
+  // #7: executionCtx の有無を明示的にチェック（空catchを排除）
+  if (chunks && chunks.length > 0 && executionCtx) {
+    executionCtx.waitUntil(invalidateEmbeddingCacheBatch(chunks.map((ch) => ch.content)))
+  }
+
+  return {}
+}
+
+/** executionCtx を安全に取得（テスト環境では undefined） */
+function getSafeExecutionCtx(c: { executionCtx: ExecutionContext }): { waitUntil: (p: Promise<unknown>) => void } | undefined {
+  try { return c.executionCtx } catch { return undefined }
 }
 
 // --- POST /api/documents (upload) ---
@@ -42,24 +93,11 @@ app.post('/', async (c) => {
   const supabase = createSupabaseAdmin(c.env)
   const { sub: userId } = c.get('jwtPayload')
 
-  const usage = await checkUsageLimit(supabase, userId, 'documents')
-  if (!usage.allowed) {
-    return c.json(
-      {
-        success: false,
-        error:
-          'ドキュメントの登録上限に達しました。不要なドキュメントを削除するか、プランをアップグレードしてください。',
-        usage: { used: usage.used, limit: usage.limit, remaining: 0 },
-      },
-      429
-    )
-  }
-
   const body = await c.req.parseBody()
   const file = body['file'] as File | undefined
   const documentType = body['type'] as string | undefined
 
-  if (!documentType || !['resume', 'job_posting'].includes(documentType)) {
+  if (!documentType || !UPLOADABLE_DOCUMENT_TYPES.includes(documentType as typeof UPLOADABLE_DOCUMENT_TYPES[number])) {
     return c.json(
       { success: false, error: 'Invalid document type. Must be "resume" or "job_posting"' },
       400
@@ -73,6 +111,37 @@ app.post('/', async (c) => {
   const filename = file.name || 'unknown'
 
   try {
+    // #3: .maybeSingle() で0件時のエラーを区別
+    const { data: existing, error: lookupError } = await supabase
+      .from('documents')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', filename)
+      .eq('type', documentType)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (lookupError) {
+      return c.json({ success: false, error: 'Failed to check existing document' }, 500)
+    }
+
+    // #4: 上限チェック — 上書き時はドキュメント数が増えないのでスキップ
+    if (!existing) {
+      const usage = await checkUsageLimit(supabase, userId, 'documents')
+      if (!usage.allowed) {
+        return c.json(
+          {
+            success: false,
+            error:
+              'ドキュメントの登録上限に達しました。不要なドキュメントを削除するか、プランをアップグレードしてください。',
+            usage: { used: usage.used, limit: usage.limit, remaining: 0 },
+          },
+          429
+        )
+      }
+    }
+
+    // #1: 先にパース・Embedding生成を完了（旧ドキュメント削除前にデータ準備）
     const buffer = Buffer.from(await file.arrayBuffer())
     const parsed = await parseDocument(buffer, filename)
     const chunks = chunkText(parsed.text)
@@ -84,71 +153,101 @@ app.post('/', async (c) => {
     const chunkTexts = chunks.map((ch) => ch.content)
     const embeddings = await generateEmbeddings(chunkTexts, c.env.OPENAI_API_KEY, c.env)
 
-    const { data: document, error: docError } = await supabase
-      .from('documents')
-      .insert({
-        user_id: userId,
-        name: filename,
-        type: documentType,
-        status: 'processing',
-        storage_path: `inline/${userId}/${Date.now()}_${filename}`,
-        file_size_bytes: file.size,
-        page_count: parsed.pageCount || null,
-        word_count: parsed.wordCount,
-        chunk_count: chunks.length,
-        total_tokens: estimateTokens(parsed.text),
-      })
-      .select()
-      .single()
-
-    if (docError || !document) {
-      return c.json({ success: false, error: 'Failed to save document' }, 500)
+    // データ準備完了後に旧ドキュメントを削除（データ消失リスクを最小化）
+    if (existing) {
+      const safeCtx = getSafeExecutionCtx(c)
+      const deleteResult = await deleteDocumentWithChunks(supabase, existing.id, userId, safeCtx)
+      if (deleteResult.error) {
+        return c.json({ success: false, error: 'Failed to replace existing document' }, 500)
+      }
     }
 
-    const chunkInserts = chunks.map((chunk, index) => ({
-      document_id: document.id,
-      user_id: userId,
-      content: chunk.content,
-      chunk_index: chunk.chunkIndex,
-      embedding: `[${embeddings[index].join(',')}]`,
-    }))
-
-    const { error: chunksError } = await supabase.from('document_chunks').insert(chunkInserts)
-
-    if (chunksError) {
-      await supabase.from('documents').delete().eq('id', document.id)
-      return c.json({ success: false, error: 'Failed to save document chunks' }, 500)
+    const result = await insertDocumentAndChunks(supabase, userId, filename, documentType, file, parsed, chunks, embeddings)
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, result.status as 500)
     }
-
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update({ status: 'ready', processed_at: new Date().toISOString() })
-      .eq('id', document.id)
-
-    if (updateError) {
-      await supabase
-        .from('documents')
-        .update({ status: 'error', error_message: 'Failed to update status after processing' })
-        .eq('id', document.id)
-    }
-
-    return c.json({
-      success: true,
-      document: {
-        id: document.id,
-        name: document.name,
-        type: document.type,
-        status: 'ready',
-        chunkCount: chunks.length,
-        wordCount: parsed.wordCount,
-        uploadedAt: document.uploaded_at,
-      },
-    })
+    return c.json({ success: true, document: result.document })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to process document'
-    return c.json({ success: false, error: message }, 400)
+    // #6: クライアントエラーとサーバーエラーを区別
+    if (error instanceof Error && error.message.includes('no extractable text')) {
+      return c.json({ success: false, error: error.message }, 400)
+    }
+    return c.json({ success: false, error: 'Failed to process document' }, 500)
   }
 })
+
+/** ドキュメントとチャンクをDBに挿入する (#5: ハンドラーから抽出) */
+async function insertDocumentAndChunks(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  userId: string,
+  filename: string,
+  documentType: string,
+  file: File,
+  parsed: { pageCount?: number; wordCount: number; text: string },
+  chunks: { content: string; chunkIndex: number }[],
+  embeddings: number[][],
+): Promise<{ success: true; document: Record<string, unknown> } | { success: false; error: string; status: number }> {
+  const { data: document, error: docError } = await supabase
+    .from('documents')
+    .insert({
+      user_id: userId,
+      name: filename,
+      type: documentType,
+      status: 'processing',
+      storage_path: `inline/${userId}/${Date.now()}_${filename}`,
+      file_size_bytes: file.size,
+      page_count: parsed.pageCount || null,
+      word_count: parsed.wordCount,
+      chunk_count: chunks.length,
+      total_tokens: estimateTokens(parsed.text),
+    })
+    .select()
+    .single()
+
+  if (docError || !document) {
+    return { success: false, error: 'Failed to save document', status: 500 }
+  }
+
+  const chunkInserts = chunks.map((chunk, index) => ({
+    document_id: document.id,
+    user_id: userId,
+    content: chunk.content,
+    chunk_index: chunk.chunkIndex,
+    embedding: `[${embeddings[index].join(',')}]`,
+  }))
+
+  const { error: chunksError } = await supabase.from('document_chunks').insert(chunkInserts)
+
+  if (chunksError) {
+    await supabase.from('documents').delete().eq('id', document.id)
+    return { success: false, error: 'Failed to save document chunks', status: 500 }
+  }
+
+  const { error: updateError } = await supabase
+    .from('documents')
+    .update({ status: 'ready', processed_at: new Date().toISOString() })
+    .eq('id', document.id)
+
+  if (updateError) {
+    await supabase
+      .from('documents')
+      .update({ status: 'error', error_message: 'Failed to update status after processing' })
+      .eq('id', document.id)
+  }
+
+  return {
+    success: true,
+    document: {
+      id: document.id,
+      name: document.name,
+      type: document.type,
+      status: 'ready',
+      chunkCount: chunks.length,
+      wordCount: parsed.wordCount,
+      uploadedAt: document.uploaded_at,
+    },
+  }
+}
 
 // --- GET /api/documents ---
 
@@ -207,20 +306,10 @@ app.delete('/:id', async (c) => {
     return c.json({ success: false, error: 'Access denied' }, 403)
   }
 
-  await supabase
-    .from('document_chunks')
-    .delete()
-    .eq('document_id', documentId)
-    .eq('user_id', userId)
-
-  const { error: deleteError } = await supabase
-    .from('documents')
-    .delete()
-    .eq('id', documentId)
-    .eq('user_id', userId)
-
-  if (deleteError) {
-    return c.json({ success: false, error: 'Failed to delete document' }, 500)
+  const safeCtx = getSafeExecutionCtx(c)
+  const deleteResult = await deleteDocumentWithChunks(supabase, documentId, userId, safeCtx)
+  if (deleteResult.error) {
+    return c.json({ success: false, error: deleteResult.error }, 500)
   }
 
   return c.json({ success: true })

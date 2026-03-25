@@ -9,7 +9,7 @@ const TEST_USER_ID = 'user-123'
 // --- Mock setup ---
 
 const mockChain: Record<string, ReturnType<typeof vi.fn>> = {}
-const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'single', 'is', 'order', 'in', 'limit']
+const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'single', 'maybeSingle', 'is', 'order', 'in', 'limit']
 for (const m of chainMethods) {
   mockChain[m] = vi.fn().mockReturnValue(mockChain)
 }
@@ -29,6 +29,14 @@ vi.mock('../../src/lib/usage', () => ({
 vi.mock('../../src/lib/openai', () => ({
   generateEmbedding: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   generateEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2], [0.3, 0.4]]),
+}))
+
+const { mockInvalidateBatch } = vi.hoisted(() => ({
+  mockInvalidateBatch: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('../../src/lib/embedding-cache', () => ({
+  invalidateEmbeddingCache: vi.fn().mockResolvedValue(true),
+  invalidateEmbeddingCacheBatch: mockInvalidateBatch,
 }))
 
 vi.mock('../../src/lib/document-parser', () => ({
@@ -436,7 +444,10 @@ describe('POST /api/documents (upload)', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 429 when document limit exceeded', async () => {
+  it('returns 429 when document limit exceeded (no existing doc)', async () => {
+    // maybeSingle: 既存ドキュメントなし → usage check へ進む
+    mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
     vi.mocked(checkUsageLimit).mockResolvedValue({
       allowed: false,
       used: 3,
@@ -484,6 +495,135 @@ describe('POST /api/documents (upload)', () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain('Invalid document type')
+  })
+
+  it('replaces existing document with same name and type (upsert)', async () => {
+    const existingDocId = '550e8400-e29b-41d4-a716-446655440000'
+
+    // maybeSingle: 既存ドキュメントが見つかる → usage check スキップ、旧ドキュメント削除へ
+    mockChain.maybeSingle = vi.fn()
+      .mockResolvedValueOnce({ data: { id: existingDocId }, error: null })
+
+    // deleteDocumentWithChunks + insertDocumentAndChunks の全 chain を成功モックに
+    // eq: delete chain の最終 resolve は { error: null } を返す必要がある
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.insert = vi.fn().mockReturnValue(mockChain)
+    mockChain.update = vi.fn().mockReturnValue(mockChain)
+    mockChain.is = vi.fn().mockReturnValue(mockChain)
+    // eq は chain を返しつつ、delete の完了時は { error: null } を resolve
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+    // single: insert の結果（新ドキュメント）
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: { id: 'new-doc-id', name: 'resume.pdf', type: 'resume', uploaded_at: '2026-03-26T00:00:00Z' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['new content'], 'resume.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    // #9: 旧ドキュメントの削除が実行されたことを確認
+    expect(mockChain.delete).toHaveBeenCalled()
+  })
+
+  it('returns 500 when old document deletion fails during upsert', async () => {
+    const existingDocId = '550e8400-e29b-41d4-a716-446655440000'
+
+    // maybeSingle: 既存ドキュメントが見つかる
+    mockChain.maybeSingle = vi.fn()
+      .mockResolvedValueOnce({ data: { id: existingDocId }, error: null })
+
+    // deleteDocumentWithChunks 内の流れ:
+    // 1. select('content') → チャンク取得
+    // 2. delete().eq().eq() → チャンク削除（ここでエラー）
+    mockChain.select = vi.fn().mockReturnValue(mockChain)
+    mockChain.is = vi.fn().mockReturnValue(mockChain)
+
+    // eq チェーン: delete後の2番目のeqで resolve → エラーを返す
+    const eqResults: Array<Record<string, unknown> | typeof mockChain> = []
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockImplementation(() => {
+      eqResults.push(mockChain)
+      // deleteDocumentWithChunks: select→eq→eq(resolve), delete→eq→eq(resolve)
+      // 4番目のeq呼び出し = チャンク削除の完了
+      if (eqResults.length === 4) {
+        return Promise.resolve({ error: { message: 'chunk delete failed' } })
+      }
+      return mockChain
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['new content'], 'resume.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+  })
+
+  it('allows upsert even when at document limit', async () => {
+    const existingDocId = '550e8400-e29b-41d4-a716-446655440000'
+
+    // maybeSingle: 既存ドキュメントが見つかる → usage check をスキップ
+    mockChain.maybeSingle = vi.fn()
+      .mockResolvedValueOnce({ data: { id: existingDocId }, error: null })
+      .mockResolvedValue({
+        data: { id: 'new-doc-id', name: 'resume.pdf', type: 'resume', uploaded_at: '2026-03-26T00:00:00Z' },
+        error: null,
+      })
+
+    // usage check は呼ばれないはず（上書きなのでスキップ）
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: false,
+      used: 3,
+      limit: 3,
+      remaining: 0,
+    })
+
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+    mockChain.is = vi.fn().mockReturnValue(mockChain)
+    mockChain.insert = vi.fn().mockReturnValue(mockChain)
+    mockChain.update = vi.fn().mockReturnValue(mockChain)
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: { id: 'new-doc-id', name: 'resume.pdf', type: 'resume', uploaded_at: '2026-03-26T00:00:00Z' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['updated content'], 'resume.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    // 上書きなので429ではなく200
+    expect(res.status).toBe(200)
+    expect(checkUsageLimit).not.toHaveBeenCalled()
   })
 
   it('returns 400 when no file uploaded', async () => {

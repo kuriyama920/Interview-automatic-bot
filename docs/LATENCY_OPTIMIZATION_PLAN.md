@@ -1,37 +1,52 @@
 # レイテンシ最適化 実装計画書 v4
 
-> 最終更新: 2026-03-21
-> ステータス: Phase 1 完了、Phase 2 コード実装+リファクタリング完了（計測・STT移行は未着手）、Phase 3 未着手（F-2 BigramキャッシュTTLのみ実装済み）
+> 最終更新: 2026-03-26
+> ステータス: Phase 1 完了、Phase 2 コード実装完了、ベースライン計測完了（STT移行は未着手）、Phase 3 未着手（F-2 BigramキャッシュTTLのみ実装済み）
 > ソースコード検証: 2026-03-21（Phase 1全9タスク✅、Phase 2全7タスク✅）
+> ベースライン計測: 2026-03-26（C-2, C-7 完了 — TTFT p50: 1,781ms, Speculative採用率: 0%）
 > 根本原因: Responses API は Predicted Outputs をサポートしない
 
 ---
 
 ## 現状
 
-### 実測値（2026-03-20）
+### 実測値（2026-03-20 推定値）
 
 ```
                     Speculative(gpt-5-nano)   Committed(gpt-4.1-nano)   目標(Phase 2)
 First Chunk         ~950ms                    1,125-1,602ms             < 1,000ms
 ```
 
-### ボトルネック（Committed実測）
+### ベースライン実測値（2026-03-26 C-2計測 — 37ターン）
 
 ```
-IPC + fetch:              50-100ms    ← 削減余地なし
-Worker (usage+RAG):       150-350ms   ← RAGデッドライン400msで制御済み
-OpenAI推論 (TTFB→Chunk):  670-1,150ms ← 支配的ボトルネック
-SSE伝送:                  ~10ms       ← 削減余地なし
-合計:                     1,125-1,602ms
+TTFT（STT受信→UI描画）:
+  p50:  1,781ms
+  p95:  3,625ms
+  max:  3,625ms
+  min:  1,648ms
+  全ターン: 1648, 1771, 1781, 1823, 2795, 3625ms
+
+Trigger→UI描画（m12-m2、全35ターン）:
+  p50:  1,467ms
+  p95:  2,524ms
+
+Speculative採用率: 0%（37ターン中0件採用）
+  speculative_too_short（<80文字）: 52%
+  change_rate_exceeded（>0.3）:     16%
+  pending_committed（修正前データ）: 32%
+
+変化率の実測値: 0.73〜0.89（閾値0.3を大幅に超過）
+
+Worker側メトリクス（m4-m9）: 未記録（SSEメトリクスイベント未送信）
 ```
 
 ### 目標 KPI
 
-| 指標 | 現在 | Phase 2 | Phase 3 |
-|------|------|---------|---------|
-| TTFT p50 | ~1,300ms | **< 1,000ms** | **< 800ms** |
-| TTFT p95 | ~2,200ms | **< 1,600ms** | **< 1,200ms** |
+| 指標 | ベースライン(実測) | Phase 2 | Phase 3 |
+|------|-------------------|---------|---------|
+| TTFT p50 | **1,781ms** | **< 1,000ms** | **< 800ms** |
+| TTFT p95 | **3,625ms** | **< 1,600ms** | **< 1,200ms** |
 
 Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 
@@ -119,10 +134,10 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
   - Supabaseダッシュボード → SQL Editor → `supabase/migrations/20260319000000_match_documents_with_info.sql` の内容を貼り付けて実行
   - 工数: 30分
 
-- [ ] **C-2: ベースライン TTFT p50/p95 計測** ← A-17完了✅
-  - 手順: アプリ起動 → 面接セッション30-50ターン実施 → localStorageにメトリクス蓄積
-  - `scripts/analyze-latency.ts` でレポート生成
-  - 工数: 3時間
+- [x] **C-2: ベースライン TTFT p50/p95 計測** ✅完了（2026-03-26）
+  - 37ターン計測（2セッション合計）、メトリクスファイル出力済み
+  - 結果: TTFT p50: 1,781ms / p95: 3,625ms
+  - Worker側メトリクス（m4-m9）は未記録（SSEメトリクスイベント未送信のため preProcTime/openaiTtfb 計算不可）
 
 - [ ] **C-3: Phase 1-2 適用後の TTFT 計測**
   - C-2との比較で改善量を定量化
@@ -139,14 +154,13 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
   - 判定: TTFT p50 30%以上改善 + 品質同等以上 → A-22実施
   - 工数: 1時間
 
-- [ ] **C-6: previous_response_id エラー率集計**
-  - C-2/C-3中のWorkerログを監視（`generate-v2 retrying without previous_response_id`）
-  - エラー率 0% → リトライ削除、>0% → 簡素化して維持
+- [x] **C-6: previous_response_id エラー率集計** ← 廃止済み
+  - previous_response_id およびリトライロジックは削除済み（store: false 固定化に伴い）
 
-- [ ] **C-7: Speculative 採用率の予備調査**
-  - interim→final のテキスト変化率を10ターン以上記録
-  - D-2の閾値設定の基礎データ
-  - 工数: 1時間
+- [x] **C-7: Speculative 採用率の予備調査** ✅完了（2026-03-26）
+  - 37ターン記録、採用率 0%
+  - 52%が「speculative_too_short」（<80文字）、16%が「change_rate_exceeded」（変化率0.73〜0.89、閾値0.3）
+  - 結論: 現閾値では二段生成が完全に無効。文字数・変化率の閾値緩和が必要
 
 ---
 
@@ -229,9 +243,14 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 
 ## Phase 2.5: プライバシー（SHOULD / Week 3）
 
-- [ ] **E-1: `store` オプトイン UI**
-  - 設定画面にチェックボックス + 説明文（30日間OpenAI保存）
-- [ ] **E-2: プライバシーポリシー更新**
+- [x] **E-1: `store` オプトイン UI** ← 不要化（store: false 固定）
+  - store: false 固定により OpenAI にデータ保存しない設計に変更。オプトイン UI は廃止。
+  - StoreEnabledToggle コンポーネント、settings.service.ts は削除済み。
+- [x] **E-2: プライバシーポリシー更新**
+  - store: false固定設計をプライバシーポリシーに反映済み（OpenAI連携、セキュリティ、データ保持期間セクション）
+  - Deepgram → Soniox への更新済み
+  - 連絡先メールアドレスを interviewautomaticbot92@gmail.com に統一
+  - 特定商取引法に基づく表記ページ（/tokushoho）を新設・フッターリンク追加済み
 
 ---
 
@@ -239,26 +258,30 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 
 > 効果が高く工数が小さい施策を先に実施。
 
-- [ ] **F-9: Worker側プロフィール取得キャッシュ** — -10~50ms、半日
-  - CF Cache API で5分間キャッシュ（面接中にプロフィールは変わらない）
+- [x] **F-9: Worker側プロフィール取得キャッシュ** ✅完了（ソースコード検証 2026-03-26）
+  - `profile-cache.ts`: `getCachedProfile()` が CF Cache API でキャッシュ（TTL設定済み）
+  - `ai.ts` L20 で import、L141（v2 committed）・L289（v1）で使用中
 
-- [ ] **F-10: Worker側使用量チェックキャッシュ** — -50~200ms、半日
-  - 「許可」結果を1分間キャッシュ。「拒否」はキャッシュしない
+- [ ] **F-10: Worker側使用量チェックキャッシュ** — -50~200ms、半日 ⚠️拒否キャッシュのみ実装済み
+  - `usage-cache.ts`: 「拒否」結果キャッシュ（30秒TTL）✅実装済み
+  - 「許可」結果キャッシュ（1分TTL）❌未実装
   - Worker処理: 150-350ms → 50-150ms
 
-- [ ] **F-1: プロンプト最適化（600→400トークン）** — -50~100ms、半日 ⚠️プロンプト自体は存在（prompts.ts）、トークン数最適化は未検証
+- [ ] **F-1: プロンプト最適化（370文字→250文字目標）** — -50~100ms、半日
+  - SYSTEM_PROMPT: 約370文字（日本語）≈ 250-350トークン。目標30%削減
 
-- [ ] **F-6: RAGキャッシュ無効化機構** — 半日
-  - ドキュメント更新時にEmbeddingキャッシュをクリア
+- [x] **F-6: RAGキャッシュ無効化機構** ✅完了（ソースコード検証 2026-03-26）
+  - `documents.ts` DELETE ハンドラーで `invalidateEmbeddingCacheBatch(chunkContents)` を `ctx.waitUntil()` で実行
+  - `embedding-cache.ts` に `invalidateEmbeddingCache()` と `invalidateEmbeddingCacheBatch()` 実装済み
 
-- [ ] **I-3: pgvector iterative scan 導入** — 1時間
-  - `SET hnsw.iterative_scan = 'relaxed_order'` + `max_scan_tuples = 20000`
-  - user_idフィルタ付き検索の精度向上
+- [x] **I-3: pgvector iterative scan 導入** ✅完了（Supabase MCP確認 2026-03-26）
+  - マイグレーション `20260322174950_iterative_scan` 適用済み
+  - `match_documents_with_info` に `SET LOCAL hnsw.iterative_scan = 'relaxed_order'` + `max_scan_tuples = 20000` 反映済み
 
-- [ ] **F-2: セッション内キャッシュ強化** — -100~300ms、2日
-  - Speculative結果キャッシュ（5分TTL）❌未着手
+- [x] **F-2: セッション内キャッシュ強化** ✅完了（ソースコード検証 2026-03-26）
+  - ~~Speculative結果キャッシュ（5分TTL）~~ ✅実装済み（`SpeculativeCache` クラス → `useProgressiveAI.ts` L14,L77,L132,L155 で統合）
   - ~~Bigramキャッシュに3分TTL追加~~ ✅実装済み（useQuestionCache.ts L38-62）
-  - 採用率ベース閾値調整（>70%→緩和、<30%→厳格化）❌未着手
+  - ~~採用率ベース閾値調整（>70%→緩和、<30%→厳格化）~~ ✅実装済み（`AdaptiveThreshold` → `InterviewContext.tsx` L9,L141,L158,L163 で統合）
 
 ---
 
@@ -295,7 +318,7 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 | Predicted Outputs は使わない | Responses API非対応、gpt-5系非対応 | 確定 |
 | Chat Completions 移行不要 | 上記により移行メリット消失 | 確定 |
 | gpt-5.4-nano (none) を Committed候補に | SWE-Bench 52.4%、TTFT ~460ms | C-5で判断 |
-| gpt-5.4-nano インフラ変更不要 | AI Gateway/キャッシュ/previous_response_id全て互換 | 確定 |
+| gpt-5.4-nano インフラ変更不要 | AI Gateway/キャッシュ互換（previous_response_id は廃止済み） | 確定 |
 | Realtime API 見送り | コスト50-100倍、レイテンシも改善しない | 確定 |
 | AI Gateway キャッシュ無効 | stream:true はキャッシュ対象外 | 確定 |
 | utterance_end_ms 1000ms維持 | Deepgram公式推奨。v2の700ms案撤回 | 確定 |
