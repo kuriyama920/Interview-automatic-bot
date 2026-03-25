@@ -760,46 +760,8 @@ describe('AIService', () => {
       })
     })
 
-    describe('previousResponseId and storeEnabled options', () => {
-      it('previousResponseId をリクエストボディに含める', async () => {
-        mockAuthenticatedFetch.mockResolvedValue(
-          createSSEResponse('回答')
-        )
-
-        await aiService.generateStreamResponse(
-          '質問',
-          'コンテキスト',
-          undefined,
-          undefined,
-          { previousResponseId: 'resp_prev123' },
-        )
-
-        const callBody = JSON.parse(
-          (mockAuthenticatedFetch.mock.calls[0][1] as RequestInit).body as string
-        )
-        expect(callBody.previousResponseId).toBe('resp_prev123')
-      })
-
-      it('storeEnabled をリクエストボディに含める', async () => {
-        mockAuthenticatedFetch.mockResolvedValue(
-          createSSEResponse('回答')
-        )
-
-        await aiService.generateStreamResponse(
-          '質問',
-          'コンテキスト',
-          undefined,
-          undefined,
-          { storeEnabled: true },
-        )
-
-        const callBody = JSON.parse(
-          (mockAuthenticatedFetch.mock.calls[0][1] as RequestInit).body as string
-        )
-        expect(callBody.storeEnabled).toBe(true)
-      })
-
-      it('previousResponseId が undefined の場合はリクエストボディに含めない', async () => {
+    describe('store: false 固定（previousResponseId/storeEnabled 廃止）', () => {
+      it('previousResponseId はリクエストボディに含まれない', async () => {
         mockAuthenticatedFetch.mockResolvedValue(
           createSSEResponse('回答')
         )
@@ -816,24 +778,6 @@ describe('AIService', () => {
           (mockAuthenticatedFetch.mock.calls[0][1] as RequestInit).body as string
         )
         expect(callBody).not.toHaveProperty('previousResponseId')
-      })
-
-      it('storeEnabled が undefined の場合はリクエストボディに含めない', async () => {
-        mockAuthenticatedFetch.mockResolvedValue(
-          createSSEResponse('回答')
-        )
-
-        await aiService.generateStreamResponse(
-          '質問',
-          'コンテキスト',
-          undefined,
-          undefined,
-          { maxTokens: 500 },
-        )
-
-        const callBody = JSON.parse(
-          (mockAuthenticatedFetch.mock.calls[0][1] as RequestInit).body as string
-        )
         expect(callBody).not.toHaveProperty('storeEnabled')
       })
     })
