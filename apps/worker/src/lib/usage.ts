@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isUsageDenied, cacheDeniedResult } from './usage-cache'
 
 type ResourceType = 'stt' | 'ai_tokens' | 'documents'
 type UsageType = 'stt' | 'ai_completion' | 'embedding' | 'storage'
@@ -24,16 +25,30 @@ const RESOURCE_COLUMN_MAP: Record<string, string> = {
   ai_tokens: 'monthly_ai_tokens_used',
 }
 
+const DENIED_RESULT: UsageLimitResult = {
+  allowed: false,
+  used: 0,
+  limit: 0,
+  remaining: 0,
+}
+
 /**
  * ユーザーの使用量が上限内かチェック（副作用なし）
  */
 export async function checkUsageLimit(
   supabase: SupabaseClient,
   userId: string,
-  resourceType: ResourceType
+  resourceType: ResourceType,
+  ctx?: ExecutionContext
 ): Promise<UsageLimitResult> {
   if (resourceType === 'stt' || resourceType === 'ai_tokens') {
-    return checkAndReserveUsage(supabase, userId, resourceType, 0)
+    return checkAndReserveUsage(supabase, userId, resourceType, 0, ctx)
+  }
+
+  // documents: 拒否キャッシュチェック
+  const denied = await isUsageDenied(userId, resourceType)
+  if (denied) {
+    return { ...DENIED_RESULT }
   }
 
   // ドキュメント数はリアルタイムでカウント
@@ -66,8 +81,13 @@ export async function checkUsageLimit(
   const used = count ?? 0
   const limit = plan.max_documents
   const remaining = Math.max(0, limit - used)
+  const allowed = used < limit
 
-  return { allowed: used < limit, used, limit, remaining }
+  if (!allowed) {
+    await cacheDeniedResult(userId, resourceType, ctx)
+  }
+
+  return { allowed, used, limit, remaining }
 }
 
 /**
@@ -77,8 +97,15 @@ export async function checkAndReserveUsage(
   supabase: SupabaseClient,
   userId: string,
   resourceType: 'stt' | 'ai_tokens',
-  reserveAmount: number
+  reserveAmount: number,
+  ctx?: ExecutionContext
 ): Promise<UsageLimitResult> {
+  // 拒否キャッシュチェック: 上限到達済みなら即座に拒否
+  const denied = await isUsageDenied(userId, resourceType)
+  if (denied) {
+    return { ...DENIED_RESULT }
+  }
+
   const column = RESOURCE_COLUMN_MAP[resourceType]
 
   const { data, error } = await supabase.rpc('check_and_reserve_usage', {
@@ -96,12 +123,19 @@ export async function checkAndReserveUsage(
   }
 
   const row = data[0]
-  return {
+  const result: UsageLimitResult = {
     allowed: row.allowed,
     used: row.used_amount,
     limit: row.limit_amount,
     remaining: row.remaining_amount,
   }
+
+  // 拒否結果をキャッシュ（30秒TTL）
+  if (!result.allowed) {
+    await cacheDeniedResult(userId, resourceType, ctx)
+  }
+
+  return result
 }
 
 /**

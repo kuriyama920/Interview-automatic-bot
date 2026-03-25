@@ -5,6 +5,16 @@ import {
   adjustReservedUsage,
   recordUsage,
 } from '../../src/lib/usage'
+import * as usageCache from '../../src/lib/usage-cache'
+
+// usage-cache モジュールをモック
+vi.mock('../../src/lib/usage-cache', () => ({
+  isUsageDenied: vi.fn().mockResolvedValue(false),
+  cacheDeniedResult: vi.fn().mockResolvedValue(undefined),
+  clearDeniedCache: vi.fn().mockResolvedValue(undefined),
+  buildCacheKey: vi.fn(),
+  DENIED_CACHE_TTL_SEC: 30,
+}))
 
 function createMockSupabase() {
   const chainMethods: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -19,12 +29,148 @@ function createMockSupabase() {
   return { from, rpc, chain: chainMethods }
 }
 
+describe('checkAndReserveUsage with denial cache', () => {
+  let mockSupabase: ReturnType<typeof createMockSupabase>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSupabase = createMockSupabase()
+  })
+
+  it('returns denied immediately when cache indicates denied', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(true)
+
+    const result = await checkAndReserveUsage(
+      mockSupabase as never,
+      'user-1',
+      'ai_tokens',
+      500
+    )
+
+    expect(result).toEqual({
+      allowed: false,
+      used: 0,
+      limit: 0,
+      remaining: 0,
+    })
+    // RPC should NOT be called since cache short-circuits
+    expect(mockSupabase.rpc).not.toHaveBeenCalled()
+  })
+
+  it('caches denied result when RPC returns not allowed', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(false)
+
+    mockSupabase.rpc.mockResolvedValue({
+      data: [{ allowed: false, used_amount: 950, limit_amount: 1000, remaining_amount: 50 }],
+      error: null,
+    })
+
+    await checkAndReserveUsage(
+      mockSupabase as never,
+      'user-1',
+      'ai_tokens',
+      500
+    )
+
+    expect(usageCache.cacheDeniedResult).toHaveBeenCalledWith(
+      'user-1',
+      'ai_tokens',
+      undefined
+    )
+  })
+
+  it('does NOT cache when RPC returns allowed', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(false)
+
+    mockSupabase.rpc.mockResolvedValue({
+      data: [{ allowed: true, used_amount: 100, limit_amount: 1000, remaining_amount: 900 }],
+      error: null,
+    })
+
+    await checkAndReserveUsage(
+      mockSupabase as never,
+      'user-1',
+      'ai_tokens',
+      500
+    )
+
+    expect(usageCache.cacheDeniedResult).not.toHaveBeenCalled()
+  })
+
+  it('passes ExecutionContext to cacheDeniedResult', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(false)
+
+    mockSupabase.rpc.mockResolvedValue({
+      data: [{ allowed: false, used_amount: 1000, limit_amount: 1000, remaining_amount: 0 }],
+      error: null,
+    })
+
+    const mockCtx = { waitUntil: vi.fn() }
+
+    await checkAndReserveUsage(
+      mockSupabase as never,
+      'user-1',
+      'stt',
+      10,
+      mockCtx as never
+    )
+
+    expect(usageCache.cacheDeniedResult).toHaveBeenCalledWith(
+      'user-1',
+      'stt',
+      mockCtx
+    )
+  })
+})
+
+describe('checkUsageLimit with denial cache', () => {
+  let mockSupabase: ReturnType<typeof createMockSupabase>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSupabase = createMockSupabase()
+  })
+
+  it('returns denied immediately for stt when cache indicates denied', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(true)
+
+    const result = await checkUsageLimit(
+      mockSupabase as never,
+      'user-1',
+      'stt'
+    )
+
+    expect(result.allowed).toBe(false)
+    expect(mockSupabase.rpc).not.toHaveBeenCalled()
+  })
+
+  it('returns denied immediately for documents when cache indicates denied', async () => {
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(true)
+
+    const result = await checkUsageLimit(
+      mockSupabase as never,
+      'user-1',
+      'documents'
+    )
+
+    expect(result).toEqual({
+      allowed: false,
+      used: 0,
+      limit: 0,
+      remaining: 0,
+    })
+    expect(mockSupabase.from).not.toHaveBeenCalled()
+  })
+})
+
 describe('checkAndReserveUsage', () => {
   let mockSupabase: ReturnType<typeof createMockSupabase>
 
   beforeEach(() => {
     vi.clearAllMocks()
     mockSupabase = createMockSupabase()
+    // Default: no cache hit for existing tests
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(false)
   })
 
   it('returns allowed when usage is within limit', async () => {
@@ -125,6 +271,7 @@ describe('checkUsageLimit', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSupabase = createMockSupabase()
+    vi.mocked(usageCache.isUsageDenied).mockResolvedValue(false)
   })
 
   it('delegates to checkAndReserveUsage for stt with reserveAmount=0', async () => {
