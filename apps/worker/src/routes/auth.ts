@@ -22,6 +22,7 @@ import { isAllowedOrigin } from '../lib/allowed-origins'
 import { getBaseUrl } from '../lib/url'
 import { getSuccessPageHtml, getErrorPageHtml } from '../lib/auth-pages'
 import { validateInterviewProfile } from '../lib/profile'
+import { invalidateProfileCache } from '../lib/profile-cache'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
@@ -500,6 +501,9 @@ app.put('/profile', authRequired, async (c) => {
     console.error('Failed to update interview profile:', updateError)
     return c.json({ success: false, error: 'Failed to save profile' }, 500)
   }
+
+  // キャッシュ無効化（失敗しても更新自体は成功扱い）
+  await invalidateProfileCache(userId).catch(() => {})
 
   return c.json({ success: true, interviewProfile: validation })
 })
