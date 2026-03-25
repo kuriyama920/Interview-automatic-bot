@@ -118,7 +118,6 @@ window.electron
 │   ├── list()              → InterviewQuestion[]
 │   ├── save(questions)     → InterviewQuestion[]
 │   ├── delete(id)          → void
-│   └── generate()          → GeneratedQuestion[]
 ├── profile
 │   ├── get()               → InterviewProfile
 │   └── save(profile)       → InterviewProfile

@@ -180,9 +180,6 @@ interface InterviewQuestion {
 interface QuestionInput {
   id?: string; question: string; answer: string; sortOrder: number
 }
-interface GeneratedQuestion {
-  question: string; answer: string
-}
 ```
 
 ---

@@ -162,5 +162,4 @@ aiService.generateStreamResponse → POST /api/ai/generate (SSE)
 aiService.summarizeTurn        → POST /api/ai/summarize
 contextService.addDocument     → POST /api/documents (FormData)
 contextService.getRelevantContext → POST /api/documents/search
-questionsService.generateQuestions → POST /api/questions/generate
 ```
