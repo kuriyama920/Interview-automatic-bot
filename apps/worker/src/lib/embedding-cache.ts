@@ -12,7 +12,7 @@ import { generateEmbedding } from './openai'
 const EMBEDDING_CACHE_TTL_SEC = 600
 const EMBEDDING_CACHE_KEY_PREFIX = 'https://embedding-cache.internal/'
 
-async function normalizeKey(text: string): Promise<string> {
+export async function normalizeKey(text: string): Promise<string> {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ')
   const encoder = new TextEncoder()
   const data = encoder.encode(normalized)
@@ -54,4 +54,30 @@ export async function getCachedOrGenerateEmbedding(
   }
 
   return embedding
+}
+
+/**
+ * 指定テキストのembeddingキャッシュを無効化する。
+ * normalizeKeyで正規化したキーを使い、Cache APIから削除。
+ */
+export async function invalidateEmbeddingCache(text: string): Promise<boolean> {
+  const cache = caches.default
+  const key = await normalizeKey(text)
+  const cacheKey = new Request(`${EMBEDDING_CACHE_KEY_PREFIX}${key}`)
+  return cache.delete(cacheKey)
+}
+
+/**
+ * 複数テキストのembeddingキャッシュを一括無効化する。
+ * 正規化後に重複するキーは1回のみ削除。
+ */
+export async function invalidateEmbeddingCacheBatch(texts: string[]): Promise<void> {
+  if (texts.length === 0) return
+
+  const keys = await Promise.all(texts.map((t) => normalizeKey(t)))
+  const uniqueKeys = [...new Set(keys)]
+  const cache = caches.default
+  await Promise.all(
+    uniqueKeys.map((key) => cache.delete(new Request(`${EMBEDDING_CACHE_KEY_PREFIX}${key}`)))
+  )
 }
