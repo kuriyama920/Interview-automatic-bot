@@ -13,6 +13,7 @@ import type { Env, Variables } from '../types'
 import { createSupabaseAdmin } from '../lib/supabase'
 import { createStripeClient } from '../lib/stripe'
 import { authRequired } from '../middleware/auth'
+import { clearDeniedCache } from '../lib/usage-cache'
 import {
   getOrCreateStripeCustomer,
   getPlanByPriceId,
@@ -304,6 +305,12 @@ async function handleCheckoutCompleted(
     subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
   })
 
+  // プランアップグレード時に使用量拒否キャッシュをクリア
+  await Promise.all([
+    clearDeniedCache(userId, 'stt'),
+    clearDeniedCache(userId, 'ai_tokens'),
+  ])
+
   console.log(`[Webhook] User ${userId} upgraded to ${plan.tier}`)
 }
 
@@ -339,6 +346,12 @@ async function handleSubscriptionUpdated(
     subscription_status: status,
     subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
   })
+
+  // プラン変更時に使用量拒否キャッシュをクリア
+  await Promise.all([
+    clearDeniedCache(userId, 'stt'),
+    clearDeniedCache(userId, 'ai_tokens'),
+  ])
 
   console.log(`[Webhook] Subscription updated for user ${userId}: ${plan.tier} (${status})`)
 }
