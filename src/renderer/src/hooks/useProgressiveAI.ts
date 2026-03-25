@@ -11,6 +11,7 @@ import type { Transcript } from '../types'
 import { useQuestionCache, type QuestionMatch } from './useQuestionCache'
 import { createLogger } from '../utils/logger'
 import { countSentences } from '../utils/speculative-adoption'
+import { SpeculativeCache } from '../utils/speculative-cache'
 
 const log = createLogger('useProgressiveAI')
 
@@ -73,6 +74,7 @@ export function useProgressiveAI({
   }, [])
 
   const pendingCommittedTurnIdRef = useRef<string | null>(null)
+  const speculativeCacheRef = useRef(new SpeculativeCache())
   const lastGeneratedTextRef = useRef<string>('')
   const interimDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const finalAccumulateRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -124,14 +126,41 @@ export function useProgressiveAI({
 
         // Layer 2: AI生成（初回は即座に、以降はデバウンスで）
         // v2があれば speculative phase、なければ v1 にフォールバック
+        // Speculative結果キャッシュ: 類似質問の結果を再利用してAI呼び出しをスキップ
         const triggerInterimGen = (text: string) => {
+          // F-2a: Speculative結果キャッシュチェック
+          const cached = speculativeCacheRef.current.findSimilar(text, 0.8)
+          if (cached) {
+            log.info('[Interim] Speculative cache hit', {
+              text: text.substring(0, 30),
+              cachedLength: cached.length,
+            })
+            // キャッシュ結果をspeculativeTextRefに設定（Committed Lane比較用）
+            if (speculativeTextRef) {
+              ;(speculativeTextRef as React.MutableRefObject<string>).current = cached
+            }
+            return
+          }
+
           if (generateStreamResponseV2Ref.current) {
             generateStreamResponseV2Ref.current(
               text,
               buildContext(cachedDocumentContextRef.current, conversationHistoryRef.current),
               'speculative',
               { maxTokens: INTERIM_MAX_TOKENS },
-            )
+            ).then(() => {
+              // Speculative生成完了時にキャッシュに書き込み
+              const resultText = speculativeTextRef?.current
+              if (resultText) {
+                speculativeCacheRef.current.set(text, resultText)
+                log.debug('[Interim] Speculative result cached', {
+                  key: text.substring(0, 30),
+                  length: resultText.length,
+                })
+              }
+            }).catch(() => {
+              // Speculative生成の失敗は無視（Committed Laneで再生成される）
+            })
           } else {
             generateStreamResponseRef.current(
               text,
@@ -338,6 +367,7 @@ export function useProgressiveAI({
     lastProcessedIndex.current = -1
     lastGeneratedTextRef.current = ''
     pendingCommittedTurnIdRef.current = null
+    speculativeCacheRef.current.clear()
     if (finalAccumulateRef.current) {
       clearTimeout(finalAccumulateRef.current)
       finalAccumulateRef.current = null
