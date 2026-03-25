@@ -1,6 +1,6 @@
 /**
  * 想定質問パネル
- * 左サイドバーに表示。Q&Aの手動入力 + 自動生成機能。
+ * 左サイドバーに表示。Q&Aの手動入力。
  * DocumentUploadPanelと同じデザイン言語を使用。
  */
 
@@ -13,17 +13,6 @@ import {
 import { Card, CardHeader, Button, Badge, Spinner, ErrorAlert } from './ui'
 
 // アイコンコンポーネント
-const SparklesIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-)
-
 const PlusIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -170,14 +159,12 @@ function InterviewQuestionsPanel({ onQuestionsUpdated }: { onQuestionsUpdated?: 
     questions,
     isLoading,
     isSaving,
-    isGenerating,
     error,
     hasUnsavedChanges,
     updateQuestion,
     addQuestion,
     removeQuestion,
     saveQuestions,
-    generateQuestions,
   } = useInterviewQuestions()
 
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
@@ -230,24 +217,11 @@ function InterviewQuestionsPanel({ onQuestionsUpdated }: { onQuestionsUpdated?: 
       <div className="p-4 space-y-3">
         {error && <ErrorAlert error={error} />}
 
-        {/* 自動生成ボタン */}
-        <Button
-          variant="secondary"
-          size="sm"
-          leftIcon={isGenerating ? undefined : <SparklesIcon />}
-          onClick={async () => { await generateQuestions(20); onQuestionsUpdated?.() }}
-          disabled={isGenerating || questions.length >= MAX_QUESTIONS}
-          isLoading={isGenerating}
-          className="w-full"
-        >
-          {isGenerating ? '生成中...' : '履歴書・求人票から自動生成'}
-        </Button>
-
         {/* 質問リスト */}
         {questions.length === 0 ? (
           <div className="py-4 text-center">
             <p className="text-xs text-content-tertiary">
-              想定質問を追加するか、自動生成してください
+              想定質問を追加してください
             </p>
           </div>
         ) : (

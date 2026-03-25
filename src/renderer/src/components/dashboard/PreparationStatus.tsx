@@ -75,7 +75,7 @@ export function PreparationStatus() {
     },
     {
       label: '想定質問',
-      description: questionCount > 0 ? `${questionCount}件準備済` : '未準備 - 自動生成も可能です',
+      description: questionCount > 0 ? `${questionCount}件準備済` : '未準備',
       completed: questionCount > 0,
       page: 'questions',
     },

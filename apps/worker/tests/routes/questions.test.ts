@@ -33,8 +33,22 @@ vi.mock('../../src/lib/openai', () => ({
   generateEmbeddings: vi.fn().mockResolvedValue([[0.1, 0.2], [0.3, 0.4]]),
 }))
 
+const { mockInvalidateCache, mockInvalidateBatch } = vi.hoisted(() => ({
+  mockInvalidateCache: vi.fn().mockResolvedValue(true),
+  mockInvalidateBatch: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('../../src/lib/embedding-cache', () => ({
+  invalidateEmbeddingCache: mockInvalidateCache,
+  invalidateEmbeddingCacheBatch: mockInvalidateBatch,
+}))
+
 vi.mock('../../src/lib/profile', () => ({
   formatProfileContext: vi.fn().mockReturnValue(''),
+}))
+
+vi.mock('../../src/lib/profile-cache', () => ({
+  getCachedProfile: vi.fn().mockResolvedValue(null),
+  invalidateProfileCache: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('openai', () => {
@@ -50,7 +64,7 @@ vi.mock('openai', () => {
 })
 
 import questionsRoutes from '../../src/routes/questions'
-import { checkUsageLimit, checkAndReserveUsage } from '../../src/lib/usage'
+import { checkUsageLimit } from '../../src/lib/usage'
 
 const TEST_ENV = {
   JWT_SECRET: TEST_JWT_SECRET,
@@ -345,104 +359,5 @@ describe('DELETE /api/questions/:id', () => {
     }, TEST_ENV)
 
     expect(res.status).toBe(500)
-  })
-})
-
-describe('POST /api/questions/generate', () => {
-  beforeEach(resetMocks)
-
-  it('returns 401 without auth', async () => {
-    const app = createApp()
-    const res = await app.request('/api/questions/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    }, TEST_ENV)
-
-    expect(res.status).toBe(401)
-  })
-
-  it('returns 400 for invalid count', async () => {
-    // Mock chunks query to resolve
-    mockChain.in = vi.fn().mockReturnValue(mockChain)
-    mockChain.select = vi.fn().mockReturnValue(mockChain)
-
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request('/api/questions/generate', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 0 }),
-    }, TEST_ENV)
-
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toContain('count')
-  })
-
-  it('returns 400 for count exceeding max', async () => {
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request('/api/questions/generate', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 21 }),
-    }, TEST_ENV)
-
-    expect(res.status).toBe(400)
-  })
-
-  it('returns 400 when no documents uploaded', async () => {
-    // Chunks query returns empty
-    mockChain.in = vi.fn().mockResolvedValue({ data: [], error: null })
-
-    // Profile query
-    mockChain.single = vi.fn().mockResolvedValue({
-      data: { interview_profile: null },
-      error: null,
-    })
-
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request('/api/questions/generate', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    }, TEST_ENV)
-
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toContain('アップロード')
-  })
-
-  it('returns 429 when AI token limit exceeded', async () => {
-    // Chunks query returns data
-    mockChain.in = vi.fn().mockResolvedValue({
-      data: [{ content: 'resume content', documents: { type: 'resume', name: 'resume.pdf' } }],
-      error: null,
-    })
-
-    // Profile query
-    mockChain.single = vi.fn().mockResolvedValue({
-      data: { interview_profile: null },
-      error: null,
-    })
-
-    vi.mocked(checkAndReserveUsage).mockResolvedValue({
-      allowed: false,
-      used: 30000,
-      limit: 30000,
-      remaining: 0,
-    })
-
-    const app = createApp()
-    const headers = await createAuthHeaders()
-    const res = await app.request('/api/questions/generate', {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    }, TEST_ENV)
-
-    expect(res.status).toBe(429)
   })
 })

@@ -56,10 +56,6 @@ vi.mock('../../src/services/ai.service', () => ({
 const mockInterviewSession = vi.hoisted(() => ({
   startSession: vi.fn(),
   endSession: vi.fn(),
-  getPreviousResponseId: vi.fn(() => null),
-  getPreviousResponseIdForModel: vi.fn(() => null),
-  getPreviousResponseModel: vi.fn(() => null),
-  setPreviousResponseId: vi.fn(),
 }))
 
 vi.mock('../../src/services/session.service', () => ({
@@ -94,6 +90,8 @@ const mockContextService = vi.hoisted(() => ({
 vi.mock('../../src/services/context.service', () => ({
   contextService: mockContextService,
 }))
+
+// settingsService は削除済み（store: false 固定化）
 
 // Mock logger.service
 vi.mock('../../src/services/logger.service', () => ({
@@ -140,10 +138,8 @@ describe('IPC Handlers', () => {
     mockAIService.isInitialized.mockReturnValue(false)
 
     // Reset session mock implementations
-    mockInterviewSession.getPreviousResponseId.mockReturnValue(null)
-    mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue(null)
-    mockInterviewSession.getPreviousResponseModel.mockReturnValue(null)
-    mockInterviewSession.setPreviousResponseId.mockClear()
+    mockInterviewSession.startSession.mockClear()
+    mockInterviewSession.endSession.mockClear()
 
     // Default authenticatedFetch mock (proxy token for STT)
     mockAuthService.authenticatedFetch.mockResolvedValue({
@@ -474,7 +470,7 @@ describe('IPC Handlers', () => {
       mockAIService.generateStreamResponseV2.mockResolvedValue(mockResponse)
     })
 
-    it('should generate speculative phase with no previousResponseId injection', async () => {
+    it('should generate speculative phase without previousResponseId or storeEnabled', async () => {
       setupIPC(mockMainWindow)
 
       const result = await mockIpcHandlers['ai:generateStreamV2'](
@@ -489,47 +485,29 @@ describe('IPC Handlers', () => {
         expect.objectContaining({
           onChunk: expect.any(Function),
           onPhase: expect.any(Function),
-          onDone: expect.any(Function),
         }),
         expect.any(AbortSignal),
         expect.objectContaining({
           speculativeText: 'draft',
         }),
       )
-      // Speculative phase should NOT include previousResponseId or storeEnabled
+      // previousResponseId と storeEnabled は送信されない
       const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
       expect(passedOptions.previousResponseId).toBeUndefined()
       expect(passedOptions.storeEnabled).toBeUndefined()
-      expect(mockInterviewSession.getPreviousResponseIdForModel).not.toHaveBeenCalled()
     })
 
-    it('should inject previousResponseId in committed phase when model matches', async () => {
-      mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue('resp_prev123')
+    it('should not inject previousResponseId in committed phase (store: false fixed)', async () => {
       setupIPC(mockMainWindow)
 
       await mockIpcHandlers['ai:generateStreamV2'](
         null, 'Test question', undefined, 'committed', {}
       )
 
-      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
-      const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
-      expect(passedOptions.previousResponseId).toBe('resp_prev123')
-      expect(passedOptions.storeEnabled).toBe(true)
-    })
-
-    it('should pass null previousResponseId in committed phase on model mismatch', async () => {
-      // getPreviousResponseIdForModel returns null when model doesn't match
-      mockInterviewSession.getPreviousResponseIdForModel.mockReturnValue(null)
-      setupIPC(mockMainWindow)
-
-      await mockIpcHandlers['ai:generateStreamV2'](
-        null, 'Test question', undefined, 'committed', {}
-      )
-
-      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
+      // previousResponseId と storeEnabled は送信されない
       const passedOptions = mockAIService.generateStreamResponseV2.mock.calls[0][5]
       expect(passedOptions.previousResponseId).toBeUndefined()
-      expect(passedOptions.storeEnabled).toBe(true)
+      expect(passedOptions.storeEnabled).toBeUndefined()
     })
 
     it('should abort previous generation and create new AbortController', async () => {
@@ -551,55 +529,6 @@ describe('IPC Handlers', () => {
       expect(secondCallSignal.aborted).toBe(false)
     })
 
-    it('should update session state with responseId and model via onDone callback in committed phase', async () => {
-      mockAIService.generateStreamResponseV2.mockImplementation(
-        async (
-          _q: string,
-          _c: string | undefined,
-          _phase: string,
-          callbacks: { onDone?: (data: { responseId: string | null; totalTokensUsed: number; model: string | null }) => void },
-        ) => {
-          callbacks.onDone?.({
-            responseId: 'resp_new456',
-            totalTokensUsed: 100,
-            model: 'gpt-5.4-nano',
-          })
-          return mockResponse
-        }
-      )
-      setupIPC(mockMainWindow)
-
-      await mockIpcHandlers['ai:generateStreamV2'](
-        null, 'Test question', undefined, 'committed', {}
-      )
-
-      expect(mockInterviewSession.setPreviousResponseId).toHaveBeenCalledWith('resp_new456', 'gpt-5.4-nano')
-    })
-
-    it('should NOT update session state via onDone callback in speculative phase', async () => {
-      mockAIService.generateStreamResponseV2.mockImplementation(
-        async (
-          _q: string,
-          _c: string | undefined,
-          _phase: string,
-          callbacks: { onDone?: (data: { responseId: string | null; totalTokensUsed: number; model: string | null }) => void },
-        ) => {
-          callbacks.onDone?.({
-            responseId: 'resp_spec789',
-            totalTokensUsed: 50,
-            model: 'gpt-5-nano',
-          })
-          return mockResponse
-        }
-      )
-      setupIPC(mockMainWindow)
-
-      await mockIpcHandlers['ai:generateStreamV2'](
-        null, 'Test question', undefined, 'speculative', {}
-      )
-
-      expect(mockInterviewSession.setPreviousResponseId).not.toHaveBeenCalled()
-    })
 
     it('should send ai:error event on failure', async () => {
       mockAIService.generateStreamResponseV2.mockRejectedValue(new Error('V2 Stream error'))
@@ -685,8 +614,6 @@ describe('IPC Handlers', () => {
         null, 'Test question', undefined, undefined, {}
       )
 
-      // Should call getPreviousResponseIdForModel since defaulting to committed
-      expect(mockInterviewSession.getPreviousResponseIdForModel).toHaveBeenCalledWith('gpt-5.4-nano')
       expect(mockAIService.generateStreamResponseV2).toHaveBeenCalledWith(
         'Test question',
         undefined,

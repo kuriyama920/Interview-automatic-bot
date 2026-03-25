@@ -7,7 +7,7 @@ import { useCallback, memo } from 'react'
 import { useInterviewQuestions } from '../../hooks/useInterviewQuestions'
 import { PageHeader } from '../ui/PageHeader'
 import { Button, Badge, Spinner, ErrorAlert } from '../ui'
-import { SparklesIcon, PlusIcon, TrashIcon } from '../ui/icons'
+import { PlusIcon, TrashIcon } from '../ui/icons'
 
 interface QuestionItemProps {
   index: number
@@ -81,14 +81,12 @@ export function QuestionsPage() {
     questions,
     isLoading,
     isSaving,
-    isGenerating,
     hasUnsavedChanges,
     error,
     updateQuestion,
     addQuestion,
     removeQuestion,
     saveQuestions,
-    generateQuestions,
   } = useInterviewQuestions()
 
   const handleUpdate = useCallback(
@@ -129,15 +127,6 @@ export function QuestionsPage() {
         {/* アクションバー */}
         <div className="flex items-center gap-3 mb-6">
           <Button
-            variant="primary"
-            onClick={() => generateQuestions(5)}
-            isLoading={isGenerating}
-            leftIcon={<SparklesIcon />}
-            disabled={questions.length >= 20}
-          >
-            履歴書・求人票から自動生成
-          </Button>
-          <Button
             variant="secondary"
             onClick={addQuestion}
             leftIcon={<PlusIcon />}
@@ -158,7 +147,7 @@ export function QuestionsPage() {
             </svg>
             <p className="text-content-secondary text-sm">まだ想定質問がありません</p>
             <p className="text-content-tertiary text-xs mt-1">
-              「自動生成」ボタンで履歴書・求人票から質問を自動作成できます
+              「手動で追加」ボタンで質問と回答を準備できます
             </p>
           </div>
         ) : (

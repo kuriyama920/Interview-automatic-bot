@@ -5,7 +5,6 @@ import type {
   DocType as DocumentType,
   InterviewQuestion,
   QuestionInput,
-  GeneratedQuestion,
   DocumentInfo,
   InterviewProfile,
   AudioSource,
@@ -18,7 +17,6 @@ export type {
   DocumentType,
   InterviewQuestion,
   QuestionInput,
-  GeneratedQuestion,
   DocumentInfo,
   InterviewProfile,
   AudioSource,
@@ -49,7 +47,6 @@ const ALLOWED_INVOKE_CHANNELS = [
   'questions:list',
   'questions:save',
   'questions:delete',
-  'questions:generate',
   // プロフィール関連
   'profile:get',
   'profile:save',
@@ -209,10 +206,6 @@ const electronAPI = {
       ipcRenderer.invoke('questions:save', questions),
     delete: (id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('questions:delete', id),
-    generate: (
-      count?: number
-    ): Promise<{ success: boolean; questions?: GeneratedQuestion[]; error?: string }> =>
-      ipcRenderer.invoke('questions:generate', count),
   },
 
   // Window API (カスタムタイトルバー)

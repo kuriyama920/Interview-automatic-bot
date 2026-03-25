@@ -780,15 +780,4 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: false, error: String(error) }
     }
   })
-
-  ipcMain.handle('questions:generate', async (_event, count?: number) => {
-    log.info('questions:generate called', { count })
-    try {
-      const questions = await questionsService.generateQuestions(count)
-      return { success: true, questions }
-    } catch (error) {
-      log.error('Failed to generate questions', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
 }

@@ -74,11 +74,6 @@ export interface QuestionInput {
   sortOrder: number
 }
 
-export interface GeneratedQuestion {
-  question: string
-  answer: string
-}
-
 // ── プロフィール ────────────────────────────────────
 
 export interface InterviewProfile {

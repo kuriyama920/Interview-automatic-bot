@@ -8,7 +8,6 @@ import type {
   DocumentInfo as _DocumentInfo,
   InterviewQuestion as _InterviewQuestion,
   QuestionInput as _QuestionInput,
-  GeneratedQuestion as _GeneratedQuestion,
   InterviewProfile as _InterviewProfile,
   AudioSource as _AudioSource,
   SubscriptionTier as _SubscriptionTier,
@@ -29,8 +28,6 @@ declare global {
   interface InterviewQuestion extends _InterviewQuestion {}
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface QuestionInput extends _QuestionInput {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface GeneratedQuestion extends _GeneratedQuestion {}
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface InterviewProfile extends _InterviewProfile {}
   type AudioSource = _AudioSource
@@ -122,9 +119,6 @@ declare global {
           questions: QuestionInput[]
         ) => Promise<{ success: boolean; questions?: InterviewQuestion[]; error?: string }>
         delete: (id: string) => Promise<{ success: boolean; error?: string }>
-        generate: (
-          count?: number
-        ) => Promise<{ success: boolean; questions?: GeneratedQuestion[]; error?: string }>
       }
       window: {
         minimize: () => Promise<void>

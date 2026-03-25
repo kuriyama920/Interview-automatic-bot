@@ -14,8 +14,3 @@ export interface QuestionInput {
   answer: string
   sortOrder: number
 }
-
-export interface GeneratedQuestion {
-  question: string
-  answer: string
-}

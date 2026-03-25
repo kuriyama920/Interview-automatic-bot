@@ -7,7 +7,7 @@
 
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
-import type { InterviewQuestion, QuestionInput, GeneratedQuestion } from '../types/question'
+import type { InterviewQuestion, QuestionInput } from '../types/question'
 
 const log = createLogger('questions-service')
 
@@ -16,13 +16,6 @@ const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.inte
 interface ApiQuestionsResponse {
   success: boolean
   questions?: InterviewQuestion[]
-  error?: string
-}
-
-interface ApiGenerateResponse {
-  success: boolean
-  questions?: GeneratedQuestion[]
-  tokensUsed?: number
   error?: string
 }
 
@@ -112,41 +105,6 @@ class QuestionsService {
     }
 
     log.info('Question deleted successfully', { id: questionId })
-  }
-
-  /**
-   * 履歴書+求人票から想定質問を自動生成
-   */
-  async generateQuestions(count?: number): Promise<GeneratedQuestion[]> {
-    log.info('Generating interview questions', { count })
-
-    const response = await authService.authenticatedFetch(
-      `${API_BASE_URL}/api/questions/generate`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: count ?? 10 }),
-      }
-    )
-
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as { error?: string }
-      const errorMessage = errorData.error || `Generation failed: ${response.status}`
-      log.error('Question generation failed', { error: errorMessage })
-      throw new Error(errorMessage)
-    }
-
-    const data = (await response.json()) as ApiGenerateResponse
-
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to generate questions')
-    }
-
-    log.info('Questions generated successfully', {
-      count: data.questions?.length ?? 0,
-      tokensUsed: data.tokensUsed,
-    })
-    return data.questions ?? []
   }
 }
 

@@ -3,19 +3,16 @@
  * GET    /api/questions          - Q&A一覧取得
  * POST   /api/questions          - Q&Aバッチ保存
  * DELETE /api/questions/:id      - 質問削除
- * POST   /api/questions/generate - AI質問生成
  */
 
 import { Hono } from 'hono'
-import OpenAI from 'openai'
 import type { Env, Variables } from '../types'
 import { createSupabaseAdmin } from '../lib/supabase'
 import { authRequired } from '../middleware/auth'
 import { generateEmbeddings } from '../lib/openai'
 import { isValidUUID } from '../lib/validation'
-import { checkUsageLimit, checkAndReserveUsage, adjustReservedUsage, recordUsage } from '../lib/usage'
-import { QUESTION_GENERATION_PROMPT, STANDARD_INTERVIEW_QUESTIONS } from '../lib/prompts'
-import { formatProfileContext } from '../lib/profile'
+import { invalidateEmbeddingCache, invalidateEmbeddingCacheBatch } from '../lib/embedding-cache'
+import { checkUsageLimit } from '../lib/usage'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
@@ -307,6 +304,13 @@ app.post('/', async (c) => {
     await supabase.from('interview_questions').delete().in('id', existingIds)
   }
 
+  // Fetch old chunk contents for cache invalidation before syncEmbeddings replaces them
+  const { data: oldChunks } = await supabase
+    .from('document_chunks')
+    .select('content')
+    .eq('document_id', documentId)
+    .eq('user_id', userId)
+
   const chunkIdMap = await syncEmbeddings(
     supabase,
     c.env.OPENAI_API_KEY,
@@ -324,6 +328,17 @@ app.post('/', async (c) => {
       supabase.from('interview_questions').update({ chunk_id: chunkId }).eq('id', questionId)
     )
   )
+
+  // Invalidate embedding cache for old chunks (background, non-blocking)
+  if (oldChunks && oldChunks.length > 0) {
+    const oldContents = oldChunks.map((ch) => ch.content)
+    try {
+      const ctx = c.executionCtx
+      ctx.waitUntil(invalidateEmbeddingCacheBatch(oldContents))
+    } catch {
+      // executionCtx may not be available in tests; fall through
+    }
+  }
 
   return c.json({
     success: true,
@@ -364,7 +379,17 @@ app.delete('/:id', async (c) => {
     return c.json({ success: false, error: 'Access denied' }, 403)
   }
 
+  // Fetch chunk content before deletion for cache invalidation
+  let chunkContent: string | null = null
   if (question.chunk_id) {
+    const { data: chunk } = await supabase
+      .from('document_chunks')
+      .select('content')
+      .eq('id', question.chunk_id)
+      .eq('user_id', userId)
+      .single()
+    chunkContent = chunk?.content ?? null
+
     await supabase
       .from('document_chunks')
       .delete()
@@ -380,6 +405,16 @@ app.delete('/:id', async (c) => {
 
   if (deleteError) {
     return c.json({ success: false, error: 'Failed to delete question' }, 500)
+  }
+
+  // Invalidate embedding cache for deleted chunk (background, non-blocking)
+  if (chunkContent) {
+    try {
+      const ctx = c.executionCtx
+      ctx.waitUntil(invalidateEmbeddingCache(chunkContent))
+    } catch {
+      // executionCtx may not be available in tests; fall through
+    }
   }
 
   const { data: virtualDoc } = await supabase
@@ -401,207 +436,6 @@ app.delete('/:id', async (c) => {
   }
 
   return c.json({ success: true })
-})
-
-// --- POST /api/questions/generate ---
-
-const DEFAULT_COUNT = 20
-const MAX_COUNT = 20
-const GENERATION_MODEL = 'gpt-5-mini'
-const ESTIMATED_TOKENS = 12000
-
-function validateGenerateRequest(body: unknown): { count: number } | { error: string } {
-  if (!body || typeof body !== 'object') {
-    return { count: DEFAULT_COUNT }
-  }
-
-  const data = body as Record<string, unknown>
-  let count = DEFAULT_COUNT
-
-  if (data.count !== undefined) {
-    if (typeof data.count !== 'number' || !Number.isInteger(data.count)) {
-      return { error: 'count must be an integer' }
-    }
-    if (data.count < 1 || data.count > MAX_COUNT) {
-      return { error: `count must be between 1 and ${MAX_COUNT}` }
-    }
-    count = data.count
-  }
-
-  return { count }
-}
-
-app.post('/generate', async (c) => {
-  const supabase = createSupabaseAdmin(c.env)
-  const { sub: userId } = c.get('jwtPayload')
-  const body = await c.req.json()
-
-  const validation = validateGenerateRequest(body)
-  if ('error' in validation) {
-    return c.json({ success: false, error: validation.error }, 400)
-  }
-
-  const { count } = validation
-
-  const [chunksResult, profileResult] = await Promise.all([
-    supabase
-      .from('document_chunks')
-      .select('content, documents!inner (type, name)')
-      .eq('user_id', userId)
-      .in('documents.type', ['resume', 'job_posting']),
-    supabase.from('profiles').select('interview_profile').eq('id', userId).single(),
-  ])
-
-  const { data: chunks, error: chunksError } = chunksResult
-  const profileContext = formatProfileContext(profileResult.data?.interview_profile)
-
-  if (chunksError) {
-    return c.json({ success: false, error: 'Failed to fetch document context' }, 500)
-  }
-
-  if (!chunks || chunks.length === 0) {
-    return c.json(
-      {
-        success: false,
-        error: '履歴書または求人票をアップロードしてから自動生成してください',
-      },
-      400
-    )
-  }
-
-  const resumeChunks: string[] = []
-  const jobChunks: string[] = []
-
-  for (const chunk of chunks) {
-    const doc = chunk.documents as unknown as { type: string; name: string }
-    if (doc.type === 'resume') {
-      resumeChunks.push(chunk.content)
-    } else if (doc.type === 'job_posting') {
-      jobChunks.push(chunk.content)
-    }
-  }
-
-  let documentContext = ''
-  if (profileContext) {
-    documentContext += `【候補者プロフィール】\n${profileContext}\n\n`
-  }
-  if (resumeChunks.length > 0) {
-    documentContext += `【履歴書】\n${resumeChunks.join('\n')}\n\n`
-  }
-  if (jobChunks.length > 0) {
-    documentContext += `【求人票】\n${jobChunks.join('\n')}`
-  }
-
-  const tokenUsage = await checkAndReserveUsage(supabase, userId, 'ai_tokens', ESTIMATED_TOKENS)
-  if (!tokenUsage.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: '今月のAIトークン上限に達しました。プランをアップグレードするか、来月までお待ちください。',
-        usage: { used: tokenUsage.used, limit: tokenUsage.limit, remaining: 0 },
-      },
-      429
-    )
-  }
-
-  const selectedQuestions = STANDARD_INTERVIEW_QUESTIONS.slice(0, count)
-  const questionsText = selectedQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')
-
-  const openai = new OpenAI({ apiKey: c.env.OPENAI_API_KEY })
-  const prompt = QUESTION_GENERATION_PROMPT.replace('{questions}', questionsText).replace(
-    '{documentContext}',
-    documentContext
-  )
-
-  const completion = await openai.chat.completions.create({
-    model: GENERATION_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          '面接通過率を最大化する戦略的面接コーチとして、候補者の履歴書と求人票を徹底分析し、固定質問リストに対する模範回答のみを生成してください。質問文は絶対に変更・追加せず、回答の配列だけを返してください。',
-      },
-      { role: 'user', content: prompt },
-    ],
-    reasoning_effort: 'minimal' as const,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'interview_answers',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            answers: {
-              type: 'array',
-              items: { type: 'string' },
-            },
-          },
-          required: ['answers'],
-          additionalProperties: false,
-        },
-      },
-    },
-    max_completion_tokens: 10000,
-  })
-
-  const totalTokensUsed = completion.usage?.total_tokens ?? 0
-
-  await adjustReservedUsage(supabase, userId, 'ai_tokens', ESTIMATED_TOKENS, totalTokensUsed)
-  if (totalTokensUsed > 0) {
-    await recordUsage(
-      supabase,
-      userId,
-      'ai_completion',
-      totalTokensUsed,
-      'tokens',
-      { model: GENERATION_MODEL, type: 'question_generation', count },
-      true
-    )
-  }
-
-  const choice = completion.choices[0]
-  if (choice?.finish_reason === 'length') {
-    return c.json(
-      { success: false, error: 'AI response was truncated. Try reducing the question count.' },
-      500
-    )
-  }
-
-  const message = choice?.message
-  if (message?.refusal) {
-    return c.json(
-      { success: false, error: 'AI declined to generate answers for the provided content' },
-      422
-    )
-  }
-
-  const content = message?.content
-  if (!content) {
-    return c.json({ success: false, error: 'AI returned empty response' }, 500)
-  }
-
-  let parsed: { answers: string[] }
-  try {
-    parsed = JSON.parse(content) as { answers: string[] }
-  } catch {
-    return c.json({ success: false, error: 'Failed to parse AI response' }, 500)
-  }
-
-  if (!Array.isArray(parsed.answers)) {
-    return c.json({ success: false, error: 'Invalid AI response format' }, 500)
-  }
-
-  const questions = selectedQuestions.map((q, i) => ({
-    question: q,
-    answer: typeof parsed.answers[i] === 'string' ? parsed.answers[i].trim() : '',
-  }))
-
-  return c.json({
-    success: true,
-    questions,
-    tokensUsed: totalTokensUsed,
-  })
 })
 
 export default app
