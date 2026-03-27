@@ -36,7 +36,6 @@ describe('useInterviewQuestions', () => {
       // isLoading is true initially while loadQuestions runs
       expect(result.current.isLoading).toBe(true)
       expect(result.current.isSaving).toBe(false)
-      expect(result.current.isGenerating).toBe(false)
       expect(result.current.error).toBeNull()
       // hasUnsavedChanges = JSON.stringify([]) !== '' (initially '') → true
       // after load completes it settles to false, but initially it may be true

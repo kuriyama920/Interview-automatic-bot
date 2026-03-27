@@ -7,6 +7,7 @@ import { contextService } from '../services/context.service'
 import { questionsService } from '../services/questions.service'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
+import { getConfig } from '../config/env-config'
 import type {
   AIResponse,
   GenerateOptions,
@@ -39,7 +40,7 @@ let currentAIAbortController: AbortController | null = null
 export function setupIPC(mainWindow: BrowserWindow): void {
   log.info('Setting up IPC handlers')
 
-  const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+  const { apiBaseUrl: API_BASE_URL } = getConfig()
 
   /** Lazy-initialize AI service if not already initialized */
   function ensureAIInitialized(): void {
@@ -746,8 +747,8 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('questions:save', async (_event, questions: QuestionInput[]) => {
-    if (!Array.isArray(questions) || questions.length === 0 || questions.length > 200) {
-      return { success: false, error: 'Invalid questions: must be an array with 1-200 items' }
+    if (!Array.isArray(questions) || questions.length > 200) {
+      return { success: false, error: 'Invalid questions: must be an array with 0-200 items' }
     }
     for (const q of questions) {
       if (typeof q?.question !== 'string' || typeof q?.answer !== 'string') {
