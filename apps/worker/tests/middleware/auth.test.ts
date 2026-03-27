@@ -19,7 +19,7 @@ function createTestApp() {
   app.use('*', authRequired)
   app.get('/test', (c) => {
     const payload = c.get('jwtPayload')
-    return c.json({ sub: payload.sub, email: payload.email })
+    return c.json({ sub: payload.sub })
   })
   return app
 }
@@ -62,12 +62,7 @@ describe('authRequired middleware', () => {
     const app = createTestApp()
 
     const token = await generateJWT(
-      {
-        sub: 'user-123',
-        email: 'test@example.com',
-        name: 'Test User',
-        picture: 'https://example.com/avatar.jpg',
-      },
+      { sub: 'user-123' },
       TEST_JWT_SECRET
     )
 
@@ -80,7 +75,6 @@ describe('authRequired middleware', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.sub).toBe('user-123')
-    expect(body.email).toBe('test@example.com')
   })
 
   it('rejects expired tokens', async () => {
@@ -90,12 +84,7 @@ describe('authRequired middleware', () => {
     const realDateNow = Date.now
     Date.now = () => new Date('2020-01-01').getTime()
     const token = await generateJWT(
-      {
-        sub: 'user-123',
-        email: 'test@example.com',
-        name: 'Test',
-        picture: '',
-      },
+      { sub: 'user-123' },
       TEST_JWT_SECRET
     )
     Date.now = realDateNow

@@ -65,7 +65,7 @@ const TEST_ENV = {
 
 async function createAuthHeaders(): Promise<Record<string, string>> {
   const token = await generateJWT(
-    { sub: TEST_USER_ID, email: 'test@example.com', name: 'Test', picture: '' },
+    { sub: TEST_USER_ID },
     TEST_JWT_SECRET
   )
   return { Authorization: `Bearer ${token}` }

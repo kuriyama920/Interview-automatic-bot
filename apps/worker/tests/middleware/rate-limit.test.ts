@@ -41,7 +41,7 @@ async function makeAuthRequest(
   userId: string
 ) {
   const token = await generateJWT(
-    { sub: userId, email: `${userId}@test.com`, name: 'Test', picture: '' },
+    { sub: userId },
     TEST_JWT_SECRET
   )
   return app.request(path, {
