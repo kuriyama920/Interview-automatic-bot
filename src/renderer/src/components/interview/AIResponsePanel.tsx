@@ -2,9 +2,10 @@
  * AI回答パネル
  * ストリーミングAI回答 + 想定質問マッチ表示 + 自動スクロール
  * Phase 2: Speculative（薄い色・下書き）/ Committed（通常色・確定）フェーズ別スタイリング
+ * 二重バッファ対応: Committed生成中もSpeculative表示を維持
  */
 
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useInterview } from '../../contexts/InterviewContext'
 import { Spinner } from '../ui'
 import { SparklesDetailedIcon } from '../ui/icons'
@@ -36,10 +37,12 @@ function PhaseIndicator({ phase, isGenerating }: { phase: string | null; isGener
     )
   }
 
-  if (phase === 'transitioning') {
+  if (phase === 'committed') {
+    // Committed生成中もSpeculative表示を維持しているため、異なるメッセージ
     return (
-      <span className="text-[10px] text-success flex items-center gap-1.5">
-        確認中...
+      <span className="text-[10px] text-accent/70 flex items-center gap-1.5 animate-pulse">
+        <Spinner size="sm" className="text-accent/70" />
+        確定版を生成中...
       </span>
     )
   }
@@ -52,12 +55,46 @@ function PhaseIndicator({ phase, isGenerating }: { phase: string | null; isGener
   )
 }
 
+interface HeaderStatusProps {
+  cachedMatch: { answer: string; similarity: number } | null
+  isGenerating: boolean
+  aiResponse: AIResponse | null
+  currentPhase: AIPhase | null
+}
+
+function HeaderStatus({ cachedMatch, isGenerating, aiResponse, currentPhase }: HeaderStatusProps) {
+  if (cachedMatch) {
+    return <span className="text-[10px] text-success font-medium">即時マッチ</span>
+  }
+  if (isGenerating) {
+    return <PhaseIndicator phase={currentPhase} isGenerating={isGenerating} />
+  }
+  if (aiResponse) {
+    return <span className="text-[10px] text-success font-medium">完了</span>
+  }
+  return null
+}
+
 export function AIResponsePanel() {
-  const { aiResponse, streamingText, isGenerating, currentPhase, cachedMatch } = useInterview()
+  const { aiResponse, streamingText, isGenerating, currentPhase, cachedMatch, adoptionState } = useInterview()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUp = useRef(false)
+
+  // フェードトランジション制御: 不採用時にフェードアウト→フェードイン
+  const [isFading, setIsFading] = useState(false)
+  const prevAdoptionStateRef = useRef(adoptionState)
+
+  useEffect(() => {
+    const wasReplaced = prevAdoptionStateRef.current !== adoptionState && adoptionState === 'replaced'
+    prevAdoptionStateRef.current = adoptionState
+    if (wasReplaced) {
+      setIsFading(true)
+      const timer = setTimeout(() => setIsFading(false), 300)
+      return () => clearTimeout(timer)
+    }
+  }, [adoptionState])
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
@@ -87,13 +124,12 @@ export function AIResponsePanel() {
           <span className="text-xs font-medium text-content-secondary">AI 回答提案</span>
         </div>
         <div className="flex items-center gap-2">
-          {cachedMatch ? (
-            <span className="text-[10px] text-success font-medium">即時マッチ</span>
-          ) : isGenerating ? (
-            <PhaseIndicator phase={currentPhase} isGenerating={isGenerating} />
-          ) : aiResponse ? (
-            <span className="text-[10px] text-success font-medium">完了</span>
-          ) : null}
+          <HeaderStatus
+            cachedMatch={cachedMatch}
+            isGenerating={isGenerating}
+            aiResponse={aiResponse}
+            currentPhase={currentPhase}
+          />
         </div>
       </div>
 
@@ -118,7 +154,8 @@ export function AIResponsePanel() {
             </div>
             <div ref={bottomRef} />
           </div>
-        ) : isGenerating && !streamingText ? (
+        ) : isGenerating && !streamingText && currentPhase !== 'committed' ? (
+          // Committed生成中はSpeculativeの結果が残っているのでスケルトン不要
           <AIResponseSkeleton />
         ) : !displayText ? (
           <div className="h-full flex items-center justify-center">
@@ -135,16 +172,21 @@ export function AIResponsePanel() {
               <div className="chat-header text-[10px] mb-0.5">
                 {isSpeculative ? (
                   <span className="text-accent/50 italic">下書き（確定前）</span>
+                ) : currentPhase === 'committed' && isGenerating ? (
+                  // Committed生成中にSpeculative表示を維持している状態
+                  <span className="text-accent/50 italic">下書き表示中（確定版を生成中）</span>
                 ) : (
                   <span className="text-content-secondary">AI アシスタント</span>
                 )}
               </div>
               <div
                 className={[
-                  'chat-bubble text-[13px] leading-relaxed min-h-0 font-medium whitespace-pre-wrap transition-all duration-300',
+                  'chat-bubble text-[13px] leading-relaxed min-h-0 font-medium whitespace-pre-wrap',
+                  'transition-[background-color,color,opacity] duration-300',
                   isSpeculative
                     ? 'bg-accent/5 text-content/50 italic'
                     : 'bg-accent/10 text-content',
+                  isFading ? 'opacity-0' : 'opacity-100',
                 ].join(' ')}
               >
                 {displayText}

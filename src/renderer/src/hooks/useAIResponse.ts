@@ -3,9 +3,7 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('useAIResponse')
 
-// AIResponse is the global ambient type declared in env.d.ts
-
-/** Optional metrics recorder for latency tracking (A-17) */
+/** Optional metrics recorder for latency tracking */
 export interface AIResponseMetrics {
   record: (turnId: string, point: string, value: number | boolean | string) => void
   finalize: (turnId: string) => void
@@ -15,12 +13,19 @@ interface UseAIResponseOptions {
   onMetrics?: AIResponseMetrics
 }
 
+/** Speculative採用時のデフォルトconfidence */
+const SPECULATIVE_ADOPTED_CONFIDENCE = 0.8
+
 interface UseAIResponseReturn {
   response: AIResponse | null
   streamingText: string
   isGenerating: boolean
   error: string | null
   currentPhase: AIPhase | null
+  committedStreamingText: string
+  committedResponse: AIResponse | null
+  applyCommittedResult: (committed: { response: AIResponse | null; streamingText: string }) => void
+  discardCommittedResult: (speculativeText: string) => void
   generateStreamResponse: (question: string, context?: string, options?: GenerateOptions) => Promise<void>
   generateStreamResponseV2: (question: string, context?: string, phase?: 'speculative' | 'committed', options?: GenerateOptions) => Promise<void>
   abortGeneration: () => void
@@ -33,16 +38,50 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [currentPhase, setCurrentPhase] = useState<AIPhase | null>(null)
+
+  // 二重バッファ: Committed用バックバッファ
+  const [committedStreamingText, setCommittedStreamingText] = useState<string>('')
+  const [committedResponse, setCommittedResponse] = useState<AIResponse | null>(null)
+
   const mountedRef = useRef(true)
   const listenerSetup = useRef(false)
   const generationIdRef = useRef(0)
   const pendingClearRef = useRef(false)
 
-  // Metrics tracking refs (A-17: m10-m12)
+  // Committed用の別pendingClear + phase判別用ref
+  const pendingCommittedClearRef = useRef(false)
+  const currentPhaseRef = useRef<AIPhase | null>(null)
+
+  // Metrics tracking refs
   const onMetricsRef = useRef(options?.onMetrics)
   onMetricsRef.current = options?.onMetrics
   const activeTurnIdRef = useRef<string | null>(null)
   const firstChunkRecordedRef = useRef(false)
+
+  // 共通リセットヘルパー（useCallbackで安定参照化 - exhaustive-deps準拠）
+  const resetCommittedBuffer = useCallback(() => {
+    setCommittedStreamingText('')
+    setCommittedResponse(null)
+  }, [])
+
+  const resetPhase = useCallback(() => {
+    setCurrentPhase(null)
+    currentPhaseRef.current = null
+  }, [])
+
+  const resetMetrics = useCallback(() => {
+    activeTurnIdRef.current = null
+    firstChunkRecordedRef.current = false
+  }, [])
+
+  /** phase-aware: エラー時にアクティブなバッファのみクリア */
+  const clearBufferOnError = useCallback(() => {
+    if (currentPhaseRef.current === 'committed') {
+      resetCommittedBuffer()
+    } else {
+      setStreamingText('')
+    }
+  }, [resetCommittedBuffer])
 
   useEffect(() => {
     mountedRef.current = true
@@ -53,7 +92,6 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
       window.electron.ai.onChunk((chunk: string) => {
         if (!mountedRef.current) return
 
-        // A-17: Record m10 (first chunk received) and m12 (latest chunk received)
         const now = Date.now()
         const turnId = activeTurnIdRef.current
         if (turnId && onMetricsRef.current) {
@@ -61,27 +99,36 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
             onMetricsRef.current.record(turnId, 'm10_chunkReceived', now)
             firstChunkRecordedRef.current = true
           }
-          // m12 is always updated to the latest chunk timestamp
           onMetricsRef.current.record(turnId, 'm12_uiRendered', now)
         }
 
-        // 新世代の最初のチャンク: 前の回答を置き換え（チラつき防止）
-        // 注: リスナーは1回のみ登録されるため、世代チェックはgenerateStreamResponseの
-        // IPC返り値側（line 168）で実施。ここではpendingClearRefで制御。
-        if (pendingClearRef.current) {
-          pendingClearRef.current = false
-          log.debug('First chunk received (replacing)', { chunkLength: chunk.length })
-          setStreamingText(chunk)
+        // phase振り分け: currentPhaseRefを参照してバッファを決定
+        const isCommittedPhase = currentPhaseRef.current === 'committed'
 
-          // A-17: Record m11 (state updated) after first chunk sets state
-          if (turnId && onMetricsRef.current) {
-            onMetricsRef.current.record(turnId, 'm11_stateUpdated', Date.now())
+        if (isCommittedPhase) {
+          // Committed チャンク → バックバッファに蓄積
+          if (pendingCommittedClearRef.current) {
+            pendingCommittedClearRef.current = false
+            log.debug('First committed chunk received (replacing)', { chunkLength: chunk.length })
+            setCommittedStreamingText(chunk)
+          } else {
+            setCommittedStreamingText((prev) => prev + chunk)
           }
-          return
-        }
-        setStreamingText((prev) => prev + chunk)
+        } else {
+          // Speculative チャンク → フロントバッファ
+          if (pendingClearRef.current) {
+            pendingClearRef.current = false
+            log.debug('First chunk received (replacing)', { chunkLength: chunk.length })
+            setStreamingText(chunk)
 
-        // A-17: Record m11 (state updated) after appending chunk
+            if (turnId && onMetricsRef.current) {
+              onMetricsRef.current.record(turnId, 'm11_stateUpdated', Date.now())
+            }
+            return
+          }
+          setStreamingText((prev) => prev + chunk)
+        }
+
         if (turnId && onMetricsRef.current && firstChunkRecordedRef.current) {
           onMetricsRef.current.record(turnId, 'm11_stateUpdated', Date.now())
         }
@@ -101,18 +148,27 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
         if (!mountedRef.current) return
         log.info('Phase change received', { phase })
         setCurrentPhase(phase as AIPhase)
-        // detailed フェーズ移行時: streamingTextをリセット（Phase 2の内容で置き換え）
+        currentPhaseRef.current = phase as AIPhase
+        // detailed フェーズ移行時: streamingTextをリセット（detailedフェーズの内容で上書きするため）
         if (phase === 'detailed') {
           pendingClearRef.current = true
         }
       })
 
+      // phase-aware onError: Committed エラー時は Speculative を保持
       window.electron.ai.onError((errorMessage: string) => {
         if (!mountedRef.current) return
+        const wasCommitted = currentPhaseRef.current === 'committed'
         setError(errorMessage)
         setIsGenerating(false)
-        setStreamingText('')
-        log.error('AI stream error received', { error: errorMessage })
+        clearBufferOnError()
+        pendingCommittedClearRef.current = false
+        resetPhase()
+        if (wasCommitted) {
+          log.warn('AI committed stream error (speculative preserved)', { error: errorMessage })
+        } else {
+          log.error('AI stream error received', { error: errorMessage })
+        }
       })
 
       listenerSetup.current = true
@@ -128,15 +184,21 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
 
   const abortGeneration = useCallback(() => {
     generationIdRef.current++
-    window.electron.ai.abort()
+    try {
+      window.electron.ai.abort()
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown abort error'
+      log.warn('abort() threw, continuing cleanup', { error: errorMessage })
+    }
     setIsGenerating(false)
     setStreamingText('')
-    setCurrentPhase(null)
     pendingClearRef.current = false
-    activeTurnIdRef.current = null
-    firstChunkRecordedRef.current = false
+    resetCommittedBuffer()
+    pendingCommittedClearRef.current = false
+    resetPhase()
+    resetMetrics()
     log.info('AI generation aborted by user')
-  }, [])
+  }, [resetCommittedBuffer, resetPhase, resetMetrics])
 
   /** Shared IPC result handler for stream generation (v1 and v2) */
   const executeStreamGeneration = useCallback(async (
@@ -144,6 +206,14 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
     thisGeneration: number,
     label: string,
   ) => {
+    function handleError(errorMessage: string) {
+      setError(errorMessage)
+      clearBufferOnError()
+      setIsGenerating(false)
+      resetPhase()
+      resetMetrics()
+    }
+
     try {
       const result = await ipcCall()
 
@@ -158,37 +228,35 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
 
       if (result.success) {
         if (result.response) {
-          setResponse(result.response)
+          if (currentPhaseRef.current === 'committed') {
+            setCommittedResponse(result.response)
+          } else {
+            setResponse(result.response)
+          }
         }
         setIsGenerating(false)
-        setCurrentPhase(null)
+        // Speculative完了時はphaseをnullに（Committedはw-01で処理）
+        if (currentPhaseRef.current !== 'committed') {
+          resetPhase()
+        }
 
-        // A-17: Finalize metrics on successful completion
+        // Finalize metrics on successful completion
         const turnId = activeTurnIdRef.current
         if (turnId && onMetricsRef.current) {
           onMetricsRef.current.finalize(turnId)
         }
-        activeTurnIdRef.current = null
-        firstChunkRecordedRef.current = false
+        resetMetrics()
       } else {
         if (result.error === 'aborted') return
-        setError(result.error || 'Failed to generate response')
-        setStreamingText('')
-        setIsGenerating(false)
-        activeTurnIdRef.current = null
-        firstChunkRecordedRef.current = false
+        handleError(result.error || 'Failed to generate response')
       }
     } catch (err) {
       if (generationIdRef.current !== thisGeneration) return
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setError(errorMessage)
-      setStreamingText('')
       log.error(`${label} error`, { error: errorMessage })
-      setIsGenerating(false)
-      activeTurnIdRef.current = null
-      firstChunkRecordedRef.current = false
+      handleError(errorMessage)
     }
-  }, [])
+  }, [clearBufferOnError, resetPhase, resetMetrics])
 
   const generateStreamResponse = useCallback(async (question: string, context?: string, options?: GenerateOptions) => {
     if (!question.trim()) {
@@ -200,10 +268,9 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
     setIsGenerating(true)
     setError(null)
     setResponse(null)
-    setCurrentPhase(null)
+    resetPhase()
     pendingClearRef.current = true
 
-    // A-17: Track turnId for metrics recording in chunk handler
     activeTurnIdRef.current = options?.turnId ?? null
     firstChunkRecordedRef.current = false
 
@@ -218,7 +285,7 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
       thisGeneration,
       'generateStream',
     )
-  }, [executeStreamGeneration])
+  }, [executeStreamGeneration, resetPhase])
 
   const generateStreamResponseV2 = useCallback(async (
     question: string,
@@ -235,13 +302,16 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
     setIsGenerating(true)
     setError(null)
     setCurrentPhase(phase ?? null)
+    currentPhaseRef.current = phase ?? null
 
     if (phase === 'committed') {
-      setResponse(null)
+      // Speculative側は触らない → チラつき防止の核心
+      resetCommittedBuffer()
+      pendingCommittedClearRef.current = true
+    } else {
+      pendingClearRef.current = true
     }
-    pendingClearRef.current = true
 
-    // A-17: Track turnId for metrics recording in chunk handler
     activeTurnIdRef.current = options?.turnId ?? null
     firstChunkRecordedRef.current = false
 
@@ -256,14 +326,34 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
       thisGeneration,
       'generateStreamV2',
     )
-  }, [executeStreamGeneration])
+  }, [executeStreamGeneration, resetCommittedBuffer])
 
   const clearResponse = useCallback(() => {
     setResponse(null)
     setStreamingText('')
     setError(null)
-    setCurrentPhase(null)
-  }, [])
+    resetCommittedBuffer()
+    resetPhase()
+  }, [resetCommittedBuffer, resetPhase])
+
+  // Speculative採用時: Speculative表示を確定し、Committed結果は不要なので破棄
+  const discardCommittedResult = useCallback((speculativeText: string) => {
+    setResponse({ answer: speculativeText, suggestions: [], confidence: SPECULATIVE_ADOPTED_CONFIDENCE })
+    resetCommittedBuffer()
+    resetPhase()
+  }, [resetCommittedBuffer, resetPhase])
+
+  // Speculative不採用時: 引数でCommitted結果を受け取る（stale closure回避）
+  const applyCommittedResult = useCallback((committed: { response: AIResponse | null; streamingText: string }) => {
+    if (committed.response) {
+      setResponse(committed.response)
+      setStreamingText(committed.response.answer)
+    } else {
+      setStreamingText(committed.streamingText)
+    }
+    resetCommittedBuffer()
+    resetPhase()
+  }, [resetCommittedBuffer, resetPhase])
 
   return {
     response,
@@ -271,6 +361,10 @@ export function useAIResponse(options?: UseAIResponseOptions): UseAIResponseRetu
     isGenerating,
     error,
     currentPhase,
+    committedStreamingText,
+    committedResponse,
+    applyCommittedResult,
+    discardCommittedResult,
     generateStreamResponse,
     generateStreamResponseV2,
     abortGeneration,

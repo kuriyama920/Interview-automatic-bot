@@ -96,9 +96,14 @@ export function useSubscription(): UseSubscriptionResult {
           if (result.success && result.data) {
             const newData = result.data as SubscriptionData
             if (newData.subscription.tier !== currentTier) {
-              setData(newData)
-              // 認証情報もリフレッシュ（ユーザーメニューの表示更新）
+              // 認証情報をリフレッシュしてからUI更新（最新状態を反映）
               await window.electron.subscription.refresh()
+              const refreshed = await window.electron.subscription.getPlans()
+              setData(
+                refreshed.success && refreshed.data
+                  ? (refreshed.data as SubscriptionData)
+                  : newData
+              )
               return
             }
           }

@@ -24,7 +24,9 @@ describe('AIResponsePanel', () => {
     aiResponse: null as AIResponse | null,
     streamingText: '',
     isGenerating: false,
+    currentPhase: null as string | null,
     cachedMatch: null as { answer: string; similarity: number } | null,
+    adoptionState: 'none' as 'none' | 'adopted' | 'replaced',
   }
 
   beforeEach(() => {
@@ -181,5 +183,66 @@ describe('AIResponsePanel', () => {
     })
     render(<AIResponsePanel />)
     expect(screen.getByText('残りテキスト')).toBeDefined()
+  })
+
+  // ── Phase 3: Speculative → Committed 表示改善 ──
+
+  it('should show "下書き中..." indicator during speculative phase', () => {
+    mockUseInterview.mockReturnValue({
+      ...defaultContext,
+      isGenerating: true,
+      currentPhase: 'speculative',
+      streamingText: '下書きテキスト',
+    })
+    render(<AIResponsePanel />)
+    expect(screen.getByText('下書き中...')).toBeDefined()
+  })
+
+  it('should show "確定版を生成中..." indicator during committed phase', () => {
+    mockUseInterview.mockReturnValue({
+      ...defaultContext,
+      isGenerating: true,
+      currentPhase: 'committed',
+      streamingText: '下書き表示維持',
+    })
+    render(<AIResponsePanel />)
+    expect(screen.getByText('確定版を生成中...')).toBeDefined()
+  })
+
+  it('should NOT show skeleton during committed phase (speculative text remains)', () => {
+    mockUseInterview.mockReturnValue({
+      ...defaultContext,
+      isGenerating: true,
+      currentPhase: 'committed',
+      streamingText: '',
+      aiResponse: null,
+    })
+    render(<AIResponsePanel />)
+    // Committed中はスケルトンではなく空状態表示
+    expect(screen.getByText('面接官の質問に対するAI推奨回答がここに表示されます')).toBeDefined()
+  })
+
+  it('should show speculative header label during committed phase', () => {
+    mockUseInterview.mockReturnValue({
+      ...defaultContext,
+      isGenerating: true,
+      currentPhase: 'committed',
+      streamingText: '下書き表示テキスト',
+    })
+    render(<AIResponsePanel />)
+    expect(screen.getByText('下書き表示中（確定版を生成中）')).toBeDefined()
+  })
+
+  it('should not have transitioning PhaseIndicator (dead code removed)', () => {
+    mockUseInterview.mockReturnValue({
+      ...defaultContext,
+      isGenerating: true,
+      currentPhase: 'transitioning', // この値はAIPhaseに存在しないが念のため
+      streamingText: 'テスト',
+    })
+    render(<AIResponsePanel />)
+    // 'transitioning'は削除されたので、デフォルトの'生成中...'が表示される
+    expect(screen.queryByText('確認中...')).toBeNull()
+    expect(screen.getByText('生成中...')).toBeDefined()
   })
 })

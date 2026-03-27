@@ -7,6 +7,9 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { shouldAdoptSpeculative, DEFAULT_ADOPTION_CONFIG } from '../utils/speculative-adoption'
 import { AdaptiveThreshold } from '../utils/adaptive-threshold'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('InterviewContext')
 import { useSTT } from '../hooks/useSTT'
 import { useAudioCapture } from '../hooks/useAudioCapture'
 import { useAIResponse } from '../hooks/useAIResponse'
@@ -33,6 +36,8 @@ interface InterviewContextValue {
   isGenerating: boolean
   currentPhase: AIPhase | null
   cachedMatch: { answer: string; similarity: number } | null
+  // 採用判定UI状態
+  adoptionState: 'none' | 'adopted' | 'replaced'
   // Actions
   handleStart: () => Promise<void>
   handleStop: () => Promise<void>
@@ -81,6 +86,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     isGenerating,
     error: aiError,
     currentPhase,
+    committedStreamingText,
+    committedResponse,
+    applyCommittedResult,
+    discardCommittedResult,
     generateStreamResponse,
     generateStreamResponseV2,
     abortGeneration,
@@ -89,11 +98,23 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
 
   // speculativeTextRef: Speculative生成中のstreamingTextを保持（Committed Laneでの比較用）
   const speculativeTextRef = useRef<string>('')
+
+  // speculativeTextRef 同期（streamingText変更でトリガー）
   useEffect(() => {
     if (currentPhase === 'speculative') {
       speculativeTextRef.current = streamingText
     }
   }, [currentPhase, streamingText])
+
+  // 採用判定結果のUI状態
+  const [adoptionState, setAdoptionState] = useState<'none' | 'adopted' | 'replaced'>('none')
+
+  // adoptionState リセット（currentPhase変更のみでトリガー）
+  useEffect(() => {
+    if (currentPhase === 'speculative') {
+      setAdoptionState('none')
+    }
+  }, [currentPhase])
 
   const {
     historyString: conversationHistory,
@@ -140,7 +161,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   // F-2b: Adaptive Threshold - 採用率ベースの動的閾値調整
   const adaptiveThresholdRef = useRef(new AdaptiveThreshold())
 
-  // W-01: Speculative採用判定（Committed完了後に実行）
+  // Speculative採用判定（Committed完了後に実行）
   const prevIsGeneratingRef = useRef(false)
   useEffect(() => {
     const wasGenerating = prevIsGeneratingRef.current
@@ -150,31 +171,56 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     if (wasGenerating && !isGenerating && pendingCommittedTurnIdRef.current) {
       const turnId = pendingCommittedTurnIdRef.current
       const specText = speculativeTextRef.current
-      const committedText = aiResponse?.answer || streamingText
+      // バックバッファのスナップショットを取得（stale closure回避）
+      const committedSnapshot = { response: committedResponse, streamingText: committedStreamingText }
+      const committedText = committedSnapshot.response?.answer || committedSnapshot.streamingText
 
       if (specText && committedText) {
-        const adaptiveConfig = {
-          ...DEFAULT_ADOPTION_CONFIG,
-          changeRateThreshold: adaptiveThresholdRef.current.getThreshold(),
+        // 採用判定とメトリクス記録を分離（メトリクス失敗で決定が失われないように）
+        try {
+          const adaptiveConfig = {
+            ...DEFAULT_ADOPTION_CONFIG,
+            changeRateThreshold: adaptiveThresholdRef.current.getThreshold(),
+          }
+          const result = shouldAdoptSpeculative(specText, committedText, adaptiveConfig)
+
+          if (result.adopted) {
+            discardCommittedResult(specText)
+            setAdoptionState('adopted')
+          } else {
+            applyCommittedResult(committedSnapshot)
+            setAdoptionState('replaced')
+          }
+
+          // メトリクス記録は非クリティカル
+          try {
+            adaptiveThresholdRef.current.recordAdoption(result.adopted)
+            latencyMetrics.record(turnId, 'speculative_adopted', result.adopted)
+            latencyMetrics.record(turnId, 'speculative_changeRate', result.changeRate)
+            latencyMetrics.record(turnId, 'speculative_reason', result.reason)
+            latencyMetrics.record(turnId, 'adaptive_threshold', adaptiveConfig.changeRateThreshold)
+          } catch (metricsErr) {
+            log.error('Metrics recording failed (non-critical)', metricsErr)
+          }
+        } catch (err) {
+          // 採用判定失敗時は安全側にフォールバック: Committed結果を採用
+          log.error('Adoption decision failed, falling back to committed result', err)
+          applyCommittedResult(committedSnapshot)
+          setAdoptionState('replaced')
         }
-        const result = shouldAdoptSpeculative(specText, committedText, adaptiveConfig)
-
-        // 採用結果を記録して次回の閾値調整に反映
-        adaptiveThresholdRef.current.recordAdoption(result.adopted)
-
-        latencyMetrics.record(turnId, 'speculative_adopted', result.adopted)
-        latencyMetrics.record(turnId, 'speculative_changeRate', result.changeRate)
-        latencyMetrics.record(turnId, 'speculative_reason', result.reason)
-        latencyMetrics.record(turnId, 'adaptive_threshold', adaptiveConfig.changeRateThreshold)
+      } else if (!specText && (committedSnapshot.response || committedSnapshot.streamingText)) {
+        // Speculativeなし → Committed結果をそのまま適用
+        applyCommittedResult(committedSnapshot)
+        setAdoptionState('none')
       }
+
       pendingCommittedTurnIdRef.current = null
 
-      // ローリングサマリー: 直近5ターンを超えたらcommitted完了ごとに要約を更新
       if (turnCount > RECENT_TURN_COUNT) {
         triggerSummarize()
       }
     }
-  }, [isGenerating, aiResponse, streamingText, latencyMetrics, pendingCommittedTurnIdRef, turnCount, triggerSummarize])
+  }, [isGenerating, committedResponse, committedStreamingText, latencyMetrics, pendingCommittedTurnIdRef, turnCount, triggerSummarize, applyCommittedResult, discardCommittedResult])
 
   const handleStart = useCallback(async () => {
     setIsLoading(true)
@@ -192,8 +238,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : '予期しないエラーが発生しました'
       toast.error(message)
-      try { await stopCapture() } catch { /* cleanup */ }
-      try { await disconnect() } catch { /* cleanup */ }
+      try { await stopCapture() } catch (cleanupErr) { log.error('handleStart cleanup: stopCapture failed', cleanupErr) }
+      try { await disconnect() } catch (cleanupErr) { log.error('handleStart cleanup: disconnect failed', cleanupErr) }
     } finally {
       setIsLoading(false)
     }
@@ -232,7 +278,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     }
   }, [clearQuestionCache, clearDocumentContextCache])
 
-  const error = appError || sttError || captureError || aiError
+  // aiErrorを最優先、それ以外はインフラエラーを優先
+  const error = aiError || appError || sttError || captureError
 
   const value = useMemo<InterviewContextValue>(
     () => ({
@@ -248,6 +295,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       isGenerating,
       currentPhase,
       cachedMatch,
+      adoptionState,
       handleStart,
       handleStop,
       handleClear,
@@ -259,6 +307,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       isConnected, transcripts, currentText, currentSource,
       isCapturing, audioSource, setAudioSource,
       aiResponse, streamingText, isGenerating, currentPhase, cachedMatch,
+      adoptionState,
       handleStart, handleStop, handleClear, refreshQuestionCache,
       error, isLoading,
     ],
