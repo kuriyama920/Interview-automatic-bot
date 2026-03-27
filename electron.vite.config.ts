@@ -5,6 +5,7 @@ import { resolve } from 'path'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    envPrefix: 'MAIN_VITE_',
     build: {
       rollupOptions: {
         input: {

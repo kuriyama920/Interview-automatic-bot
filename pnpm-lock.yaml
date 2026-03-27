@@ -11,9 +11,6 @@ importers:
       bufferutil:
         specifier: ^4.1.0
         version: 4.1.0
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
       electron-store:
         specifier: ^8.1.0
         version: 8.2.0
@@ -157,6 +154,9 @@ importers:
       hono:
         specifier: ^4.12.8
         version: 4.12.8
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       mammoth:
         specifier: ^1.6.0
         version: 1.11.0
@@ -172,7 +172,7 @@ importers:
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.8.0
-        version: 0.8.71(@cloudflare/workers-types@4.20260304.0)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))
+        version: 0.8.71(@cloudflare/workers-types@4.20260304.0)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))
       '@cloudflare/workers-types':
         specifier: ^4.20250214.0
         version: 4.20260304.0
@@ -181,13 +181,13 @@ importers:
         version: 1.1.5
       '@vitest/coverage-v8':
         specifier: ^3.0.0
-        version: 3.2.4(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))
+        version: 3.2.4(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       wrangler:
         specifier: ^4.0.0
         version: 4.68.1(@cloudflare/workers-types@4.20260304.0)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -2381,10 +2381,6 @@ packages:
 
   dotenv-expand@5.1.0:
     resolution: {integrity: sha512-YXQl1DSa4/PQyRfgrv6aoNjhasp/p4qs9FjJ4q4cQk+8m4r6k4ZSiEyytKG8f8W9gi8WsQtIObNmKd+tMzNTmA==}
-
-  dotenv@17.2.3:
-    resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
-    engines: {node: '>=12'}
 
   dotenv@9.0.2:
     resolution: {integrity: sha512-I9OvvrHp4pIARv4+x9iuewrWycX6CcZtoAu1XrzPxc5UygMJXJZYmBsynku8IkrJwgypE5DGNjDPmPRhDCptUg==}
@@ -4807,7 +4803,7 @@ snapshots:
     optionalDependencies:
       workerd: 1.20250906.0
 
-  '@cloudflare/vitest-pool-workers@0.8.71(@cloudflare/workers-types@4.20260304.0)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))':
+  '@cloudflare/vitest-pool-workers@0.8.71(@cloudflare/workers-types@4.20260304.0)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))':
     dependencies:
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4
@@ -4816,7 +4812,7 @@ snapshots:
       devalue: 5.6.3
       miniflare: 4.20250906.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       semver: 7.7.3
-      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       wrangler: 4.35.0(@cloudflare/workers-types@4.20260304.0)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -5884,7 +5880,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))':
+  '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@bcoe/v8-coverage': 1.0.2
@@ -5899,7 +5895,7 @@ snapshots:
       std-env: 3.10.0
       test-exclude: 7.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
     transitivePeerDependencies:
       - supports-color
 
@@ -6712,8 +6708,6 @@ snapshots:
       is-obj: 2.0.0
 
   dotenv-expand@5.1.0: {}
-
-  dotenv@17.2.3: {}
 
   dotenv@9.0.2: {}
 
@@ -9158,7 +9152,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1(vitest@1.6.1))(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+  vitest@3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@20.19.31)(@vitest/ui@1.6.1)(happy-dom@20.5.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4

@@ -10,6 +10,8 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['**/node_modules/**', 'tests/e2e/**'],
+    passWithNoTests: true,
+    pool: 'forks',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -21,7 +23,11 @@ export default defineConfig({
       ],
     },
     deps: {
-      inline: ['@deepgram/sdk'],
+      optimizer: {
+        web: {
+          include: ['@deepgram/sdk'],
+        },
+      },
     },
   },
   resolve: {

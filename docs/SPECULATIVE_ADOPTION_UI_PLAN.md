@@ -797,3 +797,359 @@ Phase 3: AIResponsePanel.tsx 表示改善 ← Phase 2 完了
 | `AIResponsePanel.tsx` | +25行, ~10行修正 | フェード、PhaseIndicator、スケルトン条件 |
 | `useProgressiveAI.ts` | 0行 | 変更なし |
 | **合計** | **+135行, ~45行修正** | |
+
+---
+
+## 9. レビュー指摘への対応（Rev.2 修正）
+
+以下は外部レビューで指摘された11件の問題と、計画への修正内容です。
+
+### 9.1 [CRITICAL] #1: currentPhaseRef が generateStreamResponseV2 で未更新
+
+**問題**: `generateStreamResponseV2` L237 で `setCurrentPhase(phase)` するが、`currentPhaseRef` は
+`onPhase` IPC イベント到着時にしか更新されない。v2 の SSE ストリームは committed/speculative 開始時に
+`ai:phase` イベントを送信する保証がなく、`onChunk` が先に到着すると振り分けが誤る。
+
+**根拠**: ai.service.ts の `parseSSEResponse` はSSEデータの `type === 'phase'` をパースして `onPhase` を
+呼ぶが、Worker側が committed 開始時に phase イベントを送るかはレスポンス依存。
+一方 `generateStreamResponseV2` は renderer 側で即座に `setCurrentPhase(phase)` を呼ぶ（L237）。
+`currentPhaseRef` もここで同期しないと、最初のチャンク振り分けが不正確になる。
+
+**修正**: セクション 4.1.4 の変更後コードを以下に修正:
+
+```typescript
+// generateStreamResponseV2 内（L234-242付近）
+const thisGeneration = ++generationIdRef.current
+setIsGenerating(true)
+setError(null)
+setCurrentPhase(phase ?? null)
+currentPhaseRef.current = phase ?? null  // ★修正: refも即座に同期
+
+if (phase === 'committed') {
+  setCommittedStreamingText('')
+  setCommittedResponse(null)
+  pendingCommittedClearRef.current = true
+} else {
+  pendingClearRef.current = true
+}
+```
+
+---
+
+### 9.2 [HIGH] #2: Committed エラーで Speculative 消失
+
+**問題**: `onError` ハンドラー（L110-116）で `setStreamingText('')` が呼ばれるため、
+Committed 生成がエラーになった場合にフロントバッファの Speculative 結果が消失する。
+
+**根拠**:
+```typescript
+// 現行コード L110-116
+window.electron.ai.onError((errorMessage: string) => {
+  setError(errorMessage)
+  setIsGenerating(false)
+  setStreamingText('')  // ← Committed エラー時に Speculative が消える
+})
+```
+
+**修正**: onError を phase-aware に変更:
+
+```typescript
+window.electron.ai.onError((errorMessage: string) => {
+  if (!mountedRef.current) return
+  setError(errorMessage)
+  setIsGenerating(false)
+
+  if (currentPhaseRef.current === 'committed') {
+    // ★修正: Committed エラー時は Speculative を保持し、Committed バッファのみクリア
+    setCommittedStreamingText('')
+    setCommittedResponse(null)
+    pendingCommittedClearRef.current = false
+  } else {
+    setStreamingText('')
+  }
+
+  setCurrentPhase(null)
+  currentPhaseRef.current = null
+  log.error('AI stream error received', { error: errorMessage })
+})
+```
+
+---
+
+### 9.3 [HIGH] #3: abortGeneration で新 state 未リセット
+
+**問題**: `abortGeneration`（L129-138）に新しい state/ref のリセットが含まれていない。
+
+**修正**:
+
+```typescript
+const abortGeneration = useCallback(() => {
+  generationIdRef.current++
+  window.electron.ai.abort()
+  setIsGenerating(false)
+  setStreamingText('')
+  setCurrentPhase(null)
+  pendingClearRef.current = false
+  // ★追加: 新 state/ref のリセット
+  setCommittedStreamingText('')
+  setCommittedResponse(null)
+  pendingCommittedClearRef.current = false
+  currentPhaseRef.current = null
+  activeTurnIdRef.current = null
+  firstChunkRecordedRef.current = false
+  log.info('AI generation aborted by user')
+}, [])
+```
+
+---
+
+### 9.4 [HIGH] #4: clearResponse で新 state 未リセット
+
+**問題**: `clearResponse`（L261-266）にも新 state のリセットが欠落。
+
+**修正**:
+
+```typescript
+const clearResponse = useCallback(() => {
+  setResponse(null)
+  setStreamingText('')
+  setError(null)
+  setCurrentPhase(null)
+  // ★追加: 新 state/ref のリセット
+  setCommittedStreamingText('')
+  setCommittedResponse(null)
+  currentPhaseRef.current = null
+}, [])
+```
+
+---
+
+### 9.5 [HIGH] #5: discardCommittedResult のクロージャ脆弱性
+
+**問題**: `discardCommittedResult` が `useCallback` の依存配列で `streamingText` をキャプチャしている。
+React の batch update により、呼び出し時点の `streamingText` が stale になる可能性がある。
+
+**修正**: `speculativeTextRef`（InterviewContext で管理）を使用する設計に変更。
+
+useAIResponse.ts 側:
+```typescript
+// ★修正: speculativeTextRef を引数として受け取る
+const discardCommittedResult = useCallback((speculativeText: string) => {
+  setResponse({ answer: speculativeText, suggestions: [], confidence: 0.8 })
+  setCommittedStreamingText('')
+  setCommittedResponse(null)
+  setCurrentPhase(null)
+  currentPhaseRef.current = null
+}, [])  // 依存配列が空に → 関数の再生成なし
+```
+
+InterviewContext.tsx 側:
+```typescript
+// W-01 内での呼び出し
+if (result.adopted) {
+  discardCommittedResult(specText)  // speculativeTextRef.current を渡す
+  setAdoptionState('adopted')
+}
+```
+
+**インターフェース更新**:
+```typescript
+discardCommittedResult: (speculativeText: string) => void
+```
+
+---
+
+### 9.6 [MEDIUM] #6: adoptionState リセットの余分な再レンダリング
+
+**問題**: セクション 4.2.4 で `adoptionState` を speculativeTextRef 同期 effect の依存配列に含めると、
+`setAdoptionState('none')` 呼び出し時に effect が再実行され不要な再レンダリングが発生する。
+
+**修正**: 2つの effect に分離:
+
+```typescript
+// Effect 1: speculativeTextRef 同期（変更なし）
+useEffect(() => {
+  if (currentPhase === 'speculative') {
+    speculativeTextRef.current = streamingText
+  }
+}, [currentPhase, streamingText])
+
+// Effect 2: adoptionState リセット（新規・独立）
+useEffect(() => {
+  if (currentPhase === 'speculative') {
+    setAdoptionState('none')
+  }
+}, [currentPhase])  // streamingText 変更ではトリガーしない
+```
+
+---
+
+### 9.7 [MEDIUM] #7: W-01 の useEffect 依存配列不足
+
+**問題**: W-01 useEffect 内で呼び出す `applyCommittedResult` と `discardCommittedResult` が
+依存配列に含まれていない。
+
+**修正**: セクション 4.2.3 の依存配列を完全に記載:
+
+```typescript
+}, [
+  isGenerating,
+  committedResponse,
+  committedStreamingText,
+  latencyMetrics,
+  pendingCommittedTurnIdRef,
+  turnCount,
+  triggerSummarize,
+  applyCommittedResult,      // ★追加
+  discardCommittedResult,    // ★追加
+])
+```
+
+**注**: #5 の修正により `discardCommittedResult` の依存配列が空になるため、
+関数の再生成頻度は低く、パフォーマンスへの影響は最小限。
+
+---
+
+### 9.8 [MEDIUM] #8: フェードアニメーションのタイミング不一致
+
+**問題**: CSS `transition-all duration-300`（300ms）と JS `setTimeout(150)`（150ms）が不一致。
+opacity=0 に切り替えた後、CSS トランジション完了前に opacity=1 に戻ってしまう。
+
+**修正**: 3段階設計に変更:
+
+```typescript
+useEffect(() => {
+  if (prevAdoptionStateRef.current !== adoptionState && adoptionState === 'replaced') {
+    // Step 1: フェードアウト開始
+    setIsFading(true)
+
+    // Step 2: フェードアウト完了後（300ms）にフェードイン開始
+    const timer = setTimeout(() => setIsFading(false), 300)
+    return () => clearTimeout(timer)
+  }
+  prevAdoptionStateRef.current = adoptionState
+}, [adoptionState])
+```
+
+CSS も `transition-opacity` に限定（`transition-all` だとレイアウト変化もアニメーションされてしまう）:
+
+```typescript
+className={[
+  'chat-bubble text-[13px] leading-relaxed min-h-0 font-medium whitespace-pre-wrap transition-all duration-300',
+  isSpeculative
+    ? 'bg-accent/5 text-content/50 italic'
+    : 'bg-accent/10 text-content',
+  'transition-opacity duration-300',  // ★修正: opacity用の独立トランジション
+  isFading ? 'opacity-0' : 'opacity-100',
+].join(' ')}
+```
+
+---
+
+### 9.9 [LOW] #9: useMemo 依存配列に adoptionState 漏れ
+
+**問題**: InterviewContext.tsx の `useMemo`（L258-264）で `adoptionState` を
+`InterviewContextValue` に含めるが、依存配列に追加していない。
+
+**修正**: セクション 4.2.5 に依存配列の更新を明記:
+
+```typescript
+const value = useMemo<InterviewContextValue>(
+  () => ({
+    // ... 既存フィールド
+    adoptionState,  // ★追加
+  }),
+  [
+    // ... 既存依存
+    adoptionState,  // ★追加
+  ],
+)
+```
+
+---
+
+### 9.10 [LOW] #10: 'transitioning' PhaseIndicator がデッドコード
+
+**問題**: `AIPhase` 型は `'speculative' | 'committed' | 'detailed'` であり、
+`'transitioning'` は含まれない。AIResponsePanel.tsx:39 の分岐は到達不能。
+
+**検証結果**: `transitioning` で grep した結果、AIResponsePanel.tsx:39 の1箇所のみ。
+`setCurrentPhase('transitioning')` を呼ぶコードは存在しない。**既存のデッドコード**。
+
+**修正**: 今回の改善で削除する:
+
+```typescript
+// ★削除: 'transitioning' 分岐を除去
+// if (phase === 'transitioning') { ... }  ← 到達不能なので削除
+```
+
+---
+
+### 9.11 [LOW] #11: executeStreamGeneration エラーブランチでも Speculative 保持が必要
+
+**問題**: `executeStreamGeneration` の失敗ブランチ（L173-180, L181-190）で
+`setStreamingText('')` が呼ばれるため、Committed 失敗時にも Speculative が消失する。
+
+**根拠**:
+```typescript
+// L173-176（result.success === false）
+setError(result.error || 'Failed to generate response')
+setStreamingText('')  // ← Committed 失敗時に Speculative 消失
+
+// L184-185（catch ブランチ）
+setError(errorMessage)
+setStreamingText('')  // ← 同上
+```
+
+**修正**: #2 と同様に phase-aware に変更:
+
+```typescript
+// result.success === false ブランチ
+} else {
+  if (result.error === 'aborted') return
+  setError(result.error || 'Failed to generate response')
+  if (currentPhaseRef.current === 'committed') {
+    // ★修正: Committed失敗時は Speculative を保持
+    setCommittedStreamingText('')
+    setCommittedResponse(null)
+  } else {
+    setStreamingText('')
+  }
+  setIsGenerating(false)
+  setCurrentPhase(null)
+  currentPhaseRef.current = null
+  activeTurnIdRef.current = null
+  firstChunkRecordedRef.current = false
+}
+
+// catch ブランチ
+} catch (err) {
+  if (generationIdRef.current !== thisGeneration) return
+  const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+  setError(errorMessage)
+  if (currentPhaseRef.current === 'committed') {
+    setCommittedStreamingText('')
+    setCommittedResponse(null)
+  } else {
+    setStreamingText('')
+  }
+  log.error(`${label} error`, { error: errorMessage })
+  setIsGenerating(false)
+  setCurrentPhase(null)
+  currentPhaseRef.current = null
+  activeTurnIdRef.current = null
+  firstChunkRecordedRef.current = false
+}
+```
+
+---
+
+## 10. Rev.2 修正後の変更量サマリー
+
+| ファイル | 行数（概算） | 変更種別 |
+|----------|-------------|---------|
+| `useAIResponse.ts` | +110行, ~35行修正 | state追加、onChunk振り分け、phase-aware エラー処理、abort/clear拡張、関数追加 |
+| `InterviewContext.tsx` | +35行, ~15行修正 | 新state、W-01拡張、effect分離、useMemo依存更新 |
+| `AIResponsePanel.tsx` | +25行, ~10行修正 | フェード（タイミング修正）、PhaseIndicator、デッドコード削除 |
+| `useProgressiveAI.ts` | 0行 | 変更なし |
+| **合計** | **+170行, ~60行修正** | |
