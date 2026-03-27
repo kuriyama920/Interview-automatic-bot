@@ -108,8 +108,8 @@ export class STTService {
           }
 
           if (response.tokens && response.tokens.length > 0) {
-            const finalTokens = response.tokens.filter((t) => t.is_final)
-            const interimTokens = response.tokens.filter((t) => !t.is_final)
+            const finalTokens = response.tokens.filter((t) => t.is_final && t.text !== '<end>')
+            const interimTokens = response.tokens.filter((t) => !t.is_final && t.text !== '<end>')
 
             // Final tokens → confirmed transcript
             if (finalTokens.length > 0) {
