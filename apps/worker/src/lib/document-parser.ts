@@ -2,11 +2,11 @@
  * Document Parser Utility
  *
  * サーバーサイドでPDF/DOCXを解析し、テキストをチャンクに分割する
- * Workers: formidable不要、Buffer受け取り
+ * Workers互換: mammothの代わりにJSZipでDOCXを直接解析
  */
 
 import pdfParse from 'pdf-parse'
-import mammoth from 'mammoth'
+import JSZip from 'jszip'
 
 const CHUNK_SIZE = 500
 const CHUNK_OVERLAP = 50
@@ -62,11 +62,50 @@ async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
 }
 
 /**
- * DOCXファイルを解析
+ * DOCX XMLからテキストを抽出
+ * w:t タグのテキストを抽出し、w:p（段落）ごとに改行を挿入
+ */
+function extractTextFromDocxXml(xml: string): string {
+  const paragraphs: string[] = []
+
+  // w:p タグで段落を分割
+  const pRegex = /<w:p[\s>][\s\S]*?<\/w:p>/g
+  let pMatch: RegExpExecArray | null
+
+  while ((pMatch = pRegex.exec(xml)) !== null) {
+    const pContent = pMatch[0]
+    const texts: string[] = []
+
+    // w:t タグからテキストを抽出
+    const tRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g
+    let tMatch: RegExpExecArray | null
+
+    while ((tMatch = tRegex.exec(pContent)) !== null) {
+      texts.push(tMatch[1])
+    }
+
+    if (texts.length > 0) {
+      paragraphs.push(texts.join(''))
+    }
+  }
+
+  return paragraphs.join('\n')
+}
+
+/**
+ * DOCXファイルを解析（JSZipで直接展開）
  */
 async function parseDOCX(buffer: Buffer): Promise<ParsedDocument> {
-  const result = await mammoth.extractRawText({ buffer })
-  const text = result.value.trim()
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+  const zip = await JSZip.loadAsync(arrayBuffer)
+
+  const documentXml = zip.file('word/document.xml')
+  if (!documentXml) {
+    throw new Error('Invalid DOCX: word/document.xml not found')
+  }
+
+  const xml = await documentXml.async('string')
+  const text = extractTextFromDocxXml(xml).trim()
 
   return {
     text,

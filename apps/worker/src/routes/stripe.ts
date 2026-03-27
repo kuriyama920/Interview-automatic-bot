@@ -375,6 +375,12 @@ async function handleSubscriptionDeleted(
     subscription_period_end: null,
   })
 
+  // ダウングレード時に使用量拒否キャッシュをクリア
+  await Promise.all([
+    clearDeniedCache(userId, 'stt'),
+    clearDeniedCache(userId, 'ai_tokens'),
+  ])
+
   console.log(`[Webhook] Subscription deleted for user ${userId}, downgraded to free`)
 }
 
