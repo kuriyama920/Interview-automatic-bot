@@ -107,6 +107,128 @@ class QuestionsService {
 
     log.info('Question deleted successfully', { id: questionId })
   }
+
+  /**
+   * AI質問一括生成（SSEストリーミング）
+   * コールバックで1問ずつ結果を返す
+   */
+  async generateQuestions(
+    onQuestion: (data: { index: number; question: string; answer: string }) => void,
+    onDone: (data: { total: number; tokens: number }) => void,
+    onError: (message: string) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    log.info('Generating questions via AI')
+
+    const response = await authService.authenticatedFetch(
+      `${API_BASE_URL}/api/questions/generate`,
+      { method: 'POST', signal }
+    )
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { error?: string }
+      throw new Error(errorData.error || `Generate failed: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('No response body')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'question') {
+              onQuestion(parsed.data)
+            } else if (parsed.type === 'done') {
+              onDone(parsed.data)
+            } else if (parsed.type === 'error') {
+              onError(parsed.data.message)
+            }
+          } catch {
+            // JSONパース失敗は無視
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
+  /**
+   * AI回答補完（SSEストリーミング）
+   * コールバックでテキストチャンクを返す
+   */
+  async generateAnswer(
+    question: string,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError: (message: string) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    log.info('Generating answer via AI', { question: question.slice(0, 50) })
+
+    const response = await authService.authenticatedFetch(
+      `${API_BASE_URL}/api/questions/answer`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+        signal,
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { error?: string }
+      throw new Error(errorData.error || `Answer generation failed: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('No response body')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const parsed = JSON.parse(line.slice(6))
+            if (parsed.type === 'chunk') {
+              onChunk(parsed.content)
+            } else if (parsed.type === 'done') {
+              onDone()
+            } else if (parsed.type === 'error') {
+              onError(parsed.data.message)
+            }
+          } catch {
+            // JSONパース失敗は無視
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
 }
 
 export const questionsService = new QuestionsService()

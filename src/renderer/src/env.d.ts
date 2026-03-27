@@ -119,6 +119,14 @@ declare global {
           questions: QuestionInput[]
         ) => Promise<{ success: boolean; questions?: InterviewQuestion[]; error?: string }>
         delete: (id: string) => Promise<{ success: boolean; error?: string }>
+        generate: () => Promise<{ success: boolean; error?: string }>
+        generateAnswer: (question: string) => Promise<{ success: boolean; answer?: string; error?: string }>
+        onGenerateQuestion: (callback: (data: { index: number; question: string; answer: string }) => void) => () => void
+        onGenerateDone: (callback: (data: { total: number; tokens: number }) => void) => () => void
+        onGenerateError: (callback: (message: string) => void) => () => void
+        onAnswerChunk: (callback: (data: { chunk: string; accumulated: string }) => void) => () => void
+        onAnswerDone: (callback: (data: { answer: string }) => void) => () => void
+        onAnswerError: (callback: (message: string) => void) => () => void
       }
       window: {
         minimize: () => Promise<void>

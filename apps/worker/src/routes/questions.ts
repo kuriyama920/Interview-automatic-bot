@@ -3,16 +3,22 @@
  * GET    /api/questions          - Q&A一覧取得
  * POST   /api/questions          - Q&Aバッチ保存
  * DELETE /api/questions/:id      - 質問削除
+ * POST   /api/questions/generate - AI質問一括生成（SSE）
+ * POST   /api/questions/answer   - AI回答補完（SSE）
  */
 
 import { Hono } from 'hono'
 import type { Env, Variables } from '../types'
 import { createSupabaseAdmin } from '../lib/supabase'
 import { authRequired } from '../middleware/auth'
-import { generateEmbeddings } from '../lib/openai'
+import { generateEmbeddings, createOpenAIClient } from '../lib/openai'
 import { isValidUUID } from '../lib/validation'
 import { invalidateEmbeddingCache, invalidateEmbeddingCacheBatch } from '../lib/embedding-cache'
-import { checkUsageLimit } from '../lib/usage'
+import { checkUsageLimit, checkAndReserveUsage, adjustReservedUsage, recordUsage } from '../lib/usage'
+import { getCachedProfile } from '../lib/profile-cache'
+import { formatProfileContext } from '../lib/profile'
+import { createSSEResponse, mapOpenAIErrorToMessage, ERROR_MESSAGES } from '../lib/ai-streaming'
+import { QUESTION_GENERATION_SYSTEM_PROMPT, ANSWER_GENERATION_SYSTEM_PROMPT, wrapUserInput } from '../lib/prompts'
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
@@ -21,6 +27,11 @@ app.use('*', authRequired)
 const MAX_QUESTIONS = 20
 const MAX_QUESTION_LENGTH = 500
 const MAX_ANSWER_LENGTH = 2000
+
+const GENERATE_RESERVED_TOKENS = 10000
+const GENERATE_MAX_OUTPUT_TOKENS = 8000
+const ANSWER_RESERVED_TOKENS = 2000
+const ANSWER_MAX_OUTPUT_TOKENS = 1000
 
 interface QuestionInput {
   id?: string
@@ -436,6 +447,252 @@ app.delete('/:id', async (c) => {
   }
 
   return c.json({ success: true })
+})
+
+// --- POST /api/questions/generate ---
+
+/**
+ * executionCtx を安全に取得するヘルパー
+ * テスト環境では executionCtx が存在しないため undefined を返す
+ */
+function getExecutionCtx(c: { executionCtx: ExecutionContext }): ExecutionContext | undefined {
+  try {
+    return c.executionCtx
+  } catch {
+    return undefined
+  }
+}
+
+app.post('/generate', async (c) => {
+  const supabase = createSupabaseAdmin(c.env)
+  const { sub: userId } = c.get('jwtPayload')
+  const ctx = getExecutionCtx(c)
+
+  // 1. 使用量チェック
+  const usage = await checkAndReserveUsage(supabase, userId, 'ai_tokens', GENERATE_RESERVED_TOKENS, ctx)
+  if (!usage.allowed) {
+    return c.json({ success: false, error: ERROR_MESSAGES.USAGE_LIMIT }, 429)
+  }
+
+  // 2. プロフィール取得
+  const profile = await getCachedProfile(userId, supabase, ctx)
+  const profileContext = formatProfileContext(profile)
+
+  // 3. 履歴書チャンク取得
+  const { data: resumeDocs } = await supabase
+    .from('documents')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('type', 'resume')
+    .is('deleted_at', null)
+
+  if (!resumeDocs || resumeDocs.length === 0) {
+    await adjustReservedUsage(supabase, userId, 'ai_tokens', GENERATE_RESERVED_TOKENS, 0)
+    return c.json({ success: false, error: '履歴書をアップロードしてください' }, 400)
+  }
+
+  const docIds = resumeDocs.map((d: { id: string }) => d.id)
+  const { data: chunks } = await supabase
+    .from('document_chunks')
+    .select('content')
+    .in('document_id', docIds)
+    .eq('user_id', userId)
+    .order('chunk_index', { ascending: true })
+
+  const resumeContext = (chunks ?? []).map((ch: { content: string }) => ch.content).join('\n\n')
+
+  // 4. SSEストリーミングで質問生成
+  return createSSEResponse(async (stream) => {
+    try {
+      const openai = createOpenAIClient(c.env.OPENAI_API_KEY)
+      const input = [
+        { role: 'user' as const, content: wrapUserInput('candidate_profile', profileContext) },
+        { role: 'user' as const, content: wrapUserInput('resume', resumeContext) },
+        { role: 'user' as const, content: '上記の情報をもとに、想定質問と模範回答を20件生成してください。' },
+      ]
+
+      const response = await openai.responses.create({
+        model: 'gpt-5.4-nano',
+        instructions: QUESTION_GENERATION_SYSTEM_PROMPT,
+        input,
+        max_output_tokens: GENERATE_MAX_OUTPUT_TOKENS,
+        store: false,
+        stream: true,
+      })
+
+      let fullText = ''
+      let totalTokens = 0
+      let questionCount = 0
+
+      for await (const event of response as AsyncIterable<{ type: string; delta?: string; response?: { usage?: { total_tokens?: number } } }>) {
+        if (event.type === 'response.output_text.delta' && event.delta) {
+          fullText += event.delta
+
+          // <question>...</question> パターンを検出して1問ずつ送信
+          const regex = /<question>(.*?)<\/question>/gs
+          let match
+          while ((match = regex.exec(fullText)) !== null) {
+            const matchEnd = match.index + match[0].length
+            try {
+              const parsed = JSON.parse(match[1])
+              questionCount++
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  type: 'question',
+                  data: { index: questionCount - 1, question: parsed.question, answer: parsed.answer },
+                }),
+              })
+            } catch {
+              // 不正なJSON: スキップして次へ
+            }
+            // 成否に関わらず処理済み部分を除去
+            fullText = fullText.slice(matchEnd)
+            regex.lastIndex = 0
+          }
+        } else if (event.type === 'response.completed') {
+          totalTokens = event.response?.usage?.total_tokens ?? 0
+        }
+      }
+
+      await stream.writeSSE({
+        data: JSON.stringify({ type: 'done', data: { total: questionCount, tokens: totalTokens } }),
+      })
+
+      // 使用量調整（バックグラウンド）
+      const adjustPromise = adjustReservedUsage(supabase, userId, 'ai_tokens', GENERATE_RESERVED_TOKENS, totalTokens)
+      const recordPromise = recordUsage(supabase, userId, 'ai_completion', totalTokens, 'tokens', { feature: 'question_generation' })
+
+      if (ctx) {
+        ctx.waitUntil(Promise.all([adjustPromise, recordPromise]))
+      } else {
+        await Promise.all([adjustPromise, recordPromise])
+      }
+    } catch (error) {
+      const message = mapOpenAIErrorToMessage(error)
+      try {
+        await stream.writeSSE({
+          data: JSON.stringify({ type: 'error', data: { message } }),
+        })
+      } catch {
+        // ストリームが既にクローズされている場合は無視
+      }
+      // 予約は必ず解放
+      const releasePromise = adjustReservedUsage(supabase, userId, 'ai_tokens', GENERATE_RESERVED_TOKENS, 0)
+      if (ctx) {
+        ctx.waitUntil(releasePromise)
+      } else {
+        await releasePromise
+      }
+    }
+  }, ctx)
+})
+
+// --- POST /api/questions/answer ---
+
+app.post('/answer', async (c) => {
+  const supabase = createSupabaseAdmin(c.env)
+  const { sub: userId } = c.get('jwtPayload')
+  const body = await c.req.json()
+  const answerCtx = getExecutionCtx(c)
+
+  // バリデーション
+  const question = body?.question
+  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+    return c.json({ success: false, error: 'question is required' }, 400)
+  }
+  if (question.length > 500) {
+    return c.json({ success: false, error: 'question must be less than 500 characters' }, 400)
+  }
+
+  // 使用量チェック
+  const usage = await checkAndReserveUsage(supabase, userId, 'ai_tokens', ANSWER_RESERVED_TOKENS, answerCtx)
+  if (!usage.allowed) {
+    return c.json({ success: false, error: ERROR_MESSAGES.USAGE_LIMIT }, 429)
+  }
+
+  // プロフィール取得
+  const profile = await getCachedProfile(userId, supabase, answerCtx)
+  const profileContext = formatProfileContext(profile)
+
+  // 履歴書コンテキスト取得
+  const { data: resumeDocs } = await supabase
+    .from('documents')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('type', 'resume')
+    .is('deleted_at', null)
+
+  let resumeContext = ''
+  if (resumeDocs && resumeDocs.length > 0) {
+    const docIds = resumeDocs.map((d: { id: string }) => d.id)
+    const { data: chunks } = await supabase
+      .from('document_chunks')
+      .select('content')
+      .in('document_id', docIds)
+      .eq('user_id', userId)
+      .order('chunk_index', { ascending: true })
+    resumeContext = (chunks ?? []).map((ch: { content: string }) => ch.content).join('\n\n')
+  }
+
+  return createSSEResponse(async (stream) => {
+    try {
+      const openai = createOpenAIClient(c.env.OPENAI_API_KEY)
+      const input = [
+        ...(profileContext ? [{ role: 'user' as const, content: wrapUserInput('candidate_profile', profileContext) }] : []),
+        ...(resumeContext ? [{ role: 'user' as const, content: wrapUserInput('resume', resumeContext) }] : []),
+        { role: 'user' as const, content: wrapUserInput('interview_question', question.trim()) },
+      ]
+
+      const response = await openai.responses.create({
+        model: 'gpt-5.4-nano',
+        instructions: ANSWER_GENERATION_SYSTEM_PROMPT,
+        input,
+        max_output_tokens: ANSWER_MAX_OUTPUT_TOKENS,
+        store: false,
+        stream: true,
+      })
+
+      let totalTokens = 0
+
+      for await (const event of response as AsyncIterable<{ type: string; delta?: string; response?: { usage?: { total_tokens?: number } } }>) {
+        if (event.type === 'response.output_text.delta' && event.delta) {
+          await stream.writeSSE({
+            data: JSON.stringify({ type: 'chunk', content: event.delta }),
+          })
+        } else if (event.type === 'response.completed') {
+          totalTokens = event.response?.usage?.total_tokens ?? 0
+        }
+      }
+
+      await stream.writeSSE({
+        data: JSON.stringify({ type: 'done', data: { tokens: totalTokens } }),
+      })
+
+      const adjustPromise = adjustReservedUsage(supabase, userId, 'ai_tokens', ANSWER_RESERVED_TOKENS, totalTokens)
+      const recordPromise = recordUsage(supabase, userId, 'ai_completion', totalTokens, 'tokens', { feature: 'answer_generation' })
+      if (answerCtx) {
+        answerCtx.waitUntil(Promise.all([adjustPromise, recordPromise]))
+      } else {
+        await Promise.all([adjustPromise, recordPromise])
+      }
+    } catch (error) {
+      const message = mapOpenAIErrorToMessage(error)
+      try {
+        await stream.writeSSE({
+          data: JSON.stringify({ type: 'error', data: { message } }),
+        })
+      } catch {
+        // ストリームが既にクローズされている場合は無視
+      }
+      // 予約は必ず解放
+      const releasePromise = adjustReservedUsage(supabase, userId, 'ai_tokens', ANSWER_RESERVED_TOKENS, 0)
+      if (answerCtx) {
+        answerCtx.waitUntil(releasePromise)
+      } else {
+        await releasePromise
+      }
+    }
+  }, answerCtx)
 })
 
 export default app

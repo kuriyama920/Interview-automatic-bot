@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   TranscriptResult,
   AIResponse,
@@ -47,6 +47,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'questions:list',
   'questions:save',
   'questions:delete',
+  'questions:generate',
+  'questions:generateAnswer',
   // プロフィール関連
   'profile:get',
   'profile:save',
@@ -78,6 +80,13 @@ const ALLOWED_ON_CHANNELS = [
   'ai:phase',
   // 認証関連
   'auth:stateChanged',
+  // 想定質問AI生成関連
+  'questions:generate:question',
+  'questions:generate:done',
+  'questions:generate:error',
+  'questions:generateAnswer:chunk',
+  'questions:generateAnswer:done',
+  'questions:generateAnswer:error',
 ] as const
 
 type AllowedSendChannel = (typeof ALLOWED_SEND_CHANNELS)[number]
@@ -206,6 +215,40 @@ const electronAPI = {
       ipcRenderer.invoke('questions:save', questions),
     delete: (id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('questions:delete', id),
+    generate: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('questions:generate'),
+    generateAnswer: (question: string): Promise<{ success: boolean; answer?: string; error?: string }> =>
+      ipcRenderer.invoke('questions:generateAnswer', question),
+    onGenerateQuestion: (callback: (data: { index: number; question: string; answer: string }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: { index: number; question: string; answer: string }) => callback(data)
+      ipcRenderer.on('questions:generate:question', handler)
+      return () => ipcRenderer.removeListener('questions:generate:question', handler)
+    },
+    onGenerateDone: (callback: (data: { total: number; tokens: number }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: { total: number; tokens: number }) => callback(data)
+      ipcRenderer.on('questions:generate:done', handler)
+      return () => ipcRenderer.removeListener('questions:generate:done', handler)
+    },
+    onGenerateError: (callback: (message: string) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, message: string) => callback(message)
+      ipcRenderer.on('questions:generate:error', handler)
+      return () => ipcRenderer.removeListener('questions:generate:error', handler)
+    },
+    onAnswerChunk: (callback: (data: { chunk: string; accumulated: string }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: { chunk: string; accumulated: string }) => callback(data)
+      ipcRenderer.on('questions:generateAnswer:chunk', handler)
+      return () => ipcRenderer.removeListener('questions:generateAnswer:chunk', handler)
+    },
+    onAnswerDone: (callback: (data: { answer: string }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: { answer: string }) => callback(data)
+      ipcRenderer.on('questions:generateAnswer:done', handler)
+      return () => ipcRenderer.removeListener('questions:generateAnswer:done', handler)
+    },
+    onAnswerError: (callback: (message: string) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, message: string) => callback(message)
+      ipcRenderer.on('questions:generateAnswer:error', handler)
+      return () => ipcRenderer.removeListener('questions:generateAnswer:error', handler)
+    },
   },
 
   // Window API (カスタムタイトルバー)

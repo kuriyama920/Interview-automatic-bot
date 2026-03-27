@@ -526,7 +526,7 @@ export function setupIPC(mainWindow: BrowserWindow): void {
     try {
       const result = await dialog.showOpenDialog({
         properties: ['openFile'],
-        filters: [{ name: 'Documents', extensions: ['pdf', 'docx'] }],
+        filters: [{ name: 'Documents', extensions: ['pdf', 'docx', 'txt'] }],
       })
 
       if (result.canceled || !result.filePaths[0]) {
@@ -778,6 +778,57 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true }
     } catch (error) {
       log.error('Failed to delete question', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('questions:generate', async () => {
+    log.info('questions:generate called')
+    try {
+      await questionsService.generateQuestions(
+        (data) => {
+          mainWindow.webContents.send('questions:generate:question', data)
+        },
+        (data) => {
+          mainWindow.webContents.send('questions:generate:done', data)
+        },
+        (message) => {
+          mainWindow.webContents.send('questions:generate:error', message)
+        }
+      )
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to generate questions', { error: String(error) })
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('questions:generateAnswer', async (_event, question: string) => {
+    if (!question || typeof question !== 'string' || question.trim().length === 0) {
+      return { success: false, error: 'Question is required' }
+    }
+    if (question.length > 500) {
+      return { success: false, error: 'Question must be less than 500 characters' }
+    }
+    log.info('questions:generateAnswer called')
+    try {
+      let answer = ''
+      await questionsService.generateAnswer(
+        question,
+        (chunk) => {
+          answer += chunk
+          mainWindow.webContents.send('questions:generateAnswer:chunk', { chunk, accumulated: answer })
+        },
+        () => {
+          mainWindow.webContents.send('questions:generateAnswer:done', { answer })
+        },
+        (message) => {
+          mainWindow.webContents.send('questions:generateAnswer:error', message)
+        }
+      )
+      return { success: true, answer }
+    } catch (error) {
+      log.error('Failed to generate answer', { error: String(error) })
       return { success: false, error: String(error) }
     }
   })
