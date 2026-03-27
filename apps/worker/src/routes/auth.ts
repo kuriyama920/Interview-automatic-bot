@@ -220,12 +220,7 @@ app.get('/callback', async (c) => {
   const user = await upsertUser(supabase, googleUser)
 
   const jwt = await generateJWT(
-    {
-      sub: user.id,
-      email: user.email,
-      name: user.display_name || googleUser.name,
-      picture: user.avatar_url || googleUser.picture,
-    },
+    { sub: user.id },
     c.env.JWT_SECRET
   )
 
@@ -276,8 +271,7 @@ app.get('/callback', async (c) => {
     }
 
     const redirectUrl = new URL(stateData.redirectUri)
-    redirectUrl.searchParams.set('token', jwt)
-    redirectUrl.searchParams.set('user', JSON.stringify(userData))
+    redirectUrl.searchParams.set('status', 'completed')
     return new Response(null, {
       status: 302,
       headers: {
@@ -401,12 +395,12 @@ app.get('/session', async (c) => {
 
 app.post('/refresh', authRequired, async (c) => {
   const supabase = createSupabaseAdmin(c.env)
-  const { sub: userId, email, name, picture } = c.get('jwtPayload')
+  const { sub: userId } = c.get('jwtPayload')
 
   // Verify user still exists in database
   const { data: user, error: userError } = await supabase
     .from('profiles')
-    .select('id, email, display_name, avatar_url')
+    .select('id')
     .eq('id', userId)
     .single()
 
@@ -414,14 +408,9 @@ app.post('/refresh', authRequired, async (c) => {
     return c.json({ error: 'User not found' }, 401)
   }
 
-  // Generate fresh JWT with updated user data
+  // Generate fresh JWT with sub only (no PII)
   const newToken = await generateJWT(
-    {
-      sub: user.id,
-      email: user.email || email,
-      name: user.display_name || name,
-      picture: user.avatar_url || picture,
-    },
+    { sub: user.id },
     c.env.JWT_SECRET
   )
 

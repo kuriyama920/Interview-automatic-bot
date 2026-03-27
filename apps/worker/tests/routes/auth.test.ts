@@ -41,7 +41,7 @@ const TEST_ENV = {
 
 async function createAuthHeaders(): Promise<Record<string, string>> {
   const token = await generateJWT(
-    { sub: 'user-123', email: 'test@example.com', name: 'Test', picture: '' },
+    { sub: 'user-123' },
     TEST_JWT_SECRET
   )
   return { Authorization: `Bearer ${token}` }
@@ -290,13 +290,10 @@ describe('POST /api/auth/refresh (M-4: JWT refresh)', () => {
   })
 
   it('returns new JWT when given a valid token and user exists', async () => {
-    // Mock user exists check
+    // Mock user exists check - only select 'id' (no PII)
     mockChain.single = vi.fn().mockResolvedValueOnce({
       data: {
         id: 'user-123',
-        email: 'test@example.com',
-        display_name: 'Test',
-        avatar_url: '',
       },
       error: null,
     })
@@ -312,6 +309,29 @@ describe('POST /api/auth/refresh (M-4: JWT refresh)', () => {
     expect(body.token).toBeDefined()
     expect(typeof body.token).toBe('string')
     expect(body.token.split('.')).toHaveLength(3)
+  })
+
+  it('generates JWT with only sub claim (no PII)', async () => {
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: { id: 'user-123' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers,
+    }, TEST_ENV)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    // Decode the JWT payload and verify no PII
+    const payload = JSON.parse(atob(body.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    expect(payload.sub).toBe('user-123')
+    expect(payload.email).toBeUndefined()
+    expect(payload.name).toBeUndefined()
+    expect(payload.picture).toBeUndefined()
   })
 
   it('returns 401 when user no longer exists', async () => {
@@ -347,7 +367,7 @@ describe('POST /api/auth/refresh (M-4: JWT refresh)', () => {
 describe('JWT expiry (M-4)', () => {
   it('generates JWT with 24-hour expiry instead of 7 days', async () => {
     const token = await generateJWT(
-      { sub: 'user-123', email: 'test@example.com', name: 'Test', picture: '' },
+      { sub: 'user-123' },
       TEST_JWT_SECRET
     )
 

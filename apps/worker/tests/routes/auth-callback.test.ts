@@ -60,7 +60,7 @@ function resetMocks() {
 
 async function createAuthHeaders(): Promise<Record<string, string>> {
   const token = await generateJWT(
-    { sub: 'user-123', email: 'test@example.com', name: 'Test', picture: '' },
+    { sub: 'user-123' },
     TEST_JWT_SECRET
   )
   return { Authorization: `Bearer ${token}` }
@@ -138,7 +138,7 @@ describe('GET /api/auth/callback', () => {
     expect(location).toContain('error=')
   })
 
-  it('completes OAuth flow with valid state and redirectUri', async () => {
+  it('completes OAuth flow with valid state and redirectUri (deep link sends only status, no token)', async () => {
     // getOAuthState - valid state
     mockChain.single = vi.fn().mockResolvedValueOnce({
       data: {
@@ -196,10 +196,224 @@ describe('GET /api/auth/callback', () => {
     )
 
     expect(res.status).toBe(302)
-    const location = res.headers.get('Location')
+    const location = res.headers.get('Location')!
     expect(location).toContain('interview-bot://auth/callback')
-    expect(location).toContain('token=')
-    expect(location).toContain('user=')
+    // Deep link must NOT contain token or user data (security: no secrets in URL)
+    expect(location).not.toContain('token=')
+    expect(location).not.toContain('user=')
+    // Deep link must contain status=completed
+    expect(location).toContain('status=completed')
+    // Must have Referrer-Policy
+    expect(res.headers.get('Referrer-Policy')).toBe('no-referrer')
+  })
+
+  it('generates JWT with only sub claim in callback (no PII)', async () => {
+    // getOAuthState - session flow so we can inspect the stored JWT
+    mockChain.single = vi.fn()
+      .mockResolvedValueOnce({
+        data: {
+          redirect_uri: null,
+          session_id: 'session-jwt-check',
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { return_url: null },
+        error: null,
+      })
+
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+
+    // Capture the update call to inspect the stored JWT
+    let storedToken: string | undefined
+    mockChain.update = vi.fn().mockImplementation((data: Record<string, unknown>) => {
+      if (data && typeof data === 'object' && 'token' in data) {
+        storedToken = data.token as string
+      }
+      return mockChain
+    })
+
+    vi.mocked(exchangeCodeForTokens).mockResolvedValue({
+      access_token: 'google-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: 'openid email profile',
+      id_token: 'id-token',
+    })
+
+    vi.mocked(getGoogleUserInfo).mockResolvedValue({
+      id: 'google-123',
+      email: 'user@gmail.com',
+      verified_email: true,
+      name: 'Test User',
+      given_name: 'Test',
+      family_name: 'User',
+      picture: 'https://example.com/photo.jpg',
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        id: 'user-uuid-456',
+        email: 'user@gmail.com',
+        display_name: 'Test User',
+        avatar_url: 'https://example.com/photo.jpg',
+        subscription_tier: 'free',
+      },
+      error: null,
+    })
+
+    mockChain.upsert = vi.fn().mockResolvedValue({ error: null })
+
+    const app = createApp()
+    await app.request(
+      '/api/auth/callback?code=auth-code&state=session-state',
+      {},
+      TEST_ENV
+    )
+
+    // Verify the stored JWT contains only sub (no PII)
+    expect(storedToken).toBeDefined()
+    const payload = JSON.parse(atob(storedToken!.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    expect(payload.sub).toBe('user-uuid-456')
+    expect(payload.email).toBeUndefined()
+    expect(payload.name).toBeUndefined()
+    expect(payload.picture).toBeUndefined()
+  })
+
+  it('still stores userData in auth_sessions for session polling flow', async () => {
+    // getOAuthState - session flow
+    mockChain.single = vi.fn()
+      .mockResolvedValueOnce({
+        data: {
+          redirect_uri: null,
+          session_id: 'session-userdata-check',
+          expires_at: new Date(Date.now() + 300000).toISOString(),
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { return_url: null },
+        error: null,
+      })
+
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+
+    // Capture the update call to inspect stored user_data
+    let storedUserData: Record<string, unknown> | undefined
+    let storedJwt: string | undefined
+    mockChain.update = vi.fn().mockImplementation((data: Record<string, unknown>) => {
+      if (data && typeof data === 'object' && 'user_data' in data) {
+        storedUserData = data.user_data as Record<string, unknown>
+        storedJwt = data.token as string
+      }
+      return mockChain
+    })
+
+    vi.mocked(exchangeCodeForTokens).mockResolvedValue({
+      access_token: 'google-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: 'openid email profile',
+      id_token: 'id-token',
+    })
+
+    vi.mocked(getGoogleUserInfo).mockResolvedValue({
+      id: 'google-123',
+      email: 'user@gmail.com',
+      verified_email: true,
+      name: 'Test User',
+      given_name: 'Test',
+      family_name: 'User',
+      picture: 'https://example.com/photo.jpg',
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        id: 'user-uuid-789',
+        email: 'user@gmail.com',
+        display_name: 'Test User',
+        avatar_url: 'https://example.com/photo.jpg',
+        subscription_tier: 'pro',
+      },
+      error: null,
+    })
+
+    mockChain.upsert = vi.fn().mockResolvedValue({ error: null })
+
+    const app = createApp()
+    await app.request(
+      '/api/auth/callback?code=auth-code&state=session-state',
+      {},
+      TEST_ENV
+    )
+
+    // Session should still store jwt and userData for polling flow
+    expect(storedJwt).toBeDefined()
+    expect(storedUserData).toBeDefined()
+    expect(storedUserData!.id).toBe('user-uuid-789')
+    expect(storedUserData!.email).toBe('user@gmail.com')
+    expect(storedUserData!.name).toBe('Test User')
+    expect(storedUserData!.subscriptionTier).toBe('pro')
+  })
+
+  it('rejects invalid redirectUri in deep link flow', async () => {
+    // getOAuthState with a disallowed redirect URI
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: {
+        redirect_uri: 'https://evil.com/steal',
+        session_id: null,
+        expires_at: new Date(Date.now() + 300000).toISOString(),
+      },
+      error: null,
+    })
+
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+
+    vi.mocked(exchangeCodeForTokens).mockResolvedValue({
+      access_token: 'google-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: 'openid email profile',
+      id_token: 'id-token',
+    })
+
+    vi.mocked(getGoogleUserInfo).mockResolvedValue({
+      id: 'google-123',
+      email: 'user@gmail.com',
+      verified_email: true,
+      name: 'Test User',
+      given_name: 'Test',
+      family_name: 'User',
+      picture: 'https://example.com/photo.jpg',
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        id: 'user-uuid',
+        email: 'user@gmail.com',
+        display_name: 'Test User',
+        avatar_url: 'https://example.com/photo.jpg',
+        subscription_tier: 'free',
+      },
+      error: null,
+    })
+
+    mockChain.upsert = vi.fn().mockResolvedValue({ error: null })
+
+    const app = createApp()
+    const res = await app.request(
+      '/api/auth/callback?code=auth-code&state=valid-state',
+      {},
+      TEST_ENV
+    )
+
+    expect(res.status).toBe(302)
+    const location = res.headers.get('Location')!
+    expect(location).toContain('error=')
   })
 
   it('shows success page for session-based flow', async () => {
