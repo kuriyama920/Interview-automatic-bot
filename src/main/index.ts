@@ -1,17 +1,10 @@
 import { app, BrowserWindow, shell, session, desktopCapturer } from 'electron'
 import { join, resolve } from 'path'
-import { config } from 'dotenv'
 import { setupIPC } from './ipc'
 import { authService } from '../services/auth.service'
 import { createLogger } from '../services/logger.service'
 
 const log = createLogger('Main')
-
-// .envファイルを読み込む（process.cwdを使用 - 開発時はプロジェクトルート）
-const envPath = join(process.cwd(), '.env')
-const envResult = config({ path: envPath })
-log.info('.env load result', { path: envPath, success: !envResult.error })
-log.debug('SONIOX_API_KEY found', { found: !!process.env.SONIOX_API_KEY })
 
 // Deep Linkプロトコル
 const PROTOCOL = 'interview-bot'

@@ -3,9 +3,10 @@
  * Google OAuthとJWTトークン管理
  */
 
-import Store from 'electron-store'
 import { shell, BrowserWindow, net } from 'electron'
 import { createLogger } from './logger.service'
+import { tokenStorage } from './token-storage.service'
+import { getConfig } from '../config/env-config'
 import type {
   AuthState,
   AuthTokens,
@@ -15,16 +16,7 @@ import type {
 
 const log = createLogger('auth-service')
 
-// API Base URL (Cloudflare Workers)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
-
-interface AuthStoreSchema {
-  tokens: AuthTokens | null
-  user: User | null
-}
-
 class AuthService {
-  private store: Store<AuthStoreSchema> | null = null
   private initialized = false
   private mainWindow: BrowserWindow | null = null
   private authStateListeners: Array<(state: AuthState) => void> = []
@@ -40,20 +32,7 @@ class AuthService {
     }
 
     try {
-      // 暗号化キーは環境変数から取得（必須）
-      const encryptionKey = process.env.ELECTRON_STORE_ENCRYPTION_KEY
-      if (!encryptionKey) {
-        throw new Error('ELECTRON_STORE_ENCRYPTION_KEY environment variable is required')
-      }
-
-      this.store = new Store<AuthStoreSchema>({
-        name: 'auth',
-        defaults: {
-          tokens: null,
-          user: null,
-        },
-        encryptionKey,
-      })
+      tokenStorage.initialize()
 
       this.mainWindow = mainWindow
       this.initialized = true
@@ -68,17 +47,8 @@ class AuthService {
    * 現在の認証状態を取得
    */
   getAuthState(): AuthState {
-    if (!this.store) {
-      return {
-        isAuthenticated: false,
-        isLoading: false,
-        user: null,
-        error: null,
-      }
-    }
-
-    const tokens = this.store.get('tokens')
-    const user = this.store.get('user')
+    const tokens = tokenStorage.getTokens()
+    const user = tokenStorage.getUser()
 
     const isAuthenticated = !!tokens && !!user && !this.isTokenExpired(tokens)
 
@@ -119,7 +89,8 @@ class AuthService {
 
     try {
       // 1. セッションを作成
-      const sessionResponse = await net.fetch(`${API_BASE_URL}/api/auth/session`, {
+      const { apiBaseUrl } = getConfig()
+      const sessionResponse = await net.fetch(`${apiBaseUrl}/api/auth/session`, {
         method: 'POST',
       })
 
@@ -144,10 +115,11 @@ class AuthService {
       // 3. ポーリングでトークンを取得
       return await this.pollForAuthResult(sessionId)
     } catch (error) {
-      log.error('Failed to start Google login', { error: String(error), apiUrl: API_BASE_URL })
+      const { apiBaseUrl } = getConfig()
+      log.error('Failed to start Google login', { error: String(error), apiUrl: apiBaseUrl })
       const isNetworkError = String(error).includes('fetch failed') || String(error).includes('ENOTFOUND')
       const errorMessage = isNetworkError
-        ? `APIサーバーに接続できません (${API_BASE_URL})。ネットワーク接続を確認してください。`
+        ? `APIサーバーに接続できません (${apiBaseUrl})。ネットワーク接続を確認してください。`
         : String(error)
       const state: AuthState = {
         isAuthenticated: false,
@@ -179,8 +151,9 @@ class AuthService {
       }
 
       try {
+        const { apiBaseUrl } = getConfig()
         const response = await net.fetch(
-          `${API_BASE_URL}/api/auth/session?id=${sessionId}`,
+          `${apiBaseUrl}/api/auth/session?id=${sessionId}`,
           { signal: this.pollingAbortController.signal }
         )
 
@@ -251,7 +224,7 @@ class AuthService {
       }
 
       // トークンを保存
-      this.store?.set('tokens', tokens)
+      tokenStorage.setTokens(tokens)
 
       // ユーザー情報を取得（セッションから取得できなかった場合）
       let user = userData
@@ -262,7 +235,7 @@ class AuthService {
       }
 
       // ユーザー情報を保存
-      this.store?.set('user', user)
+      tokenStorage.setUser(user)
 
       const state: AuthState = {
         isAuthenticated: true,
@@ -351,13 +324,13 @@ class AuthService {
       }
 
       // トークンを保存
-      this.store?.set('tokens', tokens)
+      tokenStorage.setTokens(tokens)
 
       // ユーザー情報を取得
       const authData = await this.fetchUserInfo(token)
 
       // ユーザー情報を保存
-      this.store?.set('user', authData.user)
+      tokenStorage.setUser(authData.user)
 
       const state: AuthState = {
         isAuthenticated: true,
@@ -419,7 +392,8 @@ class AuthService {
    * APIからユーザー情報を取得
    */
   private async fetchUserInfo(token: string): Promise<AuthMeResponse> {
-    const response = await net.fetch(`${API_BASE_URL}/api/auth/me`, {
+    const { apiBaseUrl } = getConfig()
+    const response = await net.fetch(`${apiBaseUrl}/api/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -437,11 +411,7 @@ class AuthService {
    * 認証状態を検証し、必要に応じてリフレッシュ
    */
   async validateAndRefresh(): Promise<AuthState> {
-    if (!this.store) {
-      return this.getAuthState()
-    }
-
-    const tokens = this.store.get('tokens')
+    const tokens = tokenStorage.getTokens()
 
     if (!tokens) {
       return this.getAuthState()
@@ -457,7 +427,7 @@ class AuthService {
     // トークンが有効な場合、ユーザー情報を更新
     try {
       const authData = await this.fetchUserInfo(tokens.accessToken)
-      this.store.set('user', authData.user)
+      tokenStorage.setUser(authData.user)
 
       return {
         isAuthenticated: true,
@@ -478,10 +448,8 @@ class AuthService {
   logout(): AuthState {
     log.info('Logging out')
 
-    if (this.store) {
-      this.store.delete('tokens')
-      this.store.delete('user')
-    }
+    tokenStorage.deleteTokens()
+    tokenStorage.deleteUser()
 
     const state: AuthState = {
       isAuthenticated: false,
@@ -498,7 +466,7 @@ class AuthService {
    * 現在のアクセストークンを取得
    */
   getAccessToken(): string | null {
-    const tokens = this.store?.get('tokens')
+    const tokens = tokenStorage.getTokens()
     if (!tokens || this.isTokenExpired(tokens)) {
       return null
     }

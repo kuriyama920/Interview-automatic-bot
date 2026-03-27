@@ -1,18 +1,34 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 
-const { mockStoreGet, mockStoreSet, mockStoreDelete, MockStore } = vi.hoisted(() => {
-  const mockStoreGet = vi.fn()
-  const mockStoreSet = vi.fn()
-  const mockStoreDelete = vi.fn()
-  const MockStore = vi.fn(() => ({
-    get: mockStoreGet,
-    set: mockStoreSet,
-    delete: mockStoreDelete,
-  }))
-  return { mockStoreGet, mockStoreSet, mockStoreDelete, MockStore }
-})
+// --- Mock tokenStorage ---
+const { mockGetTokens, mockSetTokens, mockGetUser, mockSetUser, mockDeleteTokens, mockDeleteUser, mockTokenStorageInitialize } = vi.hoisted(() => ({
+  mockGetTokens: vi.fn(),
+  mockSetTokens: vi.fn(),
+  mockGetUser: vi.fn(),
+  mockSetUser: vi.fn(),
+  mockDeleteTokens: vi.fn(),
+  mockDeleteUser: vi.fn(),
+  mockTokenStorageInitialize: vi.fn(),
+}))
 
-vi.mock('electron-store', () => ({ default: MockStore }))
+vi.mock('../../src/services/token-storage.service', () => ({
+  tokenStorage: {
+    initialize: mockTokenStorageInitialize,
+    getTokens: mockGetTokens,
+    setTokens: mockSetTokens,
+    getUser: mockGetUser,
+    setUser: mockSetUser,
+    deleteTokens: mockDeleteTokens,
+    deleteUser: mockDeleteUser,
+  },
+}))
+
+// --- Mock env-config ---
+vi.mock('../../src/config/env-config', () => ({
+  getConfig: () => ({
+    apiBaseUrl: 'https://interview-bot-api.interviewautomaticbot92.workers.dev',
+  }),
+}))
 
 const { mockNetFetch } = vi.hoisted(() => ({ mockNetFetch: vi.fn() }))
 const { mockOpenExternal } = vi.hoisted(() => ({ mockOpenExternal: vi.fn() }))
@@ -36,9 +52,6 @@ vi.mock('../../src/services/logger.service', () => ({
   }),
 }))
 
-// Set required env var before import
-process.env.ELECTRON_STORE_ENCRYPTION_KEY = 'test-encryption-key'
-
 import { authService } from '../../src/services/auth.service'
 
 // authService singleton: initialize once before all tests
@@ -59,12 +72,13 @@ beforeAll(() => {
 describe('authService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockStoreGet.mockReturnValue(null)
+    mockGetTokens.mockReturnValue(null)
+    mockGetUser.mockReturnValue(null)
   })
 
   describe('getAuthState', () => {
     it('should return unauthenticated when no tokens', () => {
-      mockStoreGet.mockReturnValue(null)
+      mockGetTokens.mockReturnValue(null)
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(false)
       expect(state.user).toBeNull()
@@ -73,13 +87,12 @@ describe('authService', () => {
     })
 
     it('should return authenticated when valid tokens and user exist', () => {
-      const futureExp = Date.now() + 60 * 60 * 1000 // 1 hour from now
+      const futureExp = Date.now() + 60 * 60 * 1000
       const tokens = { accessToken: 'valid-token', expiresAt: futureExp }
       const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
 
-      mockStoreGet
-        .mockReturnValueOnce(tokens)
-        .mockReturnValueOnce(user)
+      mockGetTokens.mockReturnValue(tokens)
+      mockGetUser.mockReturnValue(user)
 
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(true)
@@ -87,41 +100,36 @@ describe('authService', () => {
     })
 
     it('should return unauthenticated when token is expired', () => {
-      const pastExp = Date.now() - 1000 // already expired
+      const pastExp = Date.now() - 1000
       const tokens = { accessToken: 'expired-token', expiresAt: pastExp }
       const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
 
-      mockStoreGet
-        .mockReturnValueOnce(tokens)
-        .mockReturnValueOnce(user)
+      mockGetTokens.mockReturnValue(tokens)
+      mockGetUser.mockReturnValue(user)
 
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(false)
     })
 
     it('should return unauthenticated when token is within 5-minute buffer', () => {
-      // Token expires in 4 minutes - within the 5-minute buffer, should be treated as expired
       const nearExp = Date.now() + 4 * 60 * 1000
       const tokens = { accessToken: 'near-expiry-token', expiresAt: nearExp }
       const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
 
-      mockStoreGet
-        .mockReturnValueOnce(tokens)
-        .mockReturnValueOnce(user)
+      mockGetTokens.mockReturnValue(tokens)
+      mockGetUser.mockReturnValue(user)
 
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(false)
     })
 
     it('should return authenticated when token is beyond 5-minute buffer', () => {
-      // Token expires in 6 minutes - outside the 5-minute buffer, should be valid
       const safeExp = Date.now() + 6 * 60 * 1000
       const tokens = { accessToken: 'safe-token', expiresAt: safeExp }
       const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
 
-      mockStoreGet
-        .mockReturnValueOnce(tokens)
-        .mockReturnValueOnce(user)
+      mockGetTokens.mockReturnValue(tokens)
+      mockGetUser.mockReturnValue(user)
 
       const state = authService.getAuthState()
       expect(state.isAuthenticated).toBe(true)
@@ -130,19 +138,19 @@ describe('authService', () => {
 
   describe('getAccessToken', () => {
     it('should return null when no tokens', () => {
-      mockStoreGet.mockReturnValue(null)
+      mockGetTokens.mockReturnValue(null)
       expect(authService.getAccessToken()).toBeNull()
     })
 
     it('should return null when token is expired', () => {
       const pastExp = Date.now() - 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'expired', expiresAt: pastExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'expired', expiresAt: pastExp })
       expect(authService.getAccessToken()).toBeNull()
     })
 
     it('should return token when valid', () => {
       const futureExp = Date.now() + 60 * 60 * 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
       expect(authService.getAccessToken()).toBe('valid-token')
     })
   })
@@ -150,8 +158,8 @@ describe('authService', () => {
   describe('logout', () => {
     it('should clear store and return unauthenticated state', () => {
       const state = authService.logout()
-      expect(mockStoreDelete).toHaveBeenCalledWith('tokens')
-      expect(mockStoreDelete).toHaveBeenCalledWith('user')
+      expect(mockDeleteTokens).toHaveBeenCalled()
+      expect(mockDeleteUser).toHaveBeenCalled()
       expect(state.isAuthenticated).toBe(false)
       expect(state.user).toBeNull()
       expect(state.error).toBeNull()
@@ -177,11 +185,9 @@ describe('authService', () => {
 
       expect(typeof unsubscribe).toBe('function')
 
-      // Trigger logout to test listener is called
       authService.logout()
       expect(listener).toHaveBeenCalled()
 
-      // Unsubscribe and verify listener is no longer called
       listener.mockClear()
       unsubscribe()
       authService.logout()
@@ -215,7 +221,6 @@ describe('authService', () => {
     })
 
     it('should process valid JWT token and fetch user info', async () => {
-      // Create a valid JWT-like token (3 base64url parts)
       const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
       const payload = btoa(JSON.stringify({
         sub: 'user-1',
@@ -244,13 +249,13 @@ describe('authService', () => {
 
   describe('authenticatedFetch', () => {
     it('should throw when no access token', async () => {
-      mockStoreGet.mockReturnValue(null)
+      mockGetTokens.mockReturnValue(null)
       await expect(authService.authenticatedFetch('/api/test')).rejects.toThrow('認証されていません')
     })
 
     it('should add Authorization header when token is valid', async () => {
       const futureExp = Date.now() + 60 * 60 * 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
       mockNetFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
 
       await authService.authenticatedFetch('/api/test')
@@ -264,24 +269,24 @@ describe('authService', () => {
 
   describe('validateAndRefresh', () => {
     it('should return unauthenticated state when no tokens', async () => {
-      mockStoreGet.mockReturnValue(null)
+      mockGetTokens.mockReturnValue(null)
       const state = await authService.validateAndRefresh()
       expect(state.isAuthenticated).toBe(false)
     })
 
     it('should logout when token is expired', async () => {
       const pastExp = Date.now() - 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'expired-token', expiresAt: pastExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'expired-token', expiresAt: pastExp })
 
       const state = await authService.validateAndRefresh()
       expect(state.isAuthenticated).toBe(false)
-      expect(mockStoreDelete).toHaveBeenCalled()
+      expect(mockDeleteTokens).toHaveBeenCalled()
     })
 
     it('should return authenticated state when token is valid', async () => {
       const futureExp = Date.now() + 60 * 60 * 1000
       const user = { id: 'user-1', email: 'test@example.com', name: 'Test User' }
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
 
       mockNetFetch.mockResolvedValue({
         ok: true,
@@ -295,7 +300,7 @@ describe('authService', () => {
 
     it('should logout when fetchUserInfo fails during refresh', async () => {
       const futureExp = Date.now() + 60 * 60 * 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
 
       mockNetFetch.mockResolvedValue({
         ok: false,
@@ -305,18 +310,16 @@ describe('authService', () => {
 
       const state = await authService.validateAndRefresh()
       expect(state.isAuthenticated).toBe(false)
-      expect(mockStoreDelete).toHaveBeenCalled()
+      expect(mockDeleteTokens).toHaveBeenCalled()
     })
   })
 
   describe('initialize', () => {
     it('should skip re-initialization and keep existing state', () => {
-      // authService is already initialized in beforeAll
       const stateBefore = authService.getAuthState()
       authService.initialize(mockMainWindow as never)
       const stateAfter = authService.getAuthState()
 
-      // State should be unchanged (not reset or corrupted)
       expect(stateAfter.isLoading).toBe(stateBefore.isLoading)
       expect(stateAfter.error).toBe(stateBefore.error)
     })
@@ -331,7 +334,6 @@ describe('authService', () => {
       }
       authService.setMainWindow(newWindow as never)
 
-      // Trigger auth callback to verify window focus behavior
       const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
       const payload = btoa(JSON.stringify({
         sub: 'user-w',
@@ -350,7 +352,6 @@ describe('authService', () => {
 
       await authService.handleAuthCallback(`interview-bot://auth/callback?token=${token}`)
 
-      // mainWindow was minimized, so restore should be called, then focus
       expect(newWindow.restore).toHaveBeenCalled()
       expect(newWindow.focus).toHaveBeenCalled()
     })
@@ -366,7 +367,6 @@ describe('authService', () => {
       const unsub1 = authService.addAuthStateListener(throwingListener)
       const unsub2 = authService.addAuthStateListener(normalListener)
 
-      // logout calls notifyListeners - should not throw even if listener does
       expect(() => authService.logout()).not.toThrow()
       expect(throwingListener).toHaveBeenCalled()
       expect(normalListener).toHaveBeenCalled()
@@ -379,7 +379,7 @@ describe('authService', () => {
   describe('authenticatedFetch with custom options', () => {
     it('should pass through method and body', async () => {
       const futureExp = Date.now() + 60 * 60 * 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
       mockNetFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
 
       await authService.authenticatedFetch('/api/data', {
@@ -396,7 +396,7 @@ describe('authService', () => {
 
     it('should merge existing headers with Authorization', async () => {
       const futureExp = Date.now() + 60 * 60 * 1000
-      mockStoreGet.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
+      mockGetTokens.mockReturnValue({ accessToken: 'valid-token', expiresAt: futureExp })
       mockNetFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
 
       await authService.authenticatedFetch('/api/data', {
@@ -433,10 +433,10 @@ describe('authService', () => {
       const state = await authService.handleAuthCallback(url)
 
       expect(state.isAuthenticated).toBe(true)
-      expect(mockStoreSet).toHaveBeenCalledWith('tokens', expect.objectContaining({
+      expect(mockSetTokens).toHaveBeenCalledWith(expect.objectContaining({
         accessToken: token,
       }))
-      expect(mockStoreSet).toHaveBeenCalledWith('user', userInfo.user)
+      expect(mockSetUser).toHaveBeenCalledWith(userInfo.user)
     })
 
     it('should handle fetchUserInfo failure in callback', async () => {

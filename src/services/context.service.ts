@@ -8,12 +8,12 @@
 
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
+import { getConfig } from '../config/env-config'
 import type { DocumentMetadata, DocumentType, ContextResult } from '../types/document'
 
 const log = createLogger('context-service')
 
-// API Base URL (Cloudflare Workers)
-const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+const { apiBaseUrl: API_BASE_URL } = getConfig()
 
 interface ApiDocumentResponse {
   success: boolean

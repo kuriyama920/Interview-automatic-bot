@@ -7,11 +7,12 @@
 
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
+import { getConfig } from '../config/env-config'
 import type { InterviewQuestion, QuestionInput } from '../types/question'
 
 const log = createLogger('questions-service')
 
-const API_BASE_URL = process.env.API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+const { apiBaseUrl: API_BASE_URL } = getConfig()
 
 interface ApiQuestionsResponse {
   success: boolean
