@@ -38,7 +38,6 @@ describe('resetMonthlyUsage', () => {
       {
         monthly_stt_minutes_used: 0,
         monthly_ai_tokens_used: 0,
-        monthly_storage_bytes_used: 0,
       },
       { count: 'exact' }
     )

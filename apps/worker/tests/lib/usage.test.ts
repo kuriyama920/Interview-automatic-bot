@@ -4,6 +4,7 @@ import {
   checkAndReserveUsage,
   adjustReservedUsage,
   recordUsage,
+  recalculateStorageUsage,
 } from '../../src/lib/usage'
 import * as usageCache from '../../src/lib/usage-cache'
 
@@ -520,5 +521,103 @@ describe('recordUsage', () => {
     expect(mockSupabase.rpc).toHaveBeenCalledWith('increment_column', expect.objectContaining({
       column_name: 'monthly_storage_bytes_used',
     }))
+  })
+})
+
+describe('recalculateStorageUsage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function createStorageMock(
+    selectResult: { data: unknown; error: unknown },
+    updateResult: { error: unknown } = { error: null },
+  ) {
+    const updateEq = vi.fn().mockResolvedValue(updateResult)
+    const updateFn = vi.fn().mockReturnValue({ eq: updateEq })
+
+    // from('documents').select().eq().is() → selectResult
+    // from('profiles').update().eq() → updateResult
+    const fromFn = vi.fn()
+      .mockImplementationOnce(() => ({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            is: vi.fn().mockResolvedValue(selectResult),
+          }),
+        }),
+      }))
+      .mockImplementationOnce(() => ({
+        update: updateFn,
+      }))
+
+    return { from: fromFn, rpc: vi.fn(), updateFn, updateEq }
+  }
+
+  it('calculates total from documents and updates profiles', async () => {
+    const mock = createStorageMock({
+      data: [
+        { file_size_bytes: 1024 },
+        { file_size_bytes: 2048 },
+        { file_size_bytes: 512 },
+      ],
+      error: null,
+    })
+
+    await recalculateStorageUsage(mock as never, 'user-1')
+
+    expect(mock.from).toHaveBeenCalledWith('documents')
+    expect(mock.from).toHaveBeenCalledWith('profiles')
+    expect(mock.updateFn).toHaveBeenCalledWith({
+      monthly_storage_bytes_used: 3584,
+    })
+    expect(mock.updateEq).toHaveBeenCalledWith('id', 'user-1')
+  })
+
+  it('handles empty documents (0 bytes)', async () => {
+    const mock = createStorageMock({ data: [], error: null })
+
+    await recalculateStorageUsage(mock as never, 'user-1')
+
+    expect(mock.updateFn).toHaveBeenCalledWith({
+      monthly_storage_bytes_used: 0,
+    })
+  })
+
+  it('handles null file_size_bytes gracefully', async () => {
+    const mock = createStorageMock({
+      data: [
+        { file_size_bytes: 1024 },
+        { file_size_bytes: null },
+      ],
+      error: null,
+    })
+
+    await recalculateStorageUsage(mock as never, 'user-1')
+
+    expect(mock.updateFn).toHaveBeenCalledWith({
+      monthly_storage_bytes_used: 1024,
+    })
+  })
+
+  it('throws on document query error', async () => {
+    const mock = createStorageMock({
+      data: null,
+      error: { message: 'query failed' },
+    })
+
+    await expect(
+      recalculateStorageUsage(mock as never, 'user-1')
+    ).rejects.toThrow('Failed to calculate storage usage')
+  })
+
+  it('throws on profile update error', async () => {
+    const mock = createStorageMock(
+      { data: [{ file_size_bytes: 1024 }], error: null },
+      { error: { message: 'update failed' } },
+    )
+
+    await expect(
+      recalculateStorageUsage(mock as never, 'user-1')
+    ).rejects.toThrow('Failed to update storage usage')
   })
 })

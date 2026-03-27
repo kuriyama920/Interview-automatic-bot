@@ -209,3 +209,36 @@ export async function recordUsage(
     metadata: metadata ?? null,
   })
 }
+
+/**
+ * ドキュメントテーブルからストレージ使用量を再計算してprofilesを更新
+ * デルタ方式ではなくソースオブトゥルースから毎回再計算することで一貫性を保証
+ */
+export async function recalculateStorageUsage(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('file_size_bytes')
+    .eq('user_id', userId)
+    .is('deleted_at', null)
+
+  if (error) {
+    throw new Error(`Failed to calculate storage usage: ${error.message}`)
+  }
+
+  const totalBytes = (data ?? []).reduce(
+    (sum: number, doc: { file_size_bytes: number | null }) => sum + (doc.file_size_bytes ?? 0),
+    0,
+  )
+
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({ monthly_storage_bytes_used: totalBytes })
+    .eq('id', userId)
+
+  if (updateError) {
+    throw new Error(`Failed to update storage usage: ${updateError.message}`)
+  }
+}

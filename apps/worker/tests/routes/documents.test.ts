@@ -24,6 +24,7 @@ vi.mock('../../src/lib/supabase', () => ({
 
 vi.mock('../../src/lib/usage', () => ({
   checkUsageLimit: vi.fn(),
+  recalculateStorageUsage: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../src/lib/openai', () => ({
@@ -53,7 +54,7 @@ vi.mock('../../src/lib/document-parser', () => ({
 }))
 
 import documentsRoutes from '../../src/routes/documents'
-import { checkUsageLimit } from '../../src/lib/usage'
+import { checkUsageLimit, recalculateStorageUsage } from '../../src/lib/usage'
 
 const TEST_ENV = {
   JWT_SECRET: TEST_JWT_SECRET,
@@ -396,18 +397,11 @@ describe('POST /api/documents/search', () => {
     })
 
     const matches = [
-      { id: 'chunk-1', document_id: 'doc-1', content: 'matched content 1', similarity: 0.95 },
-      { id: 'chunk-2', document_id: 'doc-1', content: 'matched content 2', similarity: 0.85 },
+      { id: 'chunk-1', document_id: 'doc-1', document_name: 'resume.pdf', document_type: 'resume', content: 'matched content 1', similarity: 0.95 },
+      { id: 'chunk-2', document_id: 'doc-1', document_name: 'resume.pdf', document_type: 'resume', content: 'matched content 2', similarity: 0.85 },
     ]
 
     mockRpc.mockResolvedValue({ data: matches, error: null })
-
-    // Documents lookup
-    mockChain.in = vi.fn().mockReturnValue(mockChain)
-    mockChain.eq = vi.fn().mockResolvedValue({
-      data: [{ id: 'doc-1', name: 'resume.pdf', type: 'resume' }],
-      error: null,
-    })
 
     const app = createApp()
     const headers = await createAuthHeaders()
@@ -648,5 +642,148 @@ describe('POST /api/documents (upload)', () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain('No file')
+  })
+
+  it('recalculates storage usage after successful upload', async () => {
+    // maybeSingle: 新規ドキュメント（既存なし）
+    mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 0,
+      limit: 50,
+      remaining: 50,
+    })
+
+    mockChain.insert = vi.fn().mockReturnValue(mockChain)
+    mockChain.update = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: { id: 'new-doc-id', name: 'test.pdf', type: 'resume', uploaded_at: '2026-03-28T00:00:00Z' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['test file content'], 'test.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    // recalculateStorageUsage がアップロード後に呼ばれること
+    expect(recalculateStorageUsage).toHaveBeenCalledWith(
+      expect.anything(), // supabase client
+      TEST_USER_ID,
+    )
+  })
+
+  it('does not recalculate storage when upload fails', async () => {
+    mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 0,
+      limit: 50,
+      remaining: 50,
+    })
+
+    // insert が失敗
+    mockChain.insert = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'insert failed' },
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['content'], 'test.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(500)
+    expect(recalculateStorageUsage).not.toHaveBeenCalled()
+  })
+
+  it('succeeds even when recalculateStorageUsage fails', async () => {
+    mockChain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+    vi.mocked(checkUsageLimit).mockResolvedValue({
+      allowed: true,
+      used: 0,
+      limit: 50,
+      remaining: 50,
+    })
+    vi.mocked(recalculateStorageUsage).mockRejectedValueOnce(new Error('storage calc failed'))
+
+    mockChain.insert = vi.fn().mockReturnValue(mockChain)
+    mockChain.update = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+    mockChain.single = vi.fn().mockResolvedValue({
+      data: { id: 'new-doc-id', name: 'test.pdf', type: 'resume', uploaded_at: '2026-03-28T00:00:00Z' },
+      error: null,
+    })
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const formData = new FormData()
+    formData.append('type', 'resume')
+    formData.append('file', new File(['content'], 'test.pdf'))
+
+    const res = await app.request('/api/documents', {
+      method: 'POST',
+      headers,
+      body: formData,
+    }, TEST_ENV)
+
+    // ストレージ計算が失敗してもアップロードは成功する
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.success).toBe(true)
+  })
+})
+
+describe('Storage usage tracking on DELETE', () => {
+  beforeEach(resetMocks)
+
+  it('recalculates storage usage after successful deletion', async () => {
+    const validUUID = '550e8400-e29b-41d4-a716-446655440000'
+
+    mockChain.single = vi.fn().mockResolvedValueOnce({
+      data: { id: validUUID, user_id: TEST_USER_ID },
+      error: null,
+    })
+
+    // deleteDocumentWithChunks: select chunks → delete chunks → delete doc
+    mockChain.select = vi.fn().mockReturnValue(mockChain)
+    mockChain.delete = vi.fn().mockReturnValue(mockChain)
+    mockChain.is = vi.fn().mockReturnValue(mockChain)
+    mockChain.eq = vi.fn().mockReturnValue(mockChain)
+
+    const app = createApp()
+    const headers = await createAuthHeaders()
+    const res = await app.request(`/api/documents/${validUUID}`, {
+      method: 'DELETE',
+      headers,
+    }, TEST_ENV)
+
+    expect(res.status).toBe(200)
+    // recalculateStorageUsage が削除後に呼ばれること
+    expect(recalculateStorageUsage).toHaveBeenCalledWith(
+      expect.anything(),
+      TEST_USER_ID,
+    )
   })
 })

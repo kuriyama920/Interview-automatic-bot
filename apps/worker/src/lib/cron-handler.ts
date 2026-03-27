@@ -22,7 +22,7 @@ export async function resetMonthlyUsage(
       {
         monthly_stt_minutes_used: 0,
         monthly_ai_tokens_used: 0,
-        monthly_storage_bytes_used: 0,
+        // monthly_storage_bytes_used はリセットしない（累積値のためドキュメントから再計算）
       },
       { count: 'exact' }
     )

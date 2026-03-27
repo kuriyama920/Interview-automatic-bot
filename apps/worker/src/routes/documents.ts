@@ -13,7 +13,7 @@ import { authRequired } from '../middleware/auth'
 import { parseDocument, chunkText, estimateTokens } from '../lib/document-parser'
 import { generateEmbedding, generateEmbeddings } from '../lib/openai'
 import { isValidUUID } from '../lib/validation'
-import { checkUsageLimit } from '../lib/usage'
+import { checkUsageLimit, recalculateStorageUsage } from '../lib/usage'
 import { invalidateEmbeddingCacheBatch } from '../lib/embedding-cache'
 import { Buffer } from 'node:buffer'
 
@@ -37,6 +37,11 @@ interface MatchResult {
   document_id: string
   content: string
   similarity: number
+}
+
+interface MatchResultWithInfo extends MatchResult {
+  document_name: string
+  document_type: string
 }
 
 /** 旧ドキュメント+チャンクを削除し、Embeddingキャッシュを無効化する共通ヘルパー (#5,#10) */
@@ -166,6 +171,14 @@ app.post('/', async (c) => {
     if (!result.success) {
       return c.json({ success: false, error: result.error }, result.status as 500)
     }
+
+    // ストレージ使用量を再計算（失敗してもアップロード自体は成功扱い）
+    try {
+      await recalculateStorageUsage(supabase, userId)
+    } catch {
+      // ストレージ計算の失敗はアップロード成功に影響させない
+    }
+
     return c.json({ success: true, document: result.document })
   } catch (error) {
     // #6: クライアントエラーとサーバーエラーを区別
@@ -312,6 +325,13 @@ app.delete('/:id', async (c) => {
     return c.json({ success: false, error: deleteResult.error }, 500)
   }
 
+  // ストレージ使用量を再計算（失敗しても削除自体は成功扱い）
+  try {
+    await recalculateStorageUsage(supabase, userId)
+  } catch {
+    // ストレージ計算の失敗は削除成功に影響させない
+  }
+
   return c.json({ success: true })
 })
 
@@ -412,35 +432,29 @@ app.post('/search', async (c) => {
 
   const queryEmbedding = await generateEmbedding(query, c.env.OPENAI_API_KEY, c.env)
 
-  const { data: matches, error: matchError } = await supabase.rpc('match_documents', {
+  const { data: rawMatches, error: matchError } = await supabase.rpc('match_documents_with_info', {
     query_embedding: queryEmbedding,
     match_threshold: minSimilarity,
     match_count: topK,
     p_user_id: userId,
-    p_document_types: documentTypes,
   })
 
   if (matchError) {
     return c.json({ success: false, error: 'Failed to search documents' }, 500)
   }
 
-  if (!matches || matches.length === 0) {
+  if (!rawMatches || rawMatches.length === 0) {
     return c.json({ success: true, results: [] })
   }
 
-  const documentIds = [...new Set((matches as MatchResult[]).map((m) => m.document_id))]
+  // ドキュメントタイプでフィルタリング（RPC関数はタイプフィルタ未対応）
+  const matches = documentTypes
+    ? (rawMatches as MatchResultWithInfo[]).filter((m) => documentTypes.includes(m.document_type))
+    : (rawMatches as MatchResultWithInfo[])
 
-  const { data: documents, error: docError } = await supabase
-    .from('documents')
-    .select('id, name, type')
-    .in('id', documentIds)
-    .eq('user_id', userId)
-
-  if (docError) {
-    return c.json({ success: false, error: 'Failed to fetch document metadata' }, 500)
+  if (matches.length === 0) {
+    return c.json({ success: true, results: [] })
   }
-
-  const docMap = new Map(documents?.map((d) => [d.id, d]) ?? [])
 
   const groupedResults = new Map<
     string,
@@ -452,15 +466,12 @@ app.post('/search', async (c) => {
     }
   >()
 
-  for (const match of matches as MatchResult[]) {
-    const doc = docMap.get(match.document_id)
-    if (!doc) continue
-
+  for (const match of matches) {
     if (!groupedResults.has(match.document_id)) {
       groupedResults.set(match.document_id, {
         documentId: match.document_id,
-        documentName: doc.name,
-        documentType: doc.type,
+        documentName: match.document_name,
+        documentType: match.document_type,
         chunks: [],
       })
     }
