@@ -10,9 +10,6 @@ import type { Env } from '../types'
 // JWT ペイロード型
 export interface JWTPayload {
   sub: string
-  email: string
-  name: string
-  picture: string
   iat: number
   exp: number
 }
@@ -135,7 +132,7 @@ async function createHmacSignature(data: string, secret: string): Promise<string
  * JWTトークンを生成
  */
 export async function generateJWT(
-  payload: Omit<JWTPayload, 'iat' | 'exp'>,
+  payload: Pick<JWTPayload, 'sub'>,
   jwtSecret: string
 ): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' }

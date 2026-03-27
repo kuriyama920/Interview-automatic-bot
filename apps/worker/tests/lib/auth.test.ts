@@ -1,64 +1,127 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   generateJWT,
   verifyJWT,
   generateGoogleAuthUrl,
   getUserFromRequest,
 } from '../../src/lib/auth'
+import type { JWTPayload } from '../../src/lib/auth'
 import type { Env } from '../../src/types'
 
 const TEST_JWT_SECRET = 'test-jwt-secret-key-for-testing-purposes-only'
 
-describe('JWT round-trip', () => {
-  it('generates and verifies a valid JWT', async () => {
-    const payload = {
-      sub: '550e8400-e29b-41d4-a716-446655440000',
-      email: 'test@example.com',
-      name: 'Test User',
-      picture: 'https://example.com/avatar.jpg',
+/**
+ * Helper: decode JWT payload without verification
+ */
+function decodePayload(token: string): Record<string, unknown> {
+  const parts = token.split('.')
+  const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+  return JSON.parse(atob(padded))
+}
+
+describe('JWTPayload type - PII removal', () => {
+  it('should only contain sub, iat, exp fields (no email, name, picture)', () => {
+    const payload: JWTPayload = {
+      sub: 'user-123',
+      iat: 1000,
+      exp: 2000,
     }
+    expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub'])
+  })
+})
 
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
-    expect(token).toBeTruthy()
-    expect(token.split('.')).toHaveLength(3)
-
-    const decoded = await verifyJWT(token, TEST_JWT_SECRET)
-    expect(decoded).not.toBeNull()
-    expect(decoded!.sub).toBe(payload.sub)
-    expect(decoded!.email).toBe(payload.email)
-    expect(decoded!.name).toBe(payload.name)
-    expect(decoded!.picture).toBe(payload.picture)
-    expect(decoded!.iat).toBeDefined()
-    expect(decoded!.exp).toBeDefined()
-    expect(decoded!.exp).toBeGreaterThan(decoded!.iat)
+describe('generateJWT - PII-free tokens', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-15T00:00:00Z'))
   })
 
-  it('sets 24-hour expiration', async () => {
-    const payload = {
-      sub: 'user-id',
-      email: 'test@example.com',
-      name: 'Test',
-      picture: '',
-    }
-
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
-    const decoded = await verifyJWT(token, TEST_JWT_SECRET)
-    expect(decoded).not.toBeNull()
-
-    const oneDay = 60 * 60 * 24
-    expect(decoded!.exp - decoded!.iat).toBe(oneDay)
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
-  it('rejects tampered token', async () => {
-    const payload = {
-      sub: 'user-id',
-      email: 'test@example.com',
-      name: 'Test',
-      picture: '',
-    }
+  it('produces a token with only sub, iat, exp in payload', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
 
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
-    // Tamper with the payload portion
+    const payload = decodePayload(token)
+    expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub'])
+    expect(payload.sub).toBe('user-123')
+  })
+
+  it('does NOT contain email, name, or picture in the token payload', async () => {
+    const token = await generateJWT({ sub: 'user-456' }, TEST_JWT_SECRET)
+
+    const payload = decodePayload(token)
+    expect(payload).not.toHaveProperty('email')
+    expect(payload).not.toHaveProperty('name')
+    expect(payload).not.toHaveProperty('picture')
+  })
+
+  it('sets 24-hour expiration from current time', async () => {
+    const token = await generateJWT({ sub: 'user-789' }, TEST_JWT_SECRET)
+
+    const payload = decodePayload(token)
+    const nowInSeconds = Math.floor(Date.now() / 1000)
+    expect(payload.iat).toBe(nowInSeconds)
+    expect(payload.exp).toBe(nowInSeconds + 60 * 60 * 24)
+  })
+
+  it('produces a valid 3-part JWT string', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
+
+    const parts = token.split('.')
+    expect(parts).toHaveLength(3)
+    for (const part of parts) {
+      expect(part.length).toBeGreaterThan(0)
+      expect(part).toMatch(/^[A-Za-z0-9_-]+$/)
+    }
+  })
+})
+
+describe('verifyJWT - PII-free verification', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-15T00:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns payload with only sub, iat, exp for a valid token', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
+    const payload = await verifyJWT(token, TEST_JWT_SECRET)
+
+    expect(payload).not.toBeNull()
+    expect(payload!.sub).toBe('user-123')
+    expect(payload!.iat).toBeDefined()
+    expect(payload!.exp).toBeDefined()
+    expect(payload!.exp).toBeGreaterThan(payload!.iat)
+    // PII fields must NOT be present
+    expect(payload).not.toHaveProperty('email')
+    expect(payload).not.toHaveProperty('name')
+    expect(payload).not.toHaveProperty('picture')
+  })
+
+  it('returns null for an expired token', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
+
+    // Advance time past 24h expiration
+    vi.setSystemTime(new Date('2026-01-16T01:00:00Z'))
+
+    const payload = await verifyJWT(token, TEST_JWT_SECRET)
+    expect(payload).toBeNull()
+  })
+
+  it('returns null for an invalid signature (wrong secret)', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
+    const payload = await verifyJWT(token, 'wrong-secret')
+    expect(payload).toBeNull()
+  })
+
+  it('returns null for a tampered token', async () => {
+    const token = await generateJWT({ sub: 'user-123' }, TEST_JWT_SECRET)
     const parts = token.split('.')
     parts[1] = parts[1] + 'x'
     const tamperedToken = parts.join('.')
@@ -67,39 +130,7 @@ describe('JWT round-trip', () => {
     expect(result).toBeNull()
   })
 
-  it('rejects token with wrong secret', async () => {
-    const payload = {
-      sub: 'user-id',
-      email: 'test@example.com',
-      name: 'Test',
-      picture: '',
-    }
-
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
-    const result = await verifyJWT(token, 'wrong-secret')
-    expect(result).toBeNull()
-  })
-
-  it('rejects expired token', async () => {
-    const payload = {
-      sub: 'user-id',
-      email: 'test@example.com',
-      name: 'Test',
-      picture: '',
-    }
-
-    // Mock Date.now to generate an expired token
-    const realDateNow = Date.now
-    Date.now = () => new Date('2020-01-01').getTime()
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
-    Date.now = realDateNow
-
-    // Now verify with real time - should be expired
-    const result = await verifyJWT(token, TEST_JWT_SECRET)
-    expect(result).toBeNull()
-  })
-
-  it('rejects malformed tokens', async () => {
+  it('returns null for malformed tokens', async () => {
     expect(await verifyJWT('', TEST_JWT_SECRET)).toBeNull()
     expect(await verifyJWT('not-a-jwt', TEST_JWT_SECRET)).toBeNull()
     expect(await verifyJWT('a.b', TEST_JWT_SECRET)).toBeNull()
@@ -132,6 +163,15 @@ describe('generateGoogleAuthUrl', () => {
 })
 
 describe('getUserFromRequest', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-15T00:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('returns null for missing authorization header', async () => {
     const req = new Request('https://example.com/api/test')
     const result = await getUserFromRequest(req, TEST_JWT_SECRET)
@@ -146,14 +186,8 @@ describe('getUserFromRequest', () => {
     expect(result).toBeNull()
   })
 
-  it('returns payload for valid Bearer token', async () => {
-    const payload = {
-      sub: 'user-id',
-      email: 'test@example.com',
-      name: 'Test',
-      picture: '',
-    }
-    const token = await generateJWT(payload, TEST_JWT_SECRET)
+  it('returns payload for valid Bearer token (sub only, no PII)', async () => {
+    const token = await generateJWT({ sub: 'user-id' }, TEST_JWT_SECRET)
 
     const req = new Request('https://example.com/api/test', {
       headers: { Authorization: `Bearer ${token}` },
@@ -161,6 +195,9 @@ describe('getUserFromRequest', () => {
     const result = await getUserFromRequest(req, TEST_JWT_SECRET)
     expect(result).not.toBeNull()
     expect(result!.sub).toBe('user-id')
+    expect(result).not.toHaveProperty('email')
+    expect(result).not.toHaveProperty('name')
+    expect(result).not.toHaveProperty('picture')
   })
 
   it('returns null for invalid Bearer token', async () => {
