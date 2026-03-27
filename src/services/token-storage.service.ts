@@ -16,7 +16,7 @@ const log = createLogger('token-storage')
 
 interface TokenStoreSchema {
   tokens: string | null
-  user: User | null
+  user: string | null
 }
 
 class TokenStorage {
@@ -88,7 +88,35 @@ class TokenStorage {
       log.error('TokenStorage.getUser called before initialize()')
       return null
     }
-    return this.store.get('user') ?? null
+
+    try {
+      const stored = this.store.get('user')
+      if (!stored) return null
+
+      if (this.encryptionAvailable) {
+        try {
+          const buffer = Buffer.from(stored as string, 'base64')
+          const decrypted = safeStorage.decryptString(buffer)
+          return JSON.parse(decrypted) as User
+        } catch {
+          // Fallback: handle legacy plaintext object format
+          if (typeof stored === 'object') {
+            return stored as User
+          }
+          log.warn('Failed to decrypt user data, clearing')
+          this.store.delete('user')
+          return null
+        }
+      } else {
+        if (typeof stored === 'string') {
+          return JSON.parse(stored) as User
+        }
+        return stored as User
+      }
+    } catch {
+      log.warn('Failed to read user data')
+      return null
+    }
   }
 
   setUser(user: User): void {
@@ -96,7 +124,16 @@ class TokenStorage {
       log.error('TokenStorage.setUser called before initialize()')
       return
     }
-    this.store.set('user', user)
+
+    const serialized = JSON.stringify(user)
+
+    if (this.encryptionAvailable) {
+      const encrypted = safeStorage.encryptString(serialized)
+      this.store.set('user', encrypted.toString('base64'))
+    } else {
+      log.warn('safeStorage unavailable, storing user data in plaintext')
+      this.store.set('user', serialized)
+    }
   }
 
   deleteTokens(): void {

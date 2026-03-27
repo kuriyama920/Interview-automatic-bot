@@ -278,15 +278,19 @@ class AuthService {
 
   /**
    * Deep Linkコールバックを処理
-   * interview-bot://auth/callback?token=xxx
+   * interview-bot://auth/callback?status=completed or ?error=xxx
+   *
+   * セキュリティ改善: URLにトークンを含めない。
+   * トークンはポーリング方式（pollForAuthResult）で取得済み。
+   * Deep Linkはウィンドウフォーカスとエラー通知のみ担当。
    */
   async handleAuthCallback(url: string): Promise<AuthState> {
     log.info('Handling auth callback', { url: url.substring(0, 50) + '...' })
 
     try {
       const urlObj = new URL(url)
-      const token = urlObj.searchParams.get('token')
       const error = urlObj.searchParams.get('error')
+      const status = urlObj.searchParams.get('status')
 
       if (error) {
         log.error('Auth callback error', { error })
@@ -294,70 +298,32 @@ class AuthService {
           isAuthenticated: false,
           isLoading: false,
           user: null,
-            error: decodeURIComponent(error),
+          error,
         }
         this.notifyListeners(state)
         return state
       }
 
-      if (!token) {
-        log.error('No token in callback URL')
-        const state: AuthState = {
-          isAuthenticated: false,
-          isLoading: false,
-          user: null,
-            error: 'トークンが見つかりませんでした',
+      if (status === 'completed') {
+        // ポーリングが既にトークン取得を処理済み。
+        // メインウィンドウをフォーカスするだけ。
+        if (this.mainWindow) {
+          if (this.mainWindow.isMinimized()) {
+            this.mainWindow.restore()
+          }
+          this.mainWindow.focus()
         }
-        this.notifyListeners(state)
-        return state
+        log.info('Auth callback: status completed, window focused')
       }
 
-      // トークンをデコードして有効期限を取得
-      const payload = this.decodeJWT(token)
-      if (!payload) {
-        throw new Error('トークンのデコードに失敗しました')
-      }
-
-      const tokens: AuthTokens = {
-        accessToken: token,
-        expiresAt: payload.exp * 1000, // 秒からミリ秒に変換
-      }
-
-      // トークンを保存
-      tokenStorage.setTokens(tokens)
-
-      // ユーザー情報を取得
-      const authData = await this.fetchUserInfo(token)
-
-      // ユーザー情報を保存
-      tokenStorage.setUser(authData.user)
-
-      const state: AuthState = {
-        isAuthenticated: true,
-        isLoading: false,
-        user: authData.user,
-        error: null,
-      }
-
-      this.notifyListeners(state)
-
-      // メインウィンドウをフォーカス
-      if (this.mainWindow) {
-        if (this.mainWindow.isMinimized()) {
-          this.mainWindow.restore()
-        }
-        this.mainWindow.focus()
-      }
-
-      log.info('Auth callback handled successfully', { userId: authData.user.id })
-      return state
+      return this.getAuthState()
     } catch (error) {
       log.error('Failed to handle auth callback', { error: String(error) })
       const state: AuthState = {
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        error: String(error),
+        error: null,
       }
       this.notifyListeners(state)
       return state
@@ -375,14 +341,17 @@ class AuthService {
    *
    * トークンの信頼性は fetchUserInfo() の成功で担保される。
    */
-  private decodeJWT(token: string): { sub: string; email: string; exp: number } | null {
+  private decodeJWT(token: string): { sub: string; exp: number } | null {
     try {
       const parts = token.split('.')
       if (parts.length !== 3) {
         return null
       }
       const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString())
-      return payload
+      if (!payload.sub || !payload.exp) {
+        return null
+      }
+      return { sub: payload.sub, exp: payload.exp }
     } catch {
       return null
     }

@@ -230,33 +230,122 @@ describe('TokenStorage', () => {
     })
   })
 
-  describe('User storage (no encryption needed)', () => {
-    it('should store User object in electron-store', () => {
+  describe('User storage (encrypted with safeStorage)', () => {
+    it('setUser should encrypt with safeStorage when encryption is available', () => {
+      const encryptedBuffer = Buffer.from('encrypted-user-data')
+      mockEncryptString.mockReturnValue(encryptedBuffer)
+
       tokenStorage.setUser(mockUser)
 
-      expect(mockStoreSet).toHaveBeenCalledWith('user', mockUser)
-      // User objects are not encrypted via safeStorage
-      expect(mockEncryptString).not.toHaveBeenCalled()
+      expect(mockEncryptString).toHaveBeenCalledWith(JSON.stringify(mockUser))
+      expect(mockStoreSet).toHaveBeenCalledWith('user', encryptedBuffer.toString('base64'))
     })
 
-    it('should retrieve User object from electron-store', () => {
+    it('setUser should store base64-encoded string, not raw object', () => {
+      const encryptedBuffer = Buffer.from('encrypted-user-data')
+      mockEncryptString.mockReturnValue(encryptedBuffer)
+
+      tokenStorage.setUser(mockUser)
+
+      const storedValue = mockStoreSet.mock.calls.find((c) => c[0] === 'user')?.[1]
+      expect(typeof storedValue).toBe('string')
+      // Verify it is valid base64
+      expect(() => Buffer.from(storedValue as string, 'base64')).not.toThrow()
+    })
+
+    it('getUser should decrypt with safeStorage and return parsed User', () => {
+      const serialized = JSON.stringify(mockUser)
+      const encryptedBuffer = Buffer.from('encrypted-user-data')
       mockStoreGet.mockImplementation((key: string) => {
-        if (key === 'user') return mockUser
+        if (key === 'user') return encryptedBuffer.toString('base64')
         return null
+      })
+      mockDecryptString.mockReturnValue(serialized)
+
+      const result = tokenStorage.getUser()
+
+      expect(mockDecryptString).toHaveBeenCalled()
+      expect(result).toEqual(mockUser)
+    })
+
+    it('getUser should return null and clear storage when decryption fails on corrupted data', () => {
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'user') return 'corrupted-base64-data'
+        return null
+      })
+      mockDecryptString.mockImplementation(() => {
+        throw new Error('Decryption failed')
       })
 
       const result = tokenStorage.getUser()
 
-      expect(mockStoreGet).toHaveBeenCalledWith('user')
+      expect(result).toBeNull()
+      expect(mockStoreDelete).toHaveBeenCalledWith('user')
+      expect(mockLog.warn).toHaveBeenCalledWith('Failed to decrypt user data, clearing')
+    })
+
+    it('getUser should handle legacy plaintext object format (backward compatibility)', () => {
+      // Legacy format: user stored as raw object (not encrypted)
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'user') return mockUser
+        return null
+      })
+      mockDecryptString.mockImplementation(() => {
+        throw new Error('Not valid encrypted data')
+      })
+
+      const result = tokenStorage.getUser()
+
+      // Should fall back to treating it as a legacy plaintext object
       expect(result).toEqual(mockUser)
     })
 
-    it('should return null when no user is stored', () => {
+    it('getUser should return null when no user is stored', () => {
       mockStoreGet.mockReturnValue(null)
 
       const result = tokenStorage.getUser()
 
       expect(result).toBeNull()
+    })
+  })
+
+  describe('User storage fallback (no encryption)', () => {
+    beforeEach(() => {
+      mockIsEncryptionAvailable.mockReturnValue(false)
+      tokenStorage.initialize()
+    })
+
+    it('setUser should store JSON string when encryption unavailable', () => {
+      tokenStorage.setUser(mockUser)
+
+      expect(mockEncryptString).not.toHaveBeenCalled()
+      expect(mockStoreSet).toHaveBeenCalledWith('user', JSON.stringify(mockUser))
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        'safeStorage unavailable, storing user data in plaintext',
+      )
+    })
+
+    it('getUser should parse JSON string when encryption unavailable', () => {
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'user') return JSON.stringify(mockUser)
+        return null
+      })
+
+      const result = tokenStorage.getUser()
+
+      expect(mockDecryptString).not.toHaveBeenCalled()
+      expect(result).toEqual(mockUser)
+    })
+
+    it('getUser should handle legacy plaintext object when encryption unavailable', () => {
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'user') return mockUser // raw object, not string
+        return null
+      })
+
+      const result = tokenStorage.getUser()
+
+      expect(result).toEqual(mockUser)
     })
   })
 })
