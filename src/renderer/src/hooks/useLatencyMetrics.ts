@@ -42,7 +42,8 @@ function loadPersistedMetrics(): LatencyMetrics[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed : []
-  } catch {
+  } catch (error) {
+    console.warn('[latency-metrics] Failed to load persisted metrics:', error)
     return []
   }
 }
@@ -65,8 +66,8 @@ export function persistMetrics(metrics: LatencyMetrics): void {
         : updated
 
       localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed))
-    } catch {
-      // Non-critical feature - silently ignore errors (e.g. QuotaExceededError)
+    } catch (error) {
+      console.warn('[latency-metrics] Failed to persist metrics:', error)
     }
   }, 0)
 }
@@ -113,13 +114,5 @@ export function useLatencyMetrics() {
     persistMetrics(finalized)
   }, [])
 
-  const getMetrics = useCallback((turnId: string): LatencyMetrics | undefined => {
-    return metricsRef.current.get(turnId)
-  }, [])
-
-  const getAllMetrics = useCallback((): LatencyMetrics[] => {
-    return Array.from(metricsRef.current.values())
-  }, [])
-
-  return { record, finalize, getMetrics, getAllMetrics }
+  return { record, finalize }
 }
