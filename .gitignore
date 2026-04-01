@@ -21,6 +21,7 @@ test-audio.wav
 
 # Screenshots
 image.png
+fish-audio-*.png
 
 # Environment variables
 .env
@@ -66,6 +67,12 @@ temp/
 
 # MCP configuration
 .mcp.json
+.playwright-mcp/
+
+# Plugin/tool directories
+.serena/
+tools/
+docs/superpowers/
 
 # TypeScript build info
 *.tsbuildinfo
