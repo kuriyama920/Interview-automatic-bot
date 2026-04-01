@@ -123,11 +123,11 @@ function DownloadCard({
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-content">{title}</h3>
           <p className="text-sm text-content-secondary mt-1 leading-relaxed">{description}</p>
-          {asset && (
-            <p className="text-xs text-content-tertiary mt-2">
-              {asset.name} ({formatFileSize(asset.size)})
-            </p>
-          )}
+          <p className="text-xs text-content-tertiary mt-2">
+            {asset
+              ? `${asset.name} (${formatFileSize(asset.size)})`
+              : `InterviewBot-Setup.exe`}
+          </p>
         </div>
       </div>
 

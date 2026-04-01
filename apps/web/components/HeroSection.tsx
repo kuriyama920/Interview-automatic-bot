@@ -48,13 +48,16 @@ export function HeroSection() {
             無料で始める
           </button>
           <a
-            href="#demo"
+            href="/download"
             className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl bg-surface text-content font-medium text-base border border-border hover:bg-surface-hover transition-all shadow-soft"
           >
-            <PlayIcon />
-            デモを見る
+            <DownloadIcon />
+            .exe をダウンロード
           </a>
         </div>
+        <p className="mt-3 text-xs text-content-tertiary animate-slide-up-delay-2">
+          InterviewBot-Setup.exe（約75MB）/ Windows 10/11 (64bit)
+        </p>
 
         {/* Stats */}
         <div className="mt-16 grid grid-cols-3 gap-8 max-w-lg mx-auto animate-slide-up-delay-2">
