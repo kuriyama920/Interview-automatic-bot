@@ -164,14 +164,14 @@ export function ProfileTab() {
             label="氏名（必須）"
             value={local.fullName}
             onChange={(e) => handleChange('fullName', e.target.value)}
-            placeholder="例: 栗山 直人"
+            placeholder="例: 田中 太郎"
             maxLength={200}
           />
           <Input
             label="ふりがな"
             value={local.nameReading || ''}
             onChange={(e) => handleChange('nameReading', e.target.value || undefined)}
-            placeholder="例: くりやま なおと"
+            placeholder="例: たなか たろう"
             maxLength={200}
           />
         </div>
@@ -192,7 +192,7 @@ export function ProfileTab() {
             label="ポジション"
             value={local.currentPosition || ''}
             onChange={(e) => handleChange('currentPosition', e.target.value || undefined)}
-            placeholder="例: シニアエンジニア"
+            placeholder="例: 営業マネージャー"
             maxLength={200}
           />
         </div>
@@ -213,7 +213,7 @@ export function ProfileTab() {
             label="ポジション"
             value={local.targetPosition || ''}
             onChange={(e) => handleChange('targetPosition', e.target.value || undefined)}
-            placeholder="例: テックリード"
+            placeholder="例: 事業企画"
             maxLength={200}
           />
         </div>
@@ -227,7 +227,7 @@ export function ProfileTab() {
             label="最終学歴"
             value={local.education || ''}
             onChange={(e) => handleChange('education', e.target.value || undefined)}
-            placeholder="例: 〇〇大学 工学部"
+            placeholder="例: 〇〇大学 経済学部"
             maxLength={200}
           />
           <Input
@@ -259,13 +259,13 @@ export function ProfileTab() {
           label="主要技術スキル"
           tags={local.technologies || []}
           onChange={(tags) => handleChange('technologies', tags.length > 0 ? tags : undefined)}
-          placeholder="例: TypeScript（Enterで追加）"
+          placeholder="例: Excel（Enterで追加）"
         />
         <TagInput
           label="資格"
           tags={local.certifications || []}
           onChange={(tags) => handleChange('certifications', tags.length > 0 ? tags : undefined)}
-          placeholder="例: AWS SAA（Enterで追加）"
+          placeholder="例: TOEIC 800（Enterで追加）"
         />
       </section>
 
