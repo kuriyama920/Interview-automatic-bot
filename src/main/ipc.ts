@@ -71,17 +71,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
   // 認証関連のIPCハンドラー
   // ============================================
 
-  ipcMain.handle('auth:getState', () => {
-    log.debug('auth:getState called')
-    try {
-      const state = authService.getAuthState()
-      return { success: true, state }
-    } catch (error) {
-      log.error('Failed to get auth state', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
-
   ipcMain.handle('auth:loginWithGoogle', async () => {
     log.info('auth:loginWithGoogle called')
     try {
@@ -111,16 +100,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       return { success: true, state }
     } catch (error) {
       log.error('Failed to logout', { error: String(error) })
-      return { success: false, error: String(error) }
-    }
-  })
-
-  ipcMain.handle('auth:getToken', () => {
-    try {
-      const token = authService.getAccessToken()
-      return { success: true, token }
-    } catch (error) {
-      log.error('Failed to get token', { error: String(error) })
       return { success: false, error: String(error) }
     }
   })
@@ -288,30 +267,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       service.send(buffer)
     } else if (audioChunkCount % 50 === 1) {
       log.warn('Audio received but STT not connected', { source: targetSource })
-    }
-  })
-
-  ipcMain.handle('stt:status', () => {
-    let connected = false
-    for (const [, service] of sttServices) {
-      if (service.isConnected()) {
-        connected = true
-        break
-      }
-    }
-    log.debug(`stt:status called, connected: ${connected}, services: ${sttServices.size}`)
-    return { connected }
-  })
-
-  // AI初期化（プロキシモード）
-  ipcMain.handle('ai:init', async () => {
-    log.info('ai:init called')
-    try {
-      aiService.initialize({ apiBaseUrl: API_BASE_URL })
-      return { success: true }
-    } catch (error) {
-      log.error('Failed to initialize AI', { error: String(error) })
-      return { success: false, error: String(error) }
     }
   })
 
@@ -491,21 +446,6 @@ export function setupIPC(mainWindow: BrowserWindow): void {
       log.error('Failed to prefetch context', { error: String(error) })
       return { success: false, error: String(error) }
     }
-  })
-
-  ipcMain.handle('ai:isV2Available', () => {
-    ensureAIInitialized()
-    return { success: true, available: aiService.isV2Available() }
-  })
-
-  ipcMain.handle('ai:resetV2', () => {
-    ensureAIInitialized()
-    aiService.resetV2()
-    return { success: true }
-  })
-
-  ipcMain.handle('ai:status', () => {
-    return { initialized: aiService.isInitialized() }
   })
 
   // Context初期化

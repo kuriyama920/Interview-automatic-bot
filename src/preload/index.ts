@@ -28,17 +28,12 @@ const ALLOWED_SEND_CHANNELS = ['stt:audio'] as const
 const ALLOWED_INVOKE_CHANNELS = [
   'stt:start',
   'stt:stop',
-  'stt:status',
-  'ai:init',
   'ai:generate',
   'ai:generateStream',
   'ai:generateStreamV2',
   'ai:summarize',
   'ai:prefetchContext',
   'ai:abort',
-  'ai:isV2Available',
-  'ai:resetV2',
-  'ai:status',
   'context:init',
   'document:upload',
   'document:list',
@@ -53,11 +48,9 @@ const ALLOWED_INVOKE_CHANNELS = [
   'profile:get',
   'profile:save',
   // 認証関連
-  'auth:getState',
   'auth:loginWithGoogle',
   'auth:validate',
   'auth:logout',
-  'auth:getToken',
   // 音声キャプチャ関連 (Phase 6.5)
   'audio:setSource',
   'audio:getSource',
@@ -98,16 +91,12 @@ let audioSendCount = 0
 const electronAPI = {
   // 認証API
   auth: {
-    getState: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
-      ipcRenderer.invoke('auth:getState'),
     loginWithGoogle: (): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('auth:loginWithGoogle'),
     validate: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
       ipcRenderer.invoke('auth:validate'),
     logout: (): Promise<{ success: boolean; state?: AuthState; error?: string }> =>
       ipcRenderer.invoke('auth:logout'),
-    getToken: (): Promise<{ success: boolean; token?: string | null; error?: string }> =>
-      ipcRenderer.invoke('auth:getToken'),
     onStateChanged: (callback: (state: AuthState) => void): (() => void) => {
       const handler = (_event: unknown, state: AuthState) => callback(state)
       ipcRenderer.on('auth:stateChanged', handler)
@@ -130,7 +119,6 @@ const electronAPI = {
       audioSendCount++
       ipcRenderer.send('stt:audio', Array.from(uint8Array), source)
     },
-    status: () => ipcRenderer.invoke('stt:status'),
     onTranscript: (callback: (result: TranscriptResult) => void) => {
       ipcRenderer.on('stt:transcript', (_event, result) => callback(result))
     },
@@ -141,7 +129,6 @@ const electronAPI = {
 
   // AI API
   ai: {
-    init: (apiKey?: string) => ipcRenderer.invoke('ai:init', apiKey),
     generate: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
       ipcRenderer.invoke('ai:generate', question, context, options),
     generateStream: (question: string, context?: string, options?: { includeDocumentContext?: boolean; maxTokens?: number }) =>
@@ -153,11 +140,6 @@ const electronAPI = {
     prefetchContext: (): Promise<{ success: boolean; context?: string; error?: string }> =>
       ipcRenderer.invoke('ai:prefetchContext'),
     abort: () => ipcRenderer.invoke('ai:abort'),
-    isV2Available: (): Promise<{ success: boolean; available?: boolean }> =>
-      ipcRenderer.invoke('ai:isV2Available'),
-    resetV2: (): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('ai:resetV2'),
-    status: () => ipcRenderer.invoke('ai:status'),
     onChunk: (callback: (chunk: string) => void) => {
       ipcRenderer.on('ai:chunk', (_event, chunk) => callback(chunk))
     },

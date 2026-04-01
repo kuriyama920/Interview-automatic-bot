@@ -50,23 +50,19 @@ declare global {
   interface Window {
     electron: {
       auth: {
-        getState: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
         loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
         validate: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
         logout: () => Promise<{ success: boolean; state?: AuthState; error?: string }>
-        getToken: () => Promise<{ success: boolean; token?: string | null; error?: string }>
         onStateChanged: (callback: (state: AuthState) => void) => () => void
       }
       stt: {
         start: () => Promise<{ success: boolean; error?: string }>
         stop: () => Promise<{ success: boolean; error?: string }>
         sendAudio: (audioData: ArrayBuffer, source?: 'mic' | 'system') => void
-        status: () => Promise<{ connected: boolean }>
         onTranscript: (callback: (result: TranscriptResult) => void) => void
         removeTranscriptListener: () => void
       }
       ai: {
-        init: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
         generate: (
           question: string,
           context?: string,
@@ -90,9 +86,6 @@ declare global {
         ) => Promise<{ success: boolean; summary?: string; error?: string }>
         prefetchContext: () => Promise<{ success: boolean; context?: string; error?: string }>
         abort: () => Promise<void>
-        isV2Available: () => Promise<{ success: boolean; available?: boolean }>
-        resetV2: () => Promise<{ success: boolean }>
-        status: () => Promise<{ initialized: boolean }>
         onChunk: (callback: (chunk: string) => void) => void
         onComplete: (callback: (response: AIResponse) => void) => void
         onError: (callback: (error: string) => void) => void

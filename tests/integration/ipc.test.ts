@@ -43,8 +43,6 @@ const mockAIService = vi.hoisted(() => ({
   generateStreamResponse: vi.fn(),
   generateStreamResponseV2: vi.fn(),
   isInitialized: vi.fn(() => false),
-  isV2Available: vi.fn(() => true),
-  resetV2: vi.fn(),
   summarizeTurn: vi.fn(),
 }))
 
@@ -65,11 +63,9 @@ vi.mock('../../src/services/session.service', () => ({
 // Mock authService
 const mockAuthService = vi.hoisted(() => ({
   addAuthStateListener: vi.fn(),
-  getAuthState: vi.fn(() => ({ isAuthenticated: false })),
   startGoogleLogin: vi.fn(),
   validateAndRefresh: vi.fn(),
   logout: vi.fn(),
-  getAccessToken: vi.fn(),
   authenticatedFetch: vi.fn(),
 }))
 
@@ -81,7 +77,6 @@ vi.mock('../../src/services/auth.service', () => ({
 const mockContextService = vi.hoisted(() => ({
   isInitialized: vi.fn(() => false),
   initialize: vi.fn(),
-  getRelevantContext: vi.fn(() => []),
   addDocument: vi.fn(),
   getDocuments: vi.fn(() => []),
   removeDocument: vi.fn(),
@@ -159,17 +154,12 @@ describe('IPC Handlers', () => {
       // STT handlers
       expect(mockIpcHandlers['stt:start']).toBeDefined()
       expect(mockIpcHandlers['stt:stop']).toBeDefined()
-      expect(mockIpcHandlers['stt:status']).toBeDefined()
       expect(mockIpcListeners['stt:audio']).toBeDefined()
 
       // AI handlers
-      expect(mockIpcHandlers['ai:init']).toBeDefined()
       expect(mockIpcHandlers['ai:generate']).toBeDefined()
       expect(mockIpcHandlers['ai:generateStream']).toBeDefined()
       expect(mockIpcHandlers['ai:generateStreamV2']).toBeDefined()
-      expect(mockIpcHandlers['ai:isV2Available']).toBeDefined()
-      expect(mockIpcHandlers['ai:resetV2']).toBeDefined()
-      expect(mockIpcHandlers['ai:status']).toBeDefined()
 
       // Phase 7: Subscription handlers
       expect(mockIpcHandlers['subscription:getPlans']).toBeDefined()
@@ -286,31 +276,6 @@ describe('IPC Handlers', () => {
     })
   })
 
-  describe('stt:status handler', () => {
-    it('should return connected status', async () => {
-      setupIPC(mockMainWindow)
-
-      // Start service
-      await mockIpcHandlers['stt:start']()
-
-      const result = mockIpcHandlers['stt:status']()
-
-      expect(result).toEqual({ connected: true })
-    })
-
-    it('should return disconnected status when no service', async () => {
-      mockSTTService.isConnected.mockReturnValue(false)
-      setupIPC(mockMainWindow)
-
-      // Ensure service is stopped
-      await mockIpcHandlers['stt:stop']()
-
-      const result = mockIpcHandlers['stt:status']()
-
-      expect(result).toEqual({ connected: false })
-    })
-  })
-
   describe('transcript forwarding', () => {
     it('should forward transcript to renderer', async () => {
       setupIPC(mockMainWindow)
@@ -339,23 +304,6 @@ describe('IPC Handlers', () => {
       expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('stt:transcript', {
         ...mockTranscript,
         source: 'system',
-      })
-    })
-  })
-
-  describe('ai:init handler', () => {
-    beforeEach(() => {
-      mockAIService.isInitialized.mockReturnValue(false)
-    })
-
-    it('should initialize AI service in proxy mode', async () => {
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:init'](null)
-
-      expect(result).toEqual({ success: true })
-      expect(mockAIService.initialize).toHaveBeenCalledWith({
-        apiBaseUrl: expect.any(String),
       })
     })
   })
@@ -660,57 +608,4 @@ describe('IPC Handlers', () => {
     })
   })
 
-  describe('ai:isV2Available handler', () => {
-    it('should return v2 availability status', async () => {
-      mockAIService.isInitialized.mockReturnValue(false)
-      mockAIService.isV2Available.mockReturnValue(true)
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:isV2Available']()
-
-      expect(result).toEqual({ success: true, available: true })
-    })
-
-    it('should return false when v2 is disabled', async () => {
-      mockAIService.isInitialized.mockReturnValue(false)
-      mockAIService.isV2Available.mockReturnValue(false)
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:isV2Available']()
-
-      expect(result).toEqual({ success: true, available: false })
-    })
-  })
-
-  describe('ai:resetV2 handler', () => {
-    it('should reset v2 and return success', async () => {
-      mockAIService.isInitialized.mockReturnValue(false)
-      setupIPC(mockMainWindow)
-
-      const result = await mockIpcHandlers['ai:resetV2']()
-
-      expect(result).toEqual({ success: true })
-      expect(mockAIService.resetV2).toHaveBeenCalled()
-    })
-  })
-
-  describe('ai:status handler', () => {
-    it('should return initialized status', async () => {
-      mockAIService.isInitialized.mockReturnValue(true)
-      setupIPC(mockMainWindow)
-
-      const result = mockIpcHandlers['ai:status']()
-
-      expect(result).toEqual({ initialized: true })
-    })
-
-    it('should return not initialized status', async () => {
-      mockAIService.isInitialized.mockReturnValue(false)
-      setupIPC(mockMainWindow)
-
-      const result = mockIpcHandlers['ai:status']()
-
-      expect(result).toEqual({ initialized: false })
-    })
-  })
 })
