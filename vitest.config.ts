@@ -22,13 +22,6 @@ export default defineConfig({
         'src/preload/index.ts',
       ],
     },
-    deps: {
-      optimizer: {
-        web: {
-          include: ['@deepgram/sdk'],
-        },
-      },
-    },
   },
   resolve: {
     alias: {

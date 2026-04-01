@@ -111,7 +111,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  1. Create .env file with your API keys:" -ForegroundColor White
-    Write-Host "     DEEPGRAM_API_KEY=your_key_here" -ForegroundColor Gray
+    Write-Host "     SONIOX_API_KEY=your_key_here" -ForegroundColor Gray
     Write-Host "     OPENAI_API_KEY=your_key_here" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  2. Start the application:" -ForegroundColor White
