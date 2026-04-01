@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   validateFileSize,
   validateFileType,
+  parseDocument,
   chunkText,
   estimateTokens,
 } from '../../src/lib/document-parser'
+import { Buffer } from 'node:buffer'
 
 describe('validateFileSize', () => {
   it('accepts files under 10MB', () => {
@@ -34,8 +36,13 @@ describe('validateFileType', () => {
     expect(validateFileType('DOCUMENT.DOCX')).toBe('docx')
   })
 
+  it('accepts TXT files', () => {
+    expect(validateFileType('document.txt')).toBe('txt')
+    expect(validateFileType('DOCUMENT.TXT')).toBe('txt')
+    expect(validateFileType('my.notes.txt')).toBe('txt')
+  })
+
   it('rejects unsupported types', () => {
-    expect(() => validateFileType('document.txt')).toThrow('Unsupported file type')
     expect(() => validateFileType('document.doc')).toThrow('Unsupported file type')
     expect(() => validateFileType('document.xlsx')).toThrow('Unsupported file type')
     expect(() => validateFileType('image.png')).toThrow('Unsupported file type')
@@ -80,6 +87,42 @@ describe('chunkText', () => {
     const text = 'Paragraph 1 content here.\n\nParagraph 2 content here.\n\nParagraph 3 content here.'
     const chunks = chunkText(text)
     expect(chunks.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('parseDocument (TXT)', () => {
+  it('parses plain text file', async () => {
+    const content = '職務経歴書\n\n氏名：テスト太郎\n\n職務要約\nエンジニアとして5年の経験があります。'
+    const buffer = Buffer.from(content, 'utf-8')
+    const result = await parseDocument(buffer, 'resume.txt')
+
+    expect(result.text).toBe(content)
+    expect(result.wordCount).toBeGreaterThan(0)
+    expect(result.pageCount).toBeUndefined()
+  })
+
+  it('trims whitespace from TXT', async () => {
+    const buffer = Buffer.from('  hello world  \n\n', 'utf-8')
+    const result = await parseDocument(buffer, 'test.txt')
+
+    expect(result.text).toBe('hello world')
+  })
+
+  it('returns empty text for empty TXT file', async () => {
+    const buffer = Buffer.from('', 'utf-8')
+    const result = await parseDocument(buffer, 'empty.txt')
+
+    expect(result.text).toBe('')
+    expect(result.wordCount).toBe(0)
+  })
+
+  it('handles UTF-8 Japanese text in TXT', async () => {
+    const content = '求人票\n会社名：株式会社テスト\n職種：フルスタックエンジニア\n給与：年収600万〜800万円'
+    const buffer = Buffer.from(content, 'utf-8')
+    const result = await parseDocument(buffer, 'job_posting.txt')
+
+    expect(result.text).toContain('株式会社テスト')
+    expect(result.text).toContain('フルスタックエンジニア')
   })
 })
 

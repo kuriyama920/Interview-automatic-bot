@@ -35,15 +35,17 @@ export function validateFileSize(size: number): void {
 /**
  * ファイル拡張子を検証
  */
-export function validateFileType(filename: string): 'pdf' | 'docx' {
+export function validateFileType(filename: string): 'pdf' | 'docx' | 'txt' {
   const extension = filename.toLowerCase().split('.').pop()
 
   if (extension === 'pdf') {
     return 'pdf'
   } else if (extension === 'docx') {
     return 'docx'
+  } else if (extension === 'txt') {
+    return 'txt'
   } else {
-    throw new Error(`Unsupported file type: ${extension}. Supported types: pdf, docx`)
+    throw new Error(`Unsupported file type: ${extension}. Supported types: pdf, docx, txt`)
   }
 }
 
@@ -62,30 +64,47 @@ async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
 }
 
 /**
+ * XMLエンティティをデコード
+ */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+}
+
+/**
  * DOCX XMLからテキストを抽出
  * w:t タグのテキストを抽出し、w:p（段落）ごとに改行を挿入
+ * w:br タグで行分割を保持
  */
 function extractTextFromDocxXml(xml: string): string {
   const paragraphs: string[] = []
 
-  // w:p タグで段落を分割
-  const pRegex = /<w:p[\s>][\s\S]*?<\/w:p>/g
+  // w:p タグで段落を分割（自己閉じタグも対応）
+  const pRegex = /<w:p[\s>][\s\S]*?<\/w:p>|<w:p\s*\/>/g
   let pMatch: RegExpExecArray | null
 
   while ((pMatch = pRegex.exec(xml)) !== null) {
     const pContent = pMatch[0]
-    const texts: string[] = []
+    const parts: string[] = []
 
-    // w:t タグからテキストを抽出
-    const tRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g
-    let tMatch: RegExpExecArray | null
+    // w:t と w:br タグを順番に処理
+    const tokenRegex = /<w:br\s*\/>|<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g
+    let tokenMatch: RegExpExecArray | null
 
-    while ((tMatch = tRegex.exec(pContent)) !== null) {
-      texts.push(tMatch[1])
+    while ((tokenMatch = tokenRegex.exec(pContent)) !== null) {
+      if (tokenMatch[0].startsWith('<w:br')) {
+        parts.push('\n')
+      } else if (tokenMatch[1] !== undefined) {
+        parts.push(decodeXmlEntities(tokenMatch[1]))
+      }
     }
 
-    if (texts.length > 0) {
-      paragraphs.push(texts.join(''))
+    if (parts.length > 0) {
+      paragraphs.push(parts.join(''))
     }
   }
 
@@ -114,6 +133,18 @@ async function parseDOCX(buffer: Buffer): Promise<ParsedDocument> {
 }
 
 /**
+ * TXTファイルを解析
+ */
+function parseTXT(buffer: Buffer): ParsedDocument {
+  const text = buffer.toString('utf-8').trim()
+
+  return {
+    text,
+    wordCount: text.split(/\s+/).filter(Boolean).length,
+  }
+}
+
+/**
  * ドキュメントを解析してテキストを抽出
  */
 export async function parseDocument(buffer: Buffer, filename: string): Promise<ParsedDocument> {
@@ -122,8 +153,10 @@ export async function parseDocument(buffer: Buffer, filename: string): Promise<P
 
   if (fileType === 'pdf') {
     return parsePDF(buffer)
-  } else {
+  } else if (fileType === 'docx') {
     return parseDOCX(buffer)
+  } else {
+    return parseTXT(buffer)
   }
 }
 
