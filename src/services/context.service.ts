@@ -3,13 +3,13 @@
  *
  * Phase 6: ローカルJSON保存からSupabase pgvector APIに移行
  * - ドキュメントのアップロード/削除/一覧: API経由
- * - ベクトル類似検索: API経由（match_documents関数）
+ * - ベクトル類似検索はWorker側(POST /api/documents/search)で実行
  */
 
 import { createLogger } from './logger.service'
 import { authService } from './auth.service'
 import { getConfig } from '../config/env-config'
-import type { DocumentMetadata, DocumentType, ContextResult } from '../types/document'
+import type { DocumentMetadata, DocumentType } from '../types/document'
 
 const log = createLogger('context-service')
 
@@ -39,20 +39,6 @@ interface ApiDocumentsListResponse {
     chunkCount: number
     wordCount?: number
     uploadedAt: string
-  }>
-  error?: string
-}
-
-interface ApiSearchResponse {
-  success: boolean
-  results: Array<{
-    documentId: string
-    documentName: string
-    documentType: DocumentType
-    chunks: Array<{
-      content: string
-      similarity: number
-    }>
   }>
   error?: string
 }
@@ -111,70 +97,6 @@ class ContextService {
       uploadedAt: new Date(data.document.uploadedAt).getTime(),
       chunkCount: data.document.chunkCount,
       totalTokens: Math.ceil((data.document.wordCount || 0) / 4),
-    }
-  }
-
-  /**
-   * 関連するコンテキストを取得（ベクトル類似検索）
-   */
-  async getRelevantContext(
-    query: string,
-    documentTypes?: DocumentType[]
-  ): Promise<ContextResult[]> {
-    if (!query.trim()) {
-      return []
-    }
-
-    log.debug('Searching for relevant context', { query: query.substring(0, 50) })
-
-    try {
-      const response = await authService.authenticatedFetch(
-        `${API_BASE_URL}/api/documents/search`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query,
-            topK: 3,
-            minSimilarity: 0.7,
-            documentTypes: documentTypes || null,
-          }),
-        }
-      )
-
-      if (!response.ok) {
-        // 認証エラーの場合は空の結果を返す（ログインページへリダイレクト促進）
-        if (response.status === 401) {
-          log.warn('Search failed: unauthorized')
-          return []
-        }
-        const errorData = (await response.json().catch(() => ({}))) as { error?: string }
-        log.error('Search failed', { error: errorData.error || response.status })
-        return []
-      }
-
-      const data = (await response.json()) as ApiSearchResponse
-
-      if (!data.success) {
-        log.error('Search failed', { error: data.error })
-        return []
-      }
-
-      // API応答をContextResult形式に変換
-      const results: ContextResult[] = data.results.map((result) => ({
-        chunks: result.chunks.map((c) => c.content),
-        documentType: result.documentType,
-        documentName: result.documentName,
-        similarity: result.chunks[0]?.similarity || 0,
-      }))
-
-      log.debug('Context retrieved', { resultCount: results.length })
-      return results
-    } catch (error) {
-      log.error('Failed to get relevant context', { error: String(error) })
-      return []
     }
   }
 

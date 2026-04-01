@@ -7,12 +7,8 @@ import { shell, BrowserWindow, net } from 'electron'
 import { createLogger } from './logger.service'
 import { tokenStorage } from './token-storage.service'
 import { getConfig } from '../config/env-config'
-import type {
-  AuthState,
-  AuthTokens,
-  User,
-  AuthMeResponse,
-} from '../types/auth'
+import type { AuthTokens, AuthMeResponse } from '../types/auth'
+import type { AuthState, User } from '../types/shared'
 
 const log = createLogger('auth-service')
 
@@ -352,7 +348,8 @@ class AuthService {
         return null
       }
       return { sub: payload.sub, exp: payload.exp }
-    } catch {
+    } catch (error) {
+      log.warn('JWT decode failed', { error: String(error) })
       return null
     }
   }

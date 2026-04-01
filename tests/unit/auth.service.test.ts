@@ -43,13 +43,15 @@ vi.mock('electron', () => ({
   net: { fetch: mockNetFetch },
 }))
 
+const mockLog = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
 vi.mock('../../src/services/logger.service', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
+  createLogger: () => mockLog,
 }))
 
 import { authService } from '../../src/services/auth.service'
@@ -441,6 +443,15 @@ describe('authService', () => {
 
     it('should return null for malformed base64 payload', () => {
       expect(decodeJWT('header.!!!invalid!!!.signature')).toBeNull()
+    })
+
+    it('should log warning when JWT decode throws an error', () => {
+      decodeJWT('header.!!!invalid!!!.signature')
+
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        'JWT decode failed',
+        expect.objectContaining({ error: expect.any(String) }),
+      )
     })
   })
 

@@ -10,7 +10,8 @@
 import Store from 'electron-store'
 import { safeStorage } from 'electron'
 import { createLogger } from './logger.service'
-import type { AuthTokens, User } from '../types/auth'
+import type { AuthTokens } from '../types/auth'
+import type { User } from '../types/shared'
 
 const log = createLogger('token-storage')
 

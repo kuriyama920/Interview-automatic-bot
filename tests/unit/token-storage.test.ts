@@ -45,7 +45,8 @@ vi.mock('../../src/services/logger.service', () => ({
 // --- Import under test ---
 
 import { tokenStorage } from '../../src/services/token-storage.service'
-import type { AuthTokens, User } from '../../src/types/auth'
+import type { AuthTokens } from '../../src/types/auth'
+import type { User } from '../../src/types/shared'
 
 // --- Test data ---
 

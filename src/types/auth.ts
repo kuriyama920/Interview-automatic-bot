@@ -1,68 +1,10 @@
 /**
- * 認証関連の型定義
+ * 認証固有の型定義
+ *
+ * 共通型（User, AuthState, SubscriptionTier など）は shared.ts を参照。
  */
 
-/**
- * 面接プロフィール（構造化された個人情報）
- */
-export interface InterviewProfile {
-  fullName: string
-  nameReading?: string
-  currentCompany?: string
-  currentPosition?: string
-  previousCompanies?: string[]
-  targetCompany?: string
-  targetPosition?: string
-  technologies?: string[]
-  certifications?: string[]
-  education?: string
-  yearsOfExperience?: number
-  additionalNotes?: string
-}
-
-/**
- * ユーザー情報
- */
-export interface User {
-  id: string
-  email: string
-  name: string | null
-  picture: string | null
-  subscriptionTier: SubscriptionTier
-  subscriptionStatus: SubscriptionStatus
-  subscriptionPeriodEnd: string | null
-  usage: UserUsage
-  interviewProfile: InterviewProfile | null
-}
-
-/**
- * 使用量情報
- */
-export interface UserUsage {
-  sttMinutes: number
-  aiTokens: number
-  storageBytes: number
-}
-
-/**
- * サブスクリプションティア
- */
-export type SubscriptionTier = 'free' | 'pro' | 'max'
-
-/**
- * サブスクリプション状態
- */
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
-
-/**
- * 認証状態
- */
-export interface AuthState {
-  isAuthenticated: boolean
-  isLoading: boolean
-  user: User | null
-  error: string | null
-}
+import type { User } from './shared'
 
 /**
  * 認証トークン
@@ -78,4 +20,3 @@ export interface AuthTokens {
 export interface AuthMeResponse {
   user: User
 }
-

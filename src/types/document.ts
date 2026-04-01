@@ -9,9 +9,3 @@ export interface DocumentMetadata {
   totalTokens: number
 }
 
-export interface ContextResult {
-  chunks: string[]
-  documentType: DocumentType
-  documentName: string
-  similarity: number
-}
