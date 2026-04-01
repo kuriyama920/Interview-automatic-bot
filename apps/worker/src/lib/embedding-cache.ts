@@ -33,7 +33,7 @@ export async function getCachedOrGenerateEmbedding(
 
   const cached = await cache.match(cacheKey)
   if (cached) {
-    return cached.json() as Promise<number[]>
+    return (await cached.json()) as number[]
   }
 
   const embedding = await generateEmbedding(question, apiKey, env)

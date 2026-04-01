@@ -485,6 +485,7 @@ app.post('/prefetch-context', async (c) => {
     .from('document_chunks')
     .select('content, documents!inner (type, name)')
     .eq('user_id', userId)
+    .is('documents.deleted_at', null)
     .in('documents.type', ['resume', 'job_posting', 'expected_qa'])
 
   if (error) {

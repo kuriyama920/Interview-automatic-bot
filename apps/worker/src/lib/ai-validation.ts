@@ -9,18 +9,18 @@ export const MAX_QUESTION_LENGTH = 2000
 export const MAX_CONTEXT_LENGTH = 30000
 
 // --- Generate constants ---
-export const DEFAULT_MODEL = 'gpt-5-nano'
-export const DEFAULT_MAX_TOKENS = 800
+const DEFAULT_MODEL = 'gpt-5-nano'
+const DEFAULT_MAX_TOKENS = 800
 export const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5.4-nano']
 export const MODELS_WITHOUT_TEMPERATURE = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5.4-nano']
 export const MODELS_WITH_REASONING = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5.4-nano']
 
 // --- Summarize constants ---
-export const MAX_SUMMARY_INPUT_LENGTH = 2000
-export const MAX_TURN_TEXT_LENGTH = 5000
+const MAX_SUMMARY_INPUT_LENGTH = 2000
+const MAX_TURN_TEXT_LENGTH = 5000
 
 // --- V2 constants ---
-export const MAX_SPECULATIVE_TEXT_LENGTH = 2000
+const MAX_SPECULATIVE_TEXT_LENGTH = 2000
 
 /** turnId のバリデーション正規表現（UUID hex形式） */
 const TURN_ID_PATTERN = /^[a-f0-9-]{1,64}$/
