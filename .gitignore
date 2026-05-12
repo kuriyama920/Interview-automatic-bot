@@ -26,7 +26,21 @@ fish-audio-*.png
 # Environment variables
 .env
 .env.local
+.env.production
+.env.development
+.env.staging
+.env.*.local
 .dev.vars
+
+# Cloudflare Workers local state
+.wrangler/
+
+# Certificates and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
 
 # Logs
 logs/

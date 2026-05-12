@@ -42,23 +42,16 @@ export async function generateTemporaryToken(
       }
     }
 
-    // 一時トークン取得失敗時はAPIキーを直接返す（JWT認証でアクセス制御済み）
     if (response.status === 403 || response.status === 404) {
-      console.warn(
-        `Soniox temporary API key endpoint returned ${response.status}. ` +
-        'Falling back to direct API key.'
+      throw new Error(
+        `Soniox temporary token endpoint unavailable (${response.status}). ` +
+        'Check API key permissions or endpoint availability.'
       )
-      return { token: apiKey, expiresIn: clampedTtl }
     }
 
     const errorText = await response.text().catch(() => 'Unknown error')
     throw new Error(`Soniox token generation failed (${response.status}): ${errorText}`)
   } catch (error) {
-    // fetch 自体の失敗（ネットワークエラー等）もフォールバック
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.warn('Soniox API unreachable, falling back to direct API key')
-      return { token: apiKey, expiresIn: clampedTtl }
-    }
     throw error
   }
 }

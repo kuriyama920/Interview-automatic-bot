@@ -311,7 +311,7 @@ async function handleCheckoutCompleted(
     clearDeniedCache(userId, 'ai_tokens'),
   ])
 
-  console.log(`[Webhook] User ${userId} upgraded to ${plan.tier}`)
+  console.log(`[Webhook] User ${userId.substring(0, 8)}... upgraded to ${plan.tier}`)
 }
 
 async function handleSubscriptionUpdated(
@@ -353,7 +353,7 @@ async function handleSubscriptionUpdated(
     clearDeniedCache(userId, 'ai_tokens'),
   ])
 
-  console.log(`[Webhook] Subscription updated for user ${userId}: ${plan.tier} (${status})`)
+  console.log(`[Webhook] Subscription updated for user ${userId.substring(0, 8)}...: ${plan.tier} (${status})`)
 }
 
 async function handleSubscriptionDeleted(
@@ -381,7 +381,7 @@ async function handleSubscriptionDeleted(
     clearDeniedCache(userId, 'ai_tokens'),
   ])
 
-  console.log(`[Webhook] Subscription deleted for user ${userId}, downgraded to free`)
+  console.log(`[Webhook] Subscription deleted for user ${userId.substring(0, 8)}..., downgraded to free`)
 }
 
 async function handlePaymentFailed(
@@ -403,7 +403,7 @@ async function handlePaymentFailed(
     console.error('[Webhook] Failed to update status to past_due:', error)
   }
 
-  console.log(`[Webhook] Payment failed for user ${userId}, marked as past_due`)
+  console.log(`[Webhook] Payment failed for user ${userId.substring(0, 8)}..., marked as past_due`)
 }
 
 async function handleInvoicePaid(
@@ -425,7 +425,7 @@ async function handleInvoicePaid(
     console.error('[Webhook] Failed to update status to active:', error)
   }
 
-  console.log(`[Webhook] Invoice paid for user ${userId}, status set to active`)
+  console.log(`[Webhook] Invoice paid for user ${userId.substring(0, 8)}..., status set to active`)
 }
 
 export default app

@@ -27,16 +27,16 @@ export function isAllowedOrigin(url: string): boolean {
     if (isExplicitlyAllowed) return true
 
     // Cloudflare Pagesプレビューデプロイメント
-    // {hash}.interview-bot-web.pages.dev 形式のみ許可
-    //
-    // セキュリティ注意: このワイルドカード許可により、プレビューデプロイメントが
-    // 本番APIにアクセス可能です。本番デプロイ時は以下を実施すること:
-    // 1. Cloudflare Pages設定でプレビューデプロイメントを信頼メンバーに制限
-    //    (Settings > Build & Deploy > Preview deployments > Restrict to team members)
-    // 2. 必要に応じて PREVIEW_BRANCH_ALLOWLIST 環境変数で許可ブランチを制御
+    // {hash}.interview-bot-web.pages.dev 形式
+    // セキュリティ: 8文字hex + プロジェクト名の形式のみ許可（任意サブドメインは拒否）
     const hostname = parsed.hostname
     if (hostname.endsWith('.interview-bot-web.pages.dev')) {
-      return true
+      const subdomain = hostname.replace('.interview-bot-web.pages.dev', '')
+      // Cloudflare Pagesプレビューは {8char-hex}.project.pages.dev 形式
+      if (/^[a-f0-9]{8}$/.test(subdomain)) {
+        return true
+      }
+      return false
     }
 
     return false

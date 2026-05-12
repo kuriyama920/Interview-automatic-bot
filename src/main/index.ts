@@ -54,6 +54,24 @@ function createWindow(): typeof BrowserWindow.prototype {
     },
   })
 
+  // Content Security Policy
+  const apiBaseUrl = process.env.MAIN_VITE_API_BASE_URL || 'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          `default-src 'self'; ` +
+          `script-src 'self'; ` +
+          `style-src 'self' 'unsafe-inline'; ` +
+          `connect-src 'self' ${apiBaseUrl} wss://stt-rt.soniox.com; ` +
+          `img-src 'self' data: https:; ` +
+          `font-src 'self';`
+        ],
+      },
+    })
+  })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })

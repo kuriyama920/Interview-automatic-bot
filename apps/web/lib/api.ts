@@ -3,9 +3,11 @@
  * 認証セッション作成、ポーリング、Stripe Checkout 作成
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'https://interview-bot-api.interviewautomaticbot92.workers.dev'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+
+if (!API_BASE_URL) {
+  console.warn('Missing NEXT_PUBLIC_API_BASE_URL env var')
+}
 
 export interface AuthSessionResponse {
   sessionId: string
@@ -33,8 +35,12 @@ export interface CheckoutResponse {
 // プランID → Stripe Price ID マッピング
 // subscription_plans テーブルの値と一致させる
 const PLAN_PRICE_MAP: Record<string, string> = {
-  pro: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID || 'price_1T9KGPQyYpkxuJojeFrxaHTt',
-  max: process.env.NEXT_PUBLIC_STRIPE_MAX_PRICE_ID || 'price_1T9KGSQyYpkxuJoj7ljkjRGC',
+  pro: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID || '',
+  max: process.env.NEXT_PUBLIC_STRIPE_MAX_PRICE_ID || '',
+}
+
+if (!PLAN_PRICE_MAP.pro || !PLAN_PRICE_MAP.max) {
+  console.warn('Missing NEXT_PUBLIC_STRIPE_PRO_PRICE_ID or NEXT_PUBLIC_STRIPE_MAX_PRICE_ID env vars')
 }
 
 export function getPriceIdForPlan(planId: string): string | null {

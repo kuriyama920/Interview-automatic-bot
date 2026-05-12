@@ -7,7 +7,7 @@
 
 ## 現状（2026-03-27 MCP確認）
 
-- Stripeアカウント: `acct_1T5jTrQyYpkxuJoj`（面接アシスタント）
+- Stripeアカウント: `acct_XXXXXXXXXXXX`
 - モード: **本番（livemode: true）**
 - 残高: ¥0
 - 顧客: 0人 / サブスク: 0件 / 決済: 0件
@@ -17,34 +17,31 @@
 
 | 項目 | 本番値 |
 |------|--------|
-| Product: Pro | `prod_U7ZP1og8c3VSpe` |
-| Product: Max | `prod_U7ZPm2el6FpoXu` |
-| Pro Price ID | `price_1T9KGPQyYpkxuJojeFrxaHTt`（¥2,980/月） |
-| Max Price ID | `price_1T9KGSQyYpkxuJoj7ljkjRGC`（¥14,800/月） |
+| Product: Pro | `prod_XXXXXXXXXXXX` |
+| Product: Max | `prod_XXXXXXXXXXXX` |
+| Pro Price ID | `price_XXXXXXXXXXXX`（¥2,980/月） |
+| Max Price ID | `price_XXXXXXXXXXXX`（¥14,800/月） |
+
+> **注意**: 実際のStripe IDは環境変数またはStripeダッシュボードで管理してください。
 
 ### Supabase DB の現在値（不一致あり）
 
 | プラン | DB内 Price ID | Stripe本番 Price ID | 状態 |
 |--------|--------------|-------------------|------|
 | Free | null | — | OK |
-| Pro | `price_1T5jdGJYscx9GZNhlwROF46u` | `price_1T9KGPQyYpkxuJojeFrxaHTt` | **不一致** |
-| Max | `price_1T5jcKJYscx9GZNhz5epevXW` | `price_1T9KGSQyYpkxuJoj7ljkjRGC` | **不一致** |
+| Pro | （DBで確認） | （Stripeダッシュボードで確認） | **不一致** |
+| Max | （DBで確認） | （Stripeダッシュボードで確認） | **不一致** |
 
 ### コード内のハードコード箇所
 
 | ファイル | 行 | 内容 | 状態 |
 |---------|-----|------|------|
-| `apps/web/lib/api.ts` | L36 | `price_1T5jdGJYscx9GZNhlwROF46u`（Pro フォールバック） | **要更新** |
-| `apps/web/lib/api.ts` | L37 | `price_1T5jcKJYscx9GZNhz5epevXW`（Max フォールバック） | **要更新** |
+| `apps/web/lib/api.ts` | L36 | 環境変数 `NEXT_PUBLIC_STRIPE_PRO_PRICE_ID` を使用 | ✅ 対応済 |
+| `apps/web/lib/api.ts` | L37 | 環境変数 `NEXT_PUBLIC_STRIPE_MAX_PRICE_ID` を使用 | ✅ 対応済 |
 
 ### Supabase profiles テストデータ
 
-| メール | プラン | stripe_customer_id | 対応 |
-|--------|--------|-------------------|------|
-| gorigori…@gmail.com | max | `cus_TyjEdSai6xN7DY`（テスト用） | **要リセット** |
-| seinou…@gmail.com | free(canceled) | `cus_TyjLkjYaJj7tTF`（テスト用） | **要クリア** |
-| naotodx…@gmail.com | free | null | OK |
-| interviewautomaticbot@gmail.com | free | null | OK |
+テストデータの具体的な情報はSupabaseダッシュボードで確認してください。
 
 ---
 
@@ -62,7 +59,7 @@
 
 - [ ] **A.5-1: 特定商取引法URL提出**
   - Stripeダッシュボード → 上部バナーの追加審査タスク
-  - URL: `https://interview-bot-web.pages.dev/tokushoho`
+  - URL: 本番の特商法ページURL
   - ページは作成・デプロイ済み ✅
   - **Stripeフォームに上記URLを入力して送信するだけ**
 
@@ -71,12 +68,11 @@
 ### Phase B: 本番用Stripe設定 ✅一部完了
 
 - [x] **B-1: 本番用商品・価格を作成**
-  - Pro: `price_1T9KGPQyYpkxuJojeFrxaHTt`（¥2,980/月）
-  - Max: `price_1T9KGSQyYpkxuJoj7ljkjRGC`（¥14,800/月）
+  - Pro / Max の Price ID を Stripe ダッシュボードで確認
 
 - [ ] **B-2: 本番用Webhookエンドポイント作成**
   - Stripeダッシュボード（Liveモード）→ 開発者 → Webhook → エンドポイントを追加
-  - URL: `https://interview-bot-api.interviewautomaticbot92.workers.dev/api/stripe/webhook`
+  - URL: 環境変数 `API_BASE_URL` + `/api/stripe/webhook`
   - 受信するイベント（5つ選択）:
     - `checkout.session.completed`
     - `customer.subscription.updated`
@@ -84,7 +80,6 @@
     - `invoice.payment_failed`
     - `invoice.paid`
   - 作成後の署名シークレット（`whsec_...`）を控える
-  - 控えた値: `________________`
 
 - [ ] **B-3: カスタマーポータル設定**
   - Stripeダッシュボード（Liveモード）→ 設定 → Billing → カスタマーポータル
@@ -94,7 +89,6 @@
 
 - [ ] **B-4: 本番用APIキーを確認**
   - Stripeダッシュボード（Liveモード）→ 開発者 → APIキー
-  - シークレットキー（`sk_live_...`）を控える: `________________`
 
 ---
 
@@ -122,17 +116,17 @@
 - [ ] **D-1: Supabase `subscription_plans` テーブルのPrice ID更新**
   ```sql
   UPDATE subscription_plans
-  SET stripe_price_id_monthly = 'price_1T9KGPQyYpkxuJojeFrxaHTt'
+  SET stripe_price_id_monthly = '<YOUR_PRO_PRICE_ID>'
   WHERE id = 'pro';
 
   UPDATE subscription_plans
-  SET stripe_price_id_monthly = 'price_1T9KGSQyYpkxuJoj7ljkjRGC'
+  SET stripe_price_id_monthly = '<YOUR_MAX_PRICE_ID>'
   WHERE id = 'max';
   ```
 
-- [ ] **D-2: `apps/web/lib/api.ts` のフォールバックPrice ID更新**
-  - L36: `price_1T5jdGJYscx9GZNhlwROF46u` → `price_1T9KGPQyYpkxuJojeFrxaHTt`
-  - L37: `price_1T5jcKJYscx9GZNhz5epevXW` → `price_1T9KGSQyYpkxuJoj7ljkjRGC`
+- [ ] **D-2: `apps/web/lib/api.ts` のPrice ID環境変数を設定**
+  - `NEXT_PUBLIC_STRIPE_PRO_PRICE_ID` を設定
+  - `NEXT_PUBLIC_STRIPE_MAX_PRICE_ID` を設定
 
 - [ ] **D-3: テストデータのクリーンアップ**
   ```sql
@@ -180,11 +174,6 @@
   stripe trigger checkout.session.completed --live
   stripe trigger customer.subscription.updated --live
   ```
-  - **または実カードで少額テスト→即返金**:
-    1. アプリからProプラン購入（¥2,980）
-    2. Stripeダッシュボードで支払い成功を確認
-    3. DB反映を確認（`subscription_tier = 'pro'`）
-    4. Stripeダッシュボードで即全額返金
 
 - [ ] **E-3: ポータルアクセス確認**
   - サブスクリプション管理画面が正しく表示されること
@@ -195,11 +184,6 @@
   stripe trigger customer.subscription.deleted --live
   stripe trigger invoice.payment_failed --live
   stripe trigger invoice.paid --live
-  ```
-
-- [ ] **E-5: E2Eスクリプト実行**
-  ```powershell
-  .\scripts\e2e-stripe-test.ps1 -JwtToken "本番JWT"
   ```
 
 ---
@@ -215,7 +199,7 @@ C-1 → C-2（環境変数更新 → Worker再デプロイ）
   ↓
 D-1〜D-4（DB更新、コード更新、テストデータクリーンアップ、Web再デプロイ）
   ↓
-E-1〜E-5（検証）
+E-1〜E-4（検証）
 ```
 
 ## 本番テストの方法
