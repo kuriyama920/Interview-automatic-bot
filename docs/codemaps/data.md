@@ -193,7 +193,7 @@ type Env = {
   SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY: string
   OPENAI_API_KEY: string
   STRIPE_SECRET_KEY: string; STRIPE_WEBHOOK_SECRET: string
-  CRON_SECRET: string; DEEPGRAM_API_KEY: string
+  CRON_SECRET: string; SONIOX_API_KEY: string
 }
 type Variables = {
   supabase: SupabaseClient; jwtPayload: JWTPayload

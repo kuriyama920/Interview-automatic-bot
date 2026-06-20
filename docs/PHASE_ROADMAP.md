@@ -34,7 +34,7 @@
               └───────┬───────┘
                       │
               ┌───────▼───────┐
-              │   Deepgram    │
+              │    Soniox     │
               │  (文字起こし)  │
               └───────────────┘
 ```
@@ -164,7 +164,6 @@ Electron [プラン管理] → IPC → /api/stripe/checkout → Checkout Session
 | src/preload/index.ts | subscription IPC チャンネル追加 |
 | src/main/ipc.ts | subscription ハンドラー 4 本追加 |
 | src/renderer/src/hooks/useSubscription.ts | サブスクリプション管理フック |
-| src/renderer/src/components/SubscriptionModal.tsx | プラン選択/管理モーダル |
 | src/renderer/src/App.tsx | ユーザーメニューにプラン管理ボタン追加 |
 
 ### Stripe設定手順
@@ -195,15 +194,15 @@ CRON_SECRET=your-cron-secret
 ## Phase 8: APIプロキシ ✅ 実装済み
 
 ### 目的
-Deepgram/OpenAI APIを運用者のキーで実行（ユーザーはAPIキー不要）。使用量追跡・制限チェックも同時に実装。
+Soniox/OpenAI APIを運用者のキーで実行（ユーザーはAPIキー不要）。使用量追跡・制限チェックも同時に実装。
 
 ### アーキテクチャ
 
 #### STTフロー
 ```
 Electron → POST /api/stt/token (JWT)
-  → 使用量チェック → カスタムキー確認 → Deepgram一時トークン発行(10分TTL)
-  → Electron → Deepgram WebSocket (一時トークン) → 音声ストリーミング
+  → 使用量チェック → カスタムキー確認 → Soniox一時APIキー発行(10分TTL)
+  → Electron → Soniox WebSocket (wss://stt-rt.soniox.com) → 音声ストリーミング
   → セッション終了 → POST /api/stt/usage (JWT) → 使用量記録
 ```
 
@@ -211,7 +210,7 @@ Electron → POST /api/stt/token (JWT)
 ```
 Electron → POST /api/ai/generate (JWT + SSE)
   → 使用量チェック → pgvector RAGコンテキスト取得
-  → OpenAI GPT-5 Mini ストリーミング → SSEレスポンス
+  → OpenAI gpt-5-nano/gpt-5.4-nano ストリーミング → SSEレスポンス
   → 完了時に使用量記録 (トークン数)
 ```
 
@@ -221,7 +220,7 @@ Electron → POST /api/ai/generate (JWT + SSE)
 | ファイル | 目的 |
 |---------|------|
 | lib/usage.ts | 使用量チェック (checkUsageLimit) + 記録 (recordUsage) + カスタムキー確認 |
-| lib/deepgram.ts | Deepgram一時トークン生成（遅延初期化 Proxy パターン） |
+| lib/stt-token.ts | Soniox一時APIキー生成（temporary-api-key REST、10分TTL） |
 | api/stt/unified.ts | STT統合（token + usage）- __route パラメータで分岐 |
 | api/ai/unified.ts | AI統合（generate + embeddings）- __route パラメータで分岐 |
 
@@ -240,15 +239,15 @@ Electron → POST /api/ai/generate (JWT + SSE)
 ### APIエンドポイント
 | エンドポイント | 機能 | 認証 |
 |---------------|------|------|
-| POST /api/stt/token | Deepgram一時トークン発行 | JWT必須 |
+| POST /api/stt/token | Soniox一時APIキー発行 | JWT必須 |
 | POST /api/stt/usage | STT使用量報告 | JWT必須 |
-| POST /api/ai/generate | GPT-5 Mini SSEストリーミング | JWT必須 |
+| POST /api/ai/generate | gpt-5-nano/gpt-5.4-nano SSEストリーミング | JWT必須 |
 | POST /api/ai/embeddings | Embeddings生成 | JWT必須 |
 
 ### セキュリティ
 - JWT認証必須（全エンドポイント）
 - 使用量制限チェック（超過時 429 エラー）
-- Deepgramトークン10分有効期限
+- Soniox一時APIキー10分有効期限
 - CORS制限
 - セッション使用量上限120分（悪用防止）
 
@@ -266,7 +265,7 @@ Electron → POST /api/ai/generate (JWT + SSE)
 - [x] ipc.ts プロキシ対応ハンドラー
 - [x] DBマイグレーション 009 (インデックス)
 - [x] Cloudflare Workersデプロイ + API動作確認
-- [x] Deepgram/OpenAI APIキーをCloudflare Workers環境変数に設定
+- [x] Soniox/OpenAI APIキーをCloudflare Workers環境変数に設定
 
 ---
 

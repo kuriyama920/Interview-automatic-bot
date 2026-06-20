@@ -30,8 +30,8 @@
     │  └──────┬───────────┬──────────┬──────────────┘  │
     │         │           │          │                  │
     │    ┌────▼────┐ ┌────▼────┐ ┌──▼───────┐         │
-    │    │Supabase │ │ OpenAI  │ │ Deepgram │         │
-    │    │PostgreSQL│ │ GPT-5  │ │ nova-2   │         │
+    │    │Supabase │ │ OpenAI  │ │ Soniox   │         │
+    │    │PostgreSQL│ │ GPT-5  │ │ stt-rt   │         │
     │    │+pgvector│ │         │ │          │         │
     │    └─────────┘ └─────────┘ └──────────┘         │
     │         │                                        │
@@ -84,7 +84,7 @@ interview-automatic-bot/          # Root (Electron app)
 | Electron → Workers | HTTPS + SSE | JWT Bearer | API proxy for all services |
 | Workers → Supabase | PostgreSQL | Service Role Key | User data, documents, usage |
 | Workers → OpenAI | HTTPS | API Key | GPT-5 generation, embeddings |
-| Workers → Deepgram | HTTPS | API Key → Temp Token | STT token provisioning |
+| Workers → Soniox | HTTPS | API Key → Temp Token | STT token provisioning |
 | Workers → Stripe | HTTPS + Webhook | Secret Key + Webhook Secret | Checkout, subscription |
 | Web → Workers | HTTPS | JWT (checkout flow) | Auth session, Stripe checkout |
 | Electron ← OAuth | Deep Link | interview-bot:// | Google OAuth callback |
@@ -106,7 +106,7 @@ interview-automatic-bot/          # Root (Electron app)
 
 ```
 Mic → getUserMedia() ─────────────┐
-                                  ├→ AudioWorklet → 16kHz PCM → Deepgram WS
+                                  ├→ AudioWorklet → 16kHz PCM → Soniox WS
 System → setDisplayMediaRequestHandler ┘     (via temp token from /api/stt/token)
 ```
 

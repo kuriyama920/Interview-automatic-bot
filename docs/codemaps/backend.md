@@ -45,7 +45,7 @@ src/index.ts
 #### stt.ts (2 endpoints)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | /token | JWT | Get Deepgram temp token (10min) |
+| POST | /token | JWT | Get Soniox temp API key (10min) |
 | POST | /usage | JWT | Report STT minutes used |
 
 #### stripe.ts (5 endpoints)
@@ -87,7 +87,7 @@ lib/usage.ts         → Supabase RPC (check_and_reserve_usage, adjust_reserved_
 lib/stripe.ts        → stripe SDK
 lib/subscription.ts  → stripe, supabase
 lib/openai.ts        → openai SDK (text-embedding-3-small)
-lib/deepgram.ts      → fetch (Deepgram REST API)
+lib/stt-token.ts     → fetch (Soniox temporary-api-key REST)
 lib/prompts.ts       → (pure data, no deps)
 lib/profile.ts       → (pure utility, no deps)
 lib/validation.ts    → (pure utility, no deps)
@@ -101,7 +101,7 @@ lib/auth-pages.ts    → (pure HTML templates)
 ### Route → Lib Dependency Matrix
 
 ```
-             auth supa usage stripe sub openai deep prompt prof valid docprs origin url quality authpg
+             auth supa usage stripe sub openai sttk prompt prof valid docprs origin url quality authpg
 auth.ts       ✓    ✓                                              ✓         ✓     ✓          ✓
 ai.ts              ✓    ✓                  ✓          ✓     ✓
 stt.ts             ✓    ✓                        ✓
@@ -126,7 +126,7 @@ middleware/cors.ts  → ALLOWED_ORIGINS whitelist + Cloudflare Pages preview sup
 |---------|---------|---------|
 | hono | 4.7.0 | Web framework |
 | @supabase/supabase-js | 2.39.0 | Database client |
-| openai | 4.28.0 | AI generation + embeddings |
+| openai | 6.32.0 | AI generation + embeddings |
 | stripe | 14.14.0 | Payment processing |
 | pdf-parse | 1.1.1 | PDF document parsing |
 | mammoth | 1.6.0 | DOCX document parsing |
@@ -146,7 +146,7 @@ tests/
 
 ```
 auth.service.ts    → Singleton, electron-store (AES), OAuth polling, JWT management
-stt.service.ts     → Class (per source), @deepgram/sdk WebSocket, 16kHz PCM
+stt.service.ts     → Class (per source), ws WebSocket (wss://stt-rt.soniox.com), 16kHz PCM
 ai.service.ts      → Singleton, SSE streaming via authenticatedFetch, phase tracking
 context.service.ts → Singleton, document upload (FormData), pgvector search proxy
 questions.service.ts → Singleton, Q&A CRUD + AI generation proxy
@@ -157,7 +157,7 @@ logger.service.ts  → Factory, Winston (console + file, 5MB rolling)
 
 ```
 authService.authenticatedFetch → All /api/* endpoints (JWT Bearer)
-STTService.connect             → Deepgram WS (via temp token from /api/stt/token)
+STTService.connect             → Soniox WS (via temp token from /api/stt/token)
 aiService.generateStreamResponse → POST /api/ai/generate (SSE)
 aiService.summarizeTurn        → POST /api/ai/summarize
 contextService.addDocument     → POST /api/documents (FormData)

@@ -77,10 +77,6 @@ export function findInstallerAsset(assets: ReleaseAsset[]): ReleaseAsset | undef
   return assets.find((a) => a.name.includes('Setup') && a.name.endsWith('.exe'))
 }
 
-export function findPortableAsset(assets: ReleaseAsset[]): ReleaseAsset | undefined {
-  return assets.find((a) => a.name.includes('Portable') && a.name.endsWith('.exe'))
-}
-
 export function formatFileSize(bytes: number): string {
   const mb = bytes / (1024 * 1024)
   return `${mb.toFixed(1)} MB`

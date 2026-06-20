@@ -69,22 +69,3 @@ export function analyzeMetrics(records: LatencyMetrics[]): {
     ragTimeoutRate,
   }
 }
-
-/** コンソールにレポートを出力 */
-export function printReport(records: LatencyMetrics[]): void {
-  const stats = analyzeMetrics(records)
-  console.log('=== TTFT（音声受信→UI描画） ===')
-  console.log(`  p50: ${stats.ttft.p50}ms`)
-  console.log(`  p95: ${stats.ttft.p95}ms`)
-  console.log(`  max: ${stats.ttft.max}ms`)
-  console.log(`  サンプル数: ${stats.ttft.count}`)
-  console.log('=== 前処理時間（Worker受信→OpenAI呼出） ===')
-  console.log(`  p50: ${stats.preProcTime.p50}ms`)
-  console.log(`  p95: ${stats.preProcTime.p95}ms`)
-  console.log('=== OpenAI TTFB ===')
-  console.log(`  p50: ${stats.openaiTtfb.p50}ms`)
-  console.log(`  p95: ${stats.openaiTtfb.p95}ms`)
-  console.log(
-    `\n=== RAG タイムアウト率: ${(stats.ragTimeoutRate * 100).toFixed(1)}% ===`
-  )
-}

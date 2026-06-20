@@ -21,8 +21,8 @@
 | 言語 | TypeScript | 5.3 | 全レイヤー（strict mode） |
 | ビルドツール | electron-vite + Vite 5 | 2.0 | Electron統合ビルド・HMR |
 | スタイリング | Tailwind CSS + DaisyUI | 3.4 / 4.6 | ユーティリティCSS + UIコンポーネント |
-| 音声認識 | Deepgram SDK | 3.4 | WebSocketリアルタイムSTT |
-| AI統合 | OpenAI SDK | 4.28 | GPT-5 Nano SSEストリーミング |
+| 音声認識 | Soniox v4 RT | - | WebSocketリアルタイムSTT |
+| AI統合 | Worker APIプロキシ | - | gpt-5-nano/gpt-5.4-nano SSE受信 |
 | ローカル保存 | electron-store | 8.1 | AES暗号化キーバリューストア |
 | ロギング | Winston | 3.11 | 構造化ログ（console + file rotate） |
 | インストーラー | electron-builder | 24.9 | NSIS + ポータブル版 |
@@ -36,10 +36,10 @@
 | 言語 | TypeScript | 5.3 | strict mode |
 | データベース | Supabase PostgreSQL | - | RDB + pgvector拡張 |
 | ベクトル検索 | pgvector | - | コサイン類似度検索（1536次元） |
-| AI | OpenAI API | 4.28 | GPT-5 Nano + text-embedding-3-small |
+| AI | OpenAI API | 6.32 | GPT-5 Nano + text-embedding-3-small |
 | 決済 | Stripe | 14.14 | Checkout + Customer Portal + Webhook |
 | 認証 | Google OAuth 2.0 + JWT | - | HMAC-SHA256署名（Web Crypto API） |
-| 音声認識 | Deepgram API | - | 一時トークン発行 |
+| 音声認識 | Soniox API | - | 一時APIキー発行(10分) |
 | ドキュメント解析 | pdf-parse / mammoth | 1.1 / 1.6 | PDF・DOCX解析 |
 | Cronジョブ | Cloudflare Cron Triggers | - | 月次使用量リセット |
 
@@ -52,7 +52,6 @@
 | Reactテスト | @testing-library/react | 14.1 | コンポーネントテスト |
 | DOM環境 | happy-dom | 20.5 | 軽量DOM環境 |
 | カバレッジ | @vitest/coverage-v8 | - | 80%以上（閾値設定済み） |
-| リント | ESLint | 8.56 | TypeScript + React |
 | フォーマット | Prettier | 3.2 | 統一コードスタイル |
 
 ### インフラ・CI/CD
@@ -87,8 +86,8 @@
                    │
       ┌────────────┼────────────┬──────────┐
       ↓            ↓            ↓          ↓
-  Supabase     OpenAI API   Deepgram    Stripe
-  PostgreSQL   GPT-5 Nano   Nova-2      Checkout
+  Supabase     OpenAI API   Soniox      Stripe
+  PostgreSQL   GPT-5 Nano   stt-rt      Checkout
   + pgvector   Embeddings   WebSocket   Webhook
 ```
 
@@ -103,7 +102,7 @@
 ```
 src/services/
 ├── auth.service.ts      # OAuth + JWT + 暗号化トークン管理
-├── stt.service.ts       # Deepgram WebSocket接続管理
+├── stt.service.ts       # Soniox WebSocket接続管理
 ├── ai.service.ts        # SSEストリーミング + AbortController
 ├── context.service.ts   # RAGベクトル検索
 ├── questions.service.ts # 想定質問管理
@@ -176,13 +175,13 @@ src/services/
 - Cron Triggers（毎月1日 00:00 UTC）で月次リセット
 - リソース別制限（STT分数 / AIトークン / ドキュメント数）
 
-### 8. Deepgram WebSocket STT
+### 8. Soniox WebSocket STT
 
-- Nova-2モデル（日本語）
-- interim_results + is_final の二重ストリーム
-- VAD（音声活動検知）による無音区間自動検出
-- 5秒間隔keepAlive
-- 一時トークン発行（10分TTL）+ フォールバック機構
+- stt-rt（v4 RT）モデル（日本語 language_hints: ['ja']）
+- is_final トークンによる確定／暫定の二重ストリーム
+- enable_endpoint_detection による無音区間自動検出
+- 15秒間隔keepAlive（Soniox 20秒制限に余裕）
+- 一時APIキー発行（10分TTL、フォールバックなし）
 
 ---
 
@@ -207,7 +206,7 @@ src/services/
 |---------|------|---------|-------|
 | ユニット | サービス層、コンポーネント、ユーティリティ | 30+ | Vitest + Testing Library |
 | 統合 | IPC通信、サービス間連携 | 10+ | Vitest |
-| Workers | JWT、ミドルウェア、ルート | 17 | Vitest + cloudflare/vitest-pool-workers |
+| Workers | JWT、ミドルウェア、ルート | 17 | Vitest |
 | E2E | API統合、マーケティングサイト | 2スイート | Playwright |
 
 **カバレッジ閾値（Workers）**: Statements 80% / Branches 70% / Functions 80% / Lines 80%
@@ -244,7 +243,7 @@ src/services/
 
 | Phase | 内容 | 技術的ハイライト |
 |-------|------|----------------|
-| 1-4 | 音声認識・AI回答・コンテキスト・UI | Deepgram WebSocket, OpenAI SSE, React Context |
+| 1-4 | 音声認識・AI回答・コンテキスト・UI | Soniox WebSocket, OpenAI SSE, React Context |
 | 5 | SaaS基盤（認証・DB） | Google OAuth 2.0, JWT, Supabase |
 | 6 | クラウドRAG（pgvector） | Embedding, ベクトル検索, チャンク分割 |
 | 6.5 | システム音声キャプチャ | AudioWorklet, desktopCapturer loopback |
@@ -276,9 +275,9 @@ src/services/
 **バックエンド**: Cloudflare Workers, Hono, Node.js
 **データベース**: PostgreSQL (Supabase), pgvector
 **AI/ML**: OpenAI API (GPT-5), RAG, Embedding, SSEストリーミング
-**音声処理**: Deepgram (Nova-2), WebSocket, AudioWorklet, PCM
+**音声処理**: Soniox (v4 RT), WebSocket, AudioWorklet, PCM
 **決済**: Stripe (Checkout, Webhook, Customer Portal)
 **認証**: Google OAuth 2.0, JWT (HMAC-SHA256)
 **テスト**: Vitest, Playwright, Testing Library
 **インフラ**: Cloudflare Workers/Pages, GitHub Actions
-**ツール**: pnpm, ESLint, Prettier, electron-builder, wrangler
+**ツール**: pnpm, Prettier, electron-builder, wrangler

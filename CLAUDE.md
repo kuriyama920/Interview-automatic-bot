@@ -36,7 +36,6 @@ pnpm dev              # 開発サーバー
 pnpm build            # プロダクションビルド
 pnpm build:win        # Windows用インストーラー
 pnpm test             # テスト実行（Electronアプリ）
-pnpm lint             # ESLint
 pnpm format           # Prettier
 
 # Worker テスト
@@ -287,7 +286,7 @@ const result = await window.electron.channel.action(data)
 
 ### コード品質
 - 最小カバレッジ: 80%
-- ESLint + Prettier 必須
+- Prettier 必須
 - コンポーネントは小さく保つ（200-400行）
 - イミュータブルパターン使用
 

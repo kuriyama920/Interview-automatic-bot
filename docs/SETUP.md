@@ -55,7 +55,6 @@ volta pin pnpm@9
 
 ### 推奨VSCode拡張機能
 
-- ESLint
 - Prettier - Code formatter
 - Tailwind CSS IntelliSense
 - Error Lens
@@ -199,8 +198,6 @@ pnpm test:ui          # テストUI表示
 pnpm test:coverage    # カバレッジレポート
 
 # コード品質
-pnpm lint             # ESLint実行
-pnpm lint:fix         # ESLint自動修正
 pnpm format           # Prettier実行
 ```
 
@@ -226,16 +223,7 @@ node --version  # v22.x以上であることを確認
 nvm install 22 && nvm use 22
 ```
 
-### 問題3: `Cannot find module '@deepgram/sdk'`
-
-**原因**: 依存関係がインストールされていない
-
-**解決策**:
-```bash
-pnpm install
-```
-
-### 問題4: Windows Defenderがブロックする
+### 問題3: Windows Defenderがブロックする
 
 **原因**: electron-builderで生成した.exeが署名されていない
 
@@ -244,7 +232,7 @@ pnpm install
 - 「実行」を選択
 - または、コード署名証明書を取得（有料）
 
-### 問題5: ログインできない
+### 問題4: ログインできない
 
 **症状**: Google OAuthログイン後にアプリに戻らない
 
@@ -253,7 +241,7 @@ pnpm install
 2. `API_BASE_URL`が正しく設定されているか確認
 3. ファイアウォールがElectronの通信をブロックしていないか確認
 
-### 問題6: WSL2で画面が表示されない
+### 問題5: WSL2で画面が表示されない
 
 **解決策**:
 1. VcXsrvをインストール・起動

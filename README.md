@@ -76,9 +76,9 @@
 | ツール | 用途 |
 |--------|------|
 | Vitest（Electron） | レンダラー/メインのユニットテスト |
-| Vitest（Worker） | `@cloudflare/vitest-pool-workers` で Worker ユニットテスト |
+| Vitest（Worker） | Worker ユニットテスト |
 | Playwright | E2E テスト（marketing-site / api-integration プロジェクト分割） |
-| ESLint + Prettier | コード品質 |
+| Prettier | コードフォーマット |
 | electron-builder | NSIS インストーラー + ポータブル `.exe` 生成 |
 | wrangler 4 | Cloudflare Workers デプロイ |
 
@@ -116,7 +116,7 @@ interview-automatic-bot/
 │   │   │   ├── routes/       # auth / ai / stt / stripe / documents / questions / subscription（× 7）
 │   │   │   ├── lib/          # 認証 / 使用量 / Stripe / OpenAI / Supabase / RAG / キャッシュ など（× 21）
 │   │   │   └── middleware/   # auth / cors / rate-limit
-│   │   └── tests/            # Vitest（@cloudflare/vitest-pool-workers）
+│   │   └── tests/            # Vitest
 │   └── web/                  # ランディングページ（Next.js 14 + Tailwind、Cloudflare Pages）
 │       ├── app/
 │       │   ├── page.tsx              # トップページ（Hero / Features / Demo / Pricing / FAQ / CTA）
@@ -131,7 +131,7 @@ interview-automatic-bot/
 │       └── lib/                      # api.ts（Worker API クライアント） / github.ts（GitHub Releases）
 │
 ├── tests/                    # ユニット + E2E テスト
-├── scripts/                  # e2e-stripe-test.ps1 / analyze-latency.ts / test-soniox-connection.mjs など
+├── scripts/                  # e2e-stripe-test.ps1 / analyze-latency.ts など
 ├── supabase/migrations/      # pgvector RAG マイグレーション
 └── docs/
     ├── SETUP.md
@@ -232,8 +232,6 @@ cd apps/worker && npx vitest run --coverage  # カバレッジ付き
 .\scripts\e2e-stripe-test.ps1 -JwtToken "eyJhbG..."   # 認証テスト含む
 
 # コード品質
-pnpm lint                 # ESLint
-pnpm lint:fix             # ESLint 自動修正
 pnpm format               # Prettier
 
 # Cloudflare Workers

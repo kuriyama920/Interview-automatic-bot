@@ -2,89 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 
-/* ─── 1. TranscriptionDemo ──────────────────────────────────────────── */
-
-const STT_LINES = [
-  { speaker: '面接官', text: '志望動機を教えてください。' },
-  { speaker: 'あなた', text: 'はい、御社の理念に共感し...' },
-  { speaker: '面接官', text: '5年後のキャリアプランはありますか？' },
-]
-
-export function TranscriptionDemo() {
-  const [lineIdx, setLineIdx] = useState(0)
-  const [charIdx, setCharIdx] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
-
-  useEffect(() => {
-    const line = STT_LINES[lineIdx]
-    if (charIdx < line.text.length) {
-      timerRef.current = setTimeout(() => setCharIdx((c) => c + 1), 50)
-    } else {
-      timerRef.current = setTimeout(() => {
-        const next = (lineIdx + 1) % STT_LINES.length
-        setLineIdx(next)
-        setCharIdx(0)
-      }, 2000)
-    }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [lineIdx, charIdx])
-
-  return (
-    <div className="h-full flex flex-col p-4">
-      {/* Recording status */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-2 h-2 rounded-full bg-error animate-pulse" />
-        <span className="text-[10px] font-medium text-content-secondary">録音中</span>
-        <MiniWaveform />
-      </div>
-
-      {/* Transcript lines */}
-      <div className="flex-1 space-y-2.5 overflow-hidden">
-        {STT_LINES.map((line, i) => {
-          const isCurrentLine = i === lineIdx
-          const isPastLine = i < lineIdx || (i === 0 && lineIdx === STT_LINES.length - 1 && i < lineIdx)
-          const visibleText = isCurrentLine
-            ? line.text.slice(0, charIdx)
-            : isPastLine || (lineIdx > i)
-              ? line.text
-              : ''
-
-          if (!visibleText) return null
-
-          return (
-            <div key={i} className={isCurrentLine ? '' : 'opacity-50'}>
-              <div
-                className={`text-[9px] font-medium mb-0.5 ${
-                  line.speaker === '面接官' ? 'text-accent' : 'text-success'
-                }`}
-              >
-
-                {line.speaker}
-              </div>
-              <p className="text-[11px] leading-relaxed text-content">
-                {visibleText}
-                {isCurrentLine && charIdx < line.text.length && (
-                  <span className="inline-block w-0.5 h-2.5 bg-accent ml-0.5 animate-blink" />
-                )}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Waveform footer */}
-      <div className="pt-2 border-t border-border/20 mt-auto">
-        <div className="flex items-center justify-center">
-          <LargeWaveform />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ─── 2. AIResponseDemo ─────────────────────────────────────────────── */
+/* ─── 1. AIResponseDemo ─────────────────────────────────────────────── */
 
 const AI_TEXT =
   '「御社の"お客様第一"という理念に深く共感いたしました。前職での接客経験を通じて、お客様の声に寄り添うことの大切さを実感しており、御社でさらに成長したいと考えております。」'
@@ -164,7 +82,7 @@ export function AIResponseDemo() {
   )
 }
 
-/* ─── 3. DocumentDemo ───────────────────────────────────────────────── */
+/* ─── 2. DocumentDemo ───────────────────────────────────────────────── */
 
 const DOCUMENTS = [
   { name: '履歴書.pdf', pages: 2 },
@@ -261,7 +179,7 @@ export function DocumentDemo() {
   )
 }
 
-/* ─── 4. QuestionsDemo ─────────────────────────────────────────────── */
+/* ─── 3. QuestionsDemo ─────────────────────────────────────────────── */
 
 const SAMPLE_QUESTIONS = [
   { q: '志望動機を教えてください', a: '御社の"お客様第一"という理念に深く共感し...' },
@@ -372,40 +290,6 @@ export function QuestionsDemo() {
 }
 
 /* ─── Shared mini icons ─────────────────────────────────────────────── */
-
-function MiniWaveform() {
-  return (
-    <div className="flex items-center gap-[1.5px] h-2.5 ml-1">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          className="w-[1.5px] rounded-full bg-error/50 animate-waveform"
-          style={{
-            animationDelay: `${i * 0.08}s`,
-            animationDuration: `${0.35 + (i % 3) * 0.12}s`,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function LargeWaveform() {
-  return (
-    <div className="flex items-center gap-[2px] h-5">
-      {Array.from({ length: 24 }).map((_, i) => (
-        <div
-          key={i}
-          className="w-[2px] rounded-full bg-accent/40 animate-waveform"
-          style={{
-            animationDelay: `${i * 0.06}s`,
-            animationDuration: `${0.3 + (i % 4) * 0.15}s`,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
 
 function SparkleIcon({ className }: { className?: string }) {
   return (

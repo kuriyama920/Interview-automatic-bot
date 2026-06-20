@@ -45,7 +45,7 @@ main.tsx
 |------|---------|-----------|
 | useAuth | Auth state + Google login | user, isAuthenticated, isLoading |
 | useToast | Toast notifications | toasts[] (max 5) |
-| useSTT | Deepgram WebSocket lifecycle | isConnected, transcripts[], currentText |
+| useSTT | Soniox WebSocket lifecycle | isConnected, transcripts[], currentText |
 | useAudioCapture | Mic + system audio capture | isCapturing, audioSource |
 | useAIResponse | SSE streaming AI responses | response, streamingText, isGenerating, currentPhase |
 | useProgressiveAI | Cached Q&A + AI fallback | matchedAnswer, isGenerating |
@@ -61,7 +61,7 @@ main.tsx
 
 ```
 useInterview
-├── useSTT              ← Deepgram transcription
+├── useSTT              ← Soniox transcription
 ├── useAudioCapture     ← Mic/system/both audio
 ├── useAIResponse       ← SSE streaming AI
 ├── useProgressiveAI    ← Smart caching layer

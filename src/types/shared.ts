@@ -36,13 +36,6 @@ export interface GenerateOptions {
   speculativeText?: string
 }
 
-/**
- * レンダラー → IPC層への公開インターフェース（GenerateOptionsと同一）
- *
- * 将来レンダラー固有のフィールドが必要になった場合に備えて別名を用意。
- */
-export type RendererGenerateOptions = GenerateOptions
-
 // ── ドキュメント ────────────────────────────────────
 
 export type DocType = 'resume' | 'job_posting' | 'expected_qa'
