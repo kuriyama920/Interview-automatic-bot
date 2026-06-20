@@ -124,8 +124,7 @@ docs/
 ├── SETUP.md              # セットアップガイド
 ├── UI_DESIGN_GUIDELINES.md
 ├── TECH_STACK.md         # 技術スタック詳細
-├── LATENCY_OPTIMIZATION_PLAN.md  # レイテンシ最適化計画
-└── STRIPE_PRODUCTION_MIGRATION.md # Stripe本番移行ガイド
+└── codemaps/             # アーキテクチャ/コードマップ
 ```
 
 ## 開発フェーズ

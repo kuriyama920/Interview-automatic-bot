@@ -1,4 +1,7 @@
 import { useCallback, useRef } from 'react'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('latency-metrics')
 
 export interface LatencyMetrics {
   turnId: string
@@ -43,7 +46,7 @@ function loadPersistedMetrics(): LatencyMetrics[] {
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed : []
   } catch (error) {
-    console.warn('[latency-metrics] Failed to load persisted metrics:', error)
+    logger.warn('Failed to load persisted metrics', error)
     return []
   }
 }
@@ -67,7 +70,7 @@ export function persistMetrics(metrics: LatencyMetrics): void {
 
       localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed))
     } catch (error) {
-      console.warn('[latency-metrics] Failed to persist metrics:', error)
+      logger.warn('Failed to persist metrics', error)
     }
   }, 0)
 }

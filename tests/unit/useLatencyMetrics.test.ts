@@ -465,7 +465,7 @@ describe('useLatencyMetrics', () => {
       })
 
       expect(warnSpy).toHaveBeenCalledWith(
-        '[latency-metrics] Failed to persist metrics:',
+        expect.stringContaining('[latency-metrics] Failed to persist metrics'),
         expect.any(Error),
       )
       warnSpy.mockRestore()
@@ -482,7 +482,7 @@ describe('useLatencyMetrics', () => {
       })
 
       expect(warnSpy).toHaveBeenCalledWith(
-        '[latency-metrics] Failed to load persisted metrics:',
+        expect.stringContaining('[latency-metrics] Failed to load persisted metrics'),
         expect.any(Error),
       )
       warnSpy.mockRestore()

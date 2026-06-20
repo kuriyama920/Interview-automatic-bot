@@ -703,7 +703,7 @@ describe('useProgressiveAI', () => {
     })
   })
 
-  describe('onMetrics callback (A-17)', () => {
+  describe('onMetrics callback', () => {
     it('should call onMetrics.record when processing final transcripts', async () => {
       vi.useFakeTimers()
       const mockRecord = vi.fn()

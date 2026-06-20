@@ -107,3 +107,11 @@ supabase/.temp/
 
 # Private scripts (個人スクリプト・誤コミット防止)
 scripts/make_call_center_sheet.py
+
+# Internal-only docs (社内運用手順・実装計画はローカル/プライベート管理)
+docs/STRIPE_PRODUCTION_MIGRATION.md
+docs/REMAINING_TASKS_EXECUTION_PLAN.md
+docs/PHASE3_EXECUTION_PLAN.md
+docs/SPECULATIVE_ADOPTION_UI_PLAN.md
+docs/TRANSCRIPT_ACCUMULATION_PLAN.md
+docs/LATENCY_OPTIMIZATION_PLAN.md

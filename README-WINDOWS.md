@@ -14,7 +14,7 @@
 PowerShellを開いて以下を実行:
 
 ```powershell
-git clone https://github.com/yourusername/Interview-automatic-bot.git
+git clone https://github.com/kuriyama920/Interview-automatic-bot.git
 cd Interview-automatic-bot
 ```
 
@@ -32,7 +32,7 @@ notepad .env
 API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
-# DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# SONIOX_API_KEY=your_soniox_api_key_here
 # OPENAI_API_KEY=your_openai_api_key_here
 ```
 

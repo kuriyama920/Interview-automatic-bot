@@ -3,15 +3,12 @@
   "version": "1.0.0",
   "description": "リアルタイムAI面接支援デスクトップアプリケーション（Windows対応）",
   "main": "out/main/index.js",
-  "author": {
-    "name": "Your Name",
-    "email": "your.email@example.com"
-  },
+  "author": "kuriyama920",
   "license": "MIT",
-  "homepage": "https://github.com/yourusername/interview-automatic-bot",
+  "homepage": "https://github.com/kuriyama920/Interview-automatic-bot",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/interview-automatic-bot.git"
+    "url": "https://github.com/kuriyama920/Interview-automatic-bot.git"
   },
   "scripts": {
     "dev": "chcp 65001 >nul & set NODE_OPTIONS=--max-old-space-size=4096&& electron-vite dev",

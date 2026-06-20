@@ -137,9 +137,7 @@ interview-automatic-bot/
     ├── SETUP.md
     ├── PHASE_ROADMAP.md
     ├── TECH_STACK.md
-    ├── UI_DESIGN_GUIDELINES.md
-    ├── LATENCY_OPTIMIZATION_PLAN.md
-    └── STRIPE_PRODUCTION_MIGRATION.md
+    └── UI_DESIGN_GUIDELINES.md
 ```
 
 ---
@@ -156,7 +154,7 @@ interview-automatic-bot/
 ### 1. クローン & 依存関係インストール
 
 ```bash
-git clone https://github.com/yourusername/Interview-automatic-bot.git
+git clone https://github.com/kuriyama920/Interview-automatic-bot.git
 cd Interview-automatic-bot
 pnpm install
 ```

@@ -77,7 +77,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     stopCapture,
   } = useAudioCapture()
 
-  // レイテンシ計測基盤（Phase 1 A-17） — useAIResponseより先に初期化
+  // レイテンシ計測基盤 — useAIResponseより先に初期化
   const latencyMetrics = useLatencyMetrics()
 
   const {

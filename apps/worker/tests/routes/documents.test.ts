@@ -527,7 +527,7 @@ describe('POST /api/documents (upload)', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
-    // #9: 旧ドキュメントの削除が実行されたことを確認
+    // 旧ドキュメントの削除が実行されたことを確認
     expect(mockChain.delete).toHaveBeenCalled()
   })
 

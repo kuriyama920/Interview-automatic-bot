@@ -151,7 +151,7 @@ describe('useAIResponse', () => {
   })
 })
 
-describe('useAIResponse metrics (A-17: m10-m12)', () => {
+describe('useAIResponse metrics (m10-m12)', () => {
   const mockRecord = vi.fn()
   const mockFinalize = vi.fn()
   const mockMetrics = { record: mockRecord, finalize: mockFinalize }

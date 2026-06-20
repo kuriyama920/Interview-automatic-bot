@@ -66,7 +66,7 @@ volta pin pnpm@9
 ## ステップ1: リポジトリクローン
 
 ```bash
-git clone https://github.com/yourusername/Interview-automatic-bot.git
+git clone https://github.com/kuriyama920/Interview-automatic-bot.git
 cd Interview-automatic-bot
 ```
 
@@ -82,8 +82,8 @@ pnpm install
 
 | カテゴリ | ライブラリ | 用途 |
 |---------|-----------|------|
-| 音声認識 | @deepgram/sdk | リアルタイムSTT（WebSocket） |
-| AI | openai | GPT-5 Mini回答生成、Embeddings |
+| 音声認識 | Soniox v4 RT | リアルタイムSTT（WebSocket） |
+| AI | openai | gpt-5-nano / gpt-5.4-nano 回答生成、Embeddings |
 | ローカル保存 | electron-store | AES暗号化設定保存 |
 | ログ | winston | 構造化ログ出力 |
 | UI | tailwindcss, daisyui | スタイリング |
@@ -107,7 +107,7 @@ cp .env.example .env
 API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
-# DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# SONIOX_API_KEY=your_soniox_api_key_here
 # OPENAI_API_KEY=your_openai_api_key_here
 
 # ログレベル（オプション）
@@ -271,7 +271,7 @@ pnpm install
 
 1. **[README.md](../README.md)**: プロジェクト概要
 2. **[CLAUDE.md](../CLAUDE.md)**: 開発ガイダンス
-3. **[ARCHITECTURE.md](../ARCHITECTURE.md)**: システム設計
+3. **[アーキテクチャ図](codemaps/architecture.md)**: システム設計
 
 ---
 
@@ -279,7 +279,7 @@ pnpm install
 
 問題が解決しない場合:
 
-- GitHub Issues: https://github.com/yourusername/interview-automatic-bot/issues
+- GitHub Issues: https://github.com/kuriyama920/Interview-automatic-bot/issues
 - ドキュメント: このリポジトリの各種.mdファイル
 
 ---

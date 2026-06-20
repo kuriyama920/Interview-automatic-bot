@@ -44,7 +44,7 @@ interface MatchResultWithInfo extends MatchResult {
   document_type: string
 }
 
-/** 旧ドキュメント+チャンクを削除し、Embeddingキャッシュを無効化する共通ヘルパー (#5,#10) */
+/** 旧ドキュメント+チャンクを削除し、Embeddingキャッシュを無効化する共通ヘルパー */
 async function deleteDocumentWithChunks(
   supabase: ReturnType<typeof createSupabaseAdmin>,
   documentId: string,
@@ -58,7 +58,7 @@ async function deleteDocumentWithChunks(
     .eq('document_id', documentId)
     .eq('user_id', userId)
 
-  // #2: DELETE結果のエラーチェック
+  // DELETE結果のエラーチェック
   const { error: chunkDeleteError } = await supabase
     .from('document_chunks')
     .delete()
@@ -79,7 +79,7 @@ async function deleteDocumentWithChunks(
     return { error: 'Failed to delete document' }
   }
 
-  // #7: executionCtx の有無を明示的にチェック（空catchを排除）
+  // executionCtx の有無を明示的にチェック（空catchを排除）
   if (chunks && chunks.length > 0 && executionCtx) {
     executionCtx.waitUntil(invalidateEmbeddingCacheBatch(chunks.map((ch) => ch.content)))
   }
@@ -116,7 +116,7 @@ app.post('/', async (c) => {
   const filename = file.name || 'unknown'
 
   try {
-    // #3: .maybeSingle() で0件時のエラーを区別
+    // .maybeSingle() で0件時のエラーを区別
     const { data: existing, error: lookupError } = await supabase
       .from('documents')
       .select('id')
@@ -130,7 +130,7 @@ app.post('/', async (c) => {
       return c.json({ success: false, error: 'Failed to check existing document' }, 500)
     }
 
-    // #4: 上限チェック — 上書き時はドキュメント数が増えないのでスキップ
+    // 上限チェック — 上書き時はドキュメント数が増えないのでスキップ
     if (!existing) {
       const usage = await checkUsageLimit(supabase, userId, 'documents')
       if (!usage.allowed) {
@@ -146,7 +146,7 @@ app.post('/', async (c) => {
       }
     }
 
-    // #1: 先にパース・Embedding生成を完了（旧ドキュメント削除前にデータ準備）
+    // 先にパース・Embedding生成を完了（旧ドキュメント削除前にデータ準備）
     const buffer = Buffer.from(await file.arrayBuffer())
     const parsed = await parseDocument(buffer, filename)
     const chunks = chunkText(parsed.text)
@@ -181,7 +181,7 @@ app.post('/', async (c) => {
 
     return c.json({ success: true, document: result.document })
   } catch (error) {
-    // #6: クライアントエラーとサーバーエラーを区別
+    // クライアントエラーとサーバーエラーを区別
     if (error instanceof Error && error.message.includes('no extractable text')) {
       return c.json({ success: false, error: error.message }, 400)
     }
@@ -189,7 +189,7 @@ app.post('/', async (c) => {
   }
 })
 
-/** ドキュメントとチャンクをDBに挿入する (#5: ハンドラーから抽出) */
+/** ドキュメントとチャンクをDBに挿入する */
 async function insertDocumentAndChunks(
   supabase: ReturnType<typeof createSupabaseAdmin>,
   userId: string,
