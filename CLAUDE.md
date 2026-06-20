@@ -23,7 +23,7 @@ Claude Codeがこのリポジトリで作業する際のガイダンス。
 ### SaaSバックエンド（Cloudflare Workers）
 | カテゴリ | 技術 |
 |---------|------|
-| API | Cloudflare Workers + Hono 4.7 |
+| API | Cloudflare Workers + Hono 4.12 |
 | ランタイム | Workers Runtime (V8 isolates) |
 | 認証 | Google OAuth 2.0 + JWT |
 | DB | Supabase PostgreSQL + pgvector |
@@ -80,6 +80,7 @@ src/
 │   ├── context.service.ts
 │   ├── questions.service.ts
 │   ├── session.service.ts    # セッションライフサイクル管理（store: false固定）
+│   ├── token-storage.service.ts # トークン保存（electron-store AES暗号化）
 │   └── logger.service.ts
 └── types/                # 型定義
 
@@ -98,13 +99,16 @@ apps/worker/                # Cloudflare Workers API（Hono）
 │   ├── lib/                # 共有ユーティリティ
 │   │   ├── auth.ts         # JWT生成・検証・Google OAuth
 │   │   ├── auth-pages.ts   # Pages用認証ヘルパー
+│   │   ├── allowed-origins.ts # CORS許可オリジン定義
 │   │   ├── usage.ts        # 使用量チェック・記録
+│   │   ├── usage-cache.ts  # 使用量キャッシュ
 │   │   ├── subscription.ts # Stripe Customer管理・プラン解決
 │   │   ├── stripe.ts       # Stripeクライアント
 │   │   ├── openai.ts       # OpenAIクライアント
 │   │   ├── stt-token.ts    # Soniox一時トークン生成
 │   │   ├── prompts.ts      # AIプロンプトテンプレート
 │   │   ├── profile.ts      # ユーザープロファイル
+│   │   ├── profile-cache.ts # プロファイルキャッシュ
 │   │   ├── supabase.ts     # Supabaseクライアント
 │   │   ├── validation.ts   # 入力バリデーション
 │   │   ├── ai-validation.ts # AI関連バリデーション
@@ -113,7 +117,6 @@ apps/worker/                # Cloudflare Workers API（Hono）
 │   │   ├── embedding-cache.ts # Embeddingキャッシュ
 │   │   ├── latency-budget.ts  # レイテンシバジェット管理
 │   │   ├── url.ts          # URL関連ユーティリティ
-│   │   ├── quality.ts      # 品質チェック
 │   │   └── document-parser.ts # ドキュメントパーサー
 │   └── middleware/         # Auth + CORS + レート制限ミドルウェア
 └── tests/                  # Vitest テスト
@@ -202,8 +205,8 @@ POST /api/stt/token (JWT) → 使用量チェック → Soniox一時トークン
 # SONIOX_API_KEY=xxx
 # OPENAI_API_KEY=xxx
 
-# SaaS接続
-API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
+# SaaS接続（electron-vite の MAIN_VITE_ プレフィックスが必須。未設定時は本番URLが既定値）
+# MAIN_VITE_API_BASE_URL=http://localhost:3000
 ```
 
 ### Cloudflare Workers（wrangler.tomlまたはダッシュボード）

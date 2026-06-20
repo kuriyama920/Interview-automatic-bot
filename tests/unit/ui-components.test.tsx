@@ -4,16 +4,12 @@ import {
   Card,
   CardHeader,
   Button,
-  IconButton,
   Badge,
   Spinner,
   Alert,
   WaveformVisualizer,
   Avatar,
   Input,
-  Select,
-  Toggle,
-  Slider,
   ErrorAlert,
 } from '../../src/renderer/src/components/ui/index'
 
@@ -119,22 +115,6 @@ describe('Button', () => {
   })
 })
 
-describe('IconButton', () => {
-  it('should render icon with aria-label', () => {
-    render(<IconButton icon={<span>X</span>} label="閉じる" />)
-    const button = screen.getByLabelText('閉じる')
-    expect(button).toBeTruthy()
-    expect(screen.getByText('X')).toBeTruthy()
-  })
-
-  it('should apply secondary variant', () => {
-    const { container } = render(
-      <IconButton icon={<span>+</span>} label="追加" variant="secondary" />
-    )
-    expect(container.querySelector('.border-border')).toBeTruthy()
-  })
-})
-
 describe('Badge', () => {
   it('should render with default variant', () => {
     render(<Badge>デフォルト</Badge>)
@@ -170,75 +150,6 @@ describe('Spinner', () => {
 
     const { container: lg } = render(<Spinner size="lg" />)
     expect(lg.querySelector('.w-6')).toBeTruthy()
-  })
-})
-
-describe('Toggle', () => {
-  it('should render unchecked state', () => {
-    const onChange = vi.fn()
-    const { container } = render(<Toggle checked={false} onChange={onChange} />)
-    const button = container.querySelector('[role="switch"]')
-    expect(button?.getAttribute('aria-checked')).toBe('false')
-  })
-
-  it('should render checked state', () => {
-    const onChange = vi.fn()
-    const { container } = render(<Toggle checked={true} onChange={onChange} />)
-    const button = container.querySelector('[role="switch"]')
-    expect(button?.getAttribute('aria-checked')).toBe('true')
-    expect(button?.className).toContain('bg-accent')
-  })
-
-  it('should call onChange with toggled value', () => {
-    const onChange = vi.fn()
-    const { container } = render(<Toggle checked={false} onChange={onChange} />)
-    const button = container.querySelector('[role="switch"]') as HTMLElement
-    fireEvent.click(button)
-    expect(onChange).toHaveBeenCalledWith(true)
-  })
-
-  it('should not call onChange when disabled', () => {
-    const onChange = vi.fn()
-    const { container } = render(<Toggle checked={false} onChange={onChange} disabled />)
-    const button = container.querySelector('[role="switch"]') as HTMLElement
-    fireEvent.click(button)
-    expect(onChange).not.toHaveBeenCalled()
-  })
-
-  it('should render label', () => {
-    const onChange = vi.fn()
-    render(<Toggle checked={false} onChange={onChange} label="通知" />)
-    expect(screen.getByText('通知')).toBeTruthy()
-  })
-})
-
-describe('Slider', () => {
-  it('should render with value', () => {
-    const onChange = vi.fn()
-    const { container } = render(
-      <Slider value={50} onChange={onChange} min={0} max={100} />
-    )
-    const input = container.querySelector('input[type="range"]') as HTMLInputElement
-    expect(input.value).toBe('50')
-  })
-
-  it('should call onChange on value change', () => {
-    const onChange = vi.fn()
-    const { container } = render(
-      <Slider value={50} onChange={onChange} min={0} max={100} />
-    )
-    const input = container.querySelector('input[type="range"]') as HTMLInputElement
-    fireEvent.change(input, { target: { value: '75' } })
-    expect(onChange).toHaveBeenCalledWith(75)
-  })
-
-  it('should render label and valueLabel', () => {
-    const onChange = vi.fn()
-    render(
-      <Slider value={50} onChange={onChange} min={0} max={100} label="音量" valueLabel="50%" />
-    )
-    expect(screen.getByText('音量')).toBeTruthy()
-    expect(screen.getByText('50%')).toBeTruthy()
   })
 })
 
@@ -357,32 +268,6 @@ describe('Input', () => {
     const { container } = render(<Input error="エラー" />)
     const input = container.querySelector('input')
     expect(input?.className).toContain('border-error')
-  })
-})
-
-describe('Select', () => {
-  const options = [
-    { value: 'a', label: 'Option A' },
-    { value: 'b', label: 'Option B' },
-    { value: 'c', label: 'Option C' },
-  ]
-
-  it('should render label when provided', () => {
-    render(<Select label="選択" options={options} />)
-    expect(screen.getByText('選択')).toBeTruthy()
-  })
-
-  it('should render all options', () => {
-    render(<Select options={options} />)
-    expect(screen.getByText('Option A')).toBeTruthy()
-    expect(screen.getByText('Option B')).toBeTruthy()
-    expect(screen.getByText('Option C')).toBeTruthy()
-  })
-
-  it('should render without label', () => {
-    const { container } = render(<Select options={options} />)
-    const labels = container.querySelectorAll('label')
-    expect(labels.length).toBe(0)
   })
 })
 

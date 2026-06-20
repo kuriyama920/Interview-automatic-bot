@@ -176,7 +176,6 @@ describe('AdaptiveThreshold', () => {
   it('getStats の戻り値を変更しても内部状態に影響しない', () => {
     threshold.recordAdoption(true)
     const stats = threshold.getStats()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(stats as any).totalRecords = 999
 
     expect(threshold.getStats().totalRecords).toBe(1)

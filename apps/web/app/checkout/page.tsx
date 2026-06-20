@@ -167,7 +167,6 @@ function CheckoutContent() {
       // StrictMode: cleanup後の再マウントで再実行を許可するためリセット
       checkoutStartedRef.current = false
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionIdRefはマウント時のsessionIdをキャプチャ。replaceState起因の再実行を防止するため除外
   }, [plan, planInfo, priceId])
 
   // Googleログインボタン

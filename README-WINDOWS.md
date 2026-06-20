@@ -28,8 +28,8 @@ notepad .env
 `.env` ファイルを編集:
 
 ```env
-# SaaS接続（プロキシモード: APIキー不要）
-API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
+# SaaS接続（プロキシモード: APIキー不要。MAIN_VITE_ プレフィックス必須、未設定時は本番URLが既定）
+# MAIN_VITE_API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
 # SONIOX_API_KEY=your_soniox_api_key_here
@@ -56,7 +56,7 @@ pnpm dev
 pnpm build:portable
 ```
 
-ビルド完了後、`dist/` フォルダに実行ファイルが生成されます。
+ビルド完了後、`dist-electron/` フォルダに実行ファイルが生成されます。
 
 ## トラブルシューティング
 
@@ -68,7 +68,7 @@ pnpm build:portable
 ### ログインできない
 
 - インターネット接続を確認
-- `API_BASE_URL` が正しく設定されているか確認
+- `MAIN_VITE_API_BASE_URL`（任意・未設定なら本番URL）が正しいか確認
 - ファイアウォールがElectronの通信をブロックしていないか確認
 
 ### ビルドエラー

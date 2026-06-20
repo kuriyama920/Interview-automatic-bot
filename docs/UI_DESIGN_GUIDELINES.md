@@ -161,13 +161,10 @@ font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku 
 <Alert variant="error" onClose={() => {}}>エラーメッセージ</Alert>
 ```
 
-### Input / Select / Toggle / Slider
+### Input
 
 ```tsx
 <Input label="ラベル" placeholder="プレースホルダー" />
-<Select label="選択" options={[{ value: '1', label: 'オプション1' }]} />
-<Toggle checked={true} onChange={() => {}} label="トグル" />
-<Slider min={0} max={100} value={50} onChange={() => {}} label="スライダー" />
 ```
 
 ---
@@ -292,7 +289,6 @@ src/renderer/src/
 │   │   └── index.tsx          # 共通UIコンポーネント
 │   ├── LoginPage.tsx          # ログイン画面
 │   ├── DocumentUploadPanel.tsx # ドキュメント管理
-│   ├── SettingsModal.tsx      # 設定モーダル
 │   └── ...
 ├── App.tsx                    # メインアプリ
 └── ...

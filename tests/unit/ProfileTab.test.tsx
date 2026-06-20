@@ -143,7 +143,7 @@ describe('ProfileTab', () => {
 
     render(<ProfileTab />)
     // Find the technologies tag input by placeholder
-    const input = screen.getByPlaceholderText('例: TypeScript（Enterで追加）')
+    const input = screen.getByPlaceholderText('例: Excel（Enterで追加）')
     fireEvent.change(input, { target: { value: 'Go' } })
     // Find the 追加 button next to this input
     const addButtons = screen.getAllByText('追加')
@@ -156,7 +156,7 @@ describe('ProfileTab', () => {
     mockUseInterviewProfile.mockReturnValue({ ...defaultHookReturn, profile })
 
     render(<ProfileTab />)
-    const input = screen.getByPlaceholderText('例: TypeScript（Enterで追加）')
+    const input = screen.getByPlaceholderText('例: Excel（Enterで追加）')
     fireEvent.change(input, { target: { value: 'Python' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(screen.getByText('Python')).toBeDefined()
@@ -170,7 +170,7 @@ describe('ProfileTab', () => {
     mockUseInterviewProfile.mockReturnValue({ ...defaultHookReturn, profile })
 
     render(<ProfileTab />)
-    const input = screen.getByPlaceholderText('例: TypeScript（Enterで追加）')
+    const input = screen.getByPlaceholderText('例: Excel（Enterで追加）')
     fireEvent.change(input, { target: { value: 'TypeScript' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     // Still only one TypeScript

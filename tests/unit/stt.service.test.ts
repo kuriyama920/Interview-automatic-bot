@@ -19,7 +19,6 @@ const mockWsInstance = {
 
 vi.mock('ws', () => {
   const MockWebSocket = vi.fn(() => mockWsInstance)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(MockWebSocket as any).OPEN = 1
   return { default: MockWebSocket }
 })

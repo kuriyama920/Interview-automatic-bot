@@ -11,7 +11,6 @@ import type { InterviewProfile } from './profile'
 const PROFILE_CACHE_TTL_SEC = 300 // 5分
 const PROFILE_CACHE_KEY_PREFIX = 'https://profile-cache.internal/'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseProfileClient = any
 
 function buildCacheKey(userId: string): Request {

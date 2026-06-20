@@ -27,9 +27,11 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin('http://localhost:5173/some-path')).toBe(true)
   })
 
-  it('allows Cloudflare Pages preview deployments', () => {
-    expect(isAllowedOrigin('https://abc123.interview-bot-web.pages.dev')).toBe(true)
-    expect(isAllowedOrigin('https://preview-xyz.interview-bot-web.pages.dev')).toBe(true)
+  it('allows Cloudflare Pages preview deployments (8-char hex subdomain only)', () => {
+    expect(isAllowedOrigin('https://a1b2c3d4.interview-bot-web.pages.dev')).toBe(true)
+    expect(isAllowedOrigin('https://0f9e8d7c.interview-bot-web.pages.dev')).toBe(true)
+    // セキュリティ強化: 8文字hex以外のサブドメイン（branch alias等）は拒否
+    expect(isAllowedOrigin('https://preview-xyz.interview-bot-web.pages.dev')).toBe(false)
   })
 
   it('rejects unrelated Cloudflare Pages deployments', () => {

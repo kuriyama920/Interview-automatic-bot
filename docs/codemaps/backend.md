@@ -1,6 +1,6 @@
 # Backend Codemap
 
-> Freshness: 2026-03-10T12:00:00+09:00
+> Freshness: 2026-06-21T12:00:00+09:00
 
 ## Cloudflare Workers API (apps/worker/)
 
@@ -34,10 +34,11 @@ src/index.ts
 | GET | /me | JWT | Get current user + profile + usage |
 | PUT | /profile | JWT | Update interview profile |
 
-#### ai.ts (4 endpoints)
+#### ai.ts (5 endpoints)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | /generate | JWT | SSE streaming AI response |
+| POST | /generate-v2 | JWT | SSE streaming AI response (speculative/committed 二段生成) |
+| POST | /generate | JWT | SSE streaming AI response (legacy single-phase) |
 | POST | /summarize | JWT | Conversation summarization |
 | POST | /prefetch-context | JWT | Fetch all doc context for session |
 | POST | /embeddings | JWT | Generate text embeddings |
@@ -82,27 +83,33 @@ src/index.ts
 
 ```
 lib/auth.ts          → (Web Crypto API, no internal deps)
+lib/auth-pages.ts    → (pure HTML templates)
 lib/supabase.ts      → @supabase/supabase-js
 lib/usage.ts         → Supabase RPC (check_and_reserve_usage, adjust_reserved_usage)
+lib/usage-cache.ts   → (in-memory usage snapshot cache)
 lib/stripe.ts        → stripe SDK
 lib/subscription.ts  → stripe, supabase
 lib/openai.ts        → openai SDK (text-embedding-3-small)
+lib/ai-generate.ts   → openai (gpt-5-nano / gpt-5.4-nano 二段生成)
+lib/ai-streaming.ts  → (SSE streaming helpers)
+lib/ai-validation.ts → (AI request validation)
+lib/latency-budget.ts → (per-phase latency budget tracking)
+lib/embedding-cache.ts → (embedding cache + invalidation)
 lib/stt-token.ts     → fetch (Soniox temporary-api-key REST)
 lib/prompts.ts       → (pure data, no deps)
 lib/profile.ts       → (pure utility, no deps)
+lib/profile-cache.ts → (in-memory profile cache)
 lib/validation.ts    → (pure utility, no deps)
-lib/document-parser.ts → pdf-parse, mammoth
+lib/document-parser.ts → pdf-parse, jszip
 lib/allowed-origins.ts → (pure data)
 lib/url.ts           → (pure utility)
-lib/quality.ts       → (pure utility, response scoring)
-lib/auth-pages.ts    → (pure HTML templates)
 ```
 
 ### Route → Lib Dependency Matrix
 
 ```
-             auth supa usage stripe sub openai sttk prompt prof valid docprs origin url quality authpg
-auth.ts       ✓    ✓                                              ✓         ✓     ✓          ✓
+             auth supa usage stripe sub openai sttk prompt prof valid docprs origin url authpg
+auth.ts      ✓    ✓                                        ✓                 ✓      ✓   ✓
 ai.ts              ✓    ✓                  ✓          ✓     ✓
 stt.ts             ✓    ✓                        ✓
 stripe.ts          ✓          ✓     ✓                                       ✓     ✓
@@ -124,18 +131,17 @@ middleware/cors.ts  → ALLOWED_ORIGINS whitelist + Cloudflare Pages preview sup
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| hono | 4.7.0 | Web framework |
+| hono | 4.12.8 | Web framework |
 | @supabase/supabase-js | 2.39.0 | Database client |
 | openai | 6.32.0 | AI generation + embeddings |
 | stripe | 14.14.0 | Payment processing |
 | pdf-parse | 1.1.1 | PDF document parsing |
-| mammoth | 1.6.0 | DOCX document parsing |
+| jszip | 3.10.1 | DOCX 展開（ZIP解凍してXML抽出）|
 
 ### Test Coverage
 
 ```
 tests/
-├── helpers/          # Test utilities (mock Supabase, JWT, etc.)
 ├── lib/              # Unit tests for library functions
 ├── middleware/        # Auth + CORS middleware tests
 ├── routes/           # Route handler tests (per route file)
@@ -145,11 +151,13 @@ tests/
 ## Electron Service Layer (src/services/)
 
 ```
-auth.service.ts    → Singleton, electron-store (AES), OAuth polling, JWT management
+auth.service.ts    → Singleton, OAuth polling, JWT management (delegates storage to token-storage)
+token-storage.service.ts → safeStorage (Windows DPAPI) 暗号化トークン保存 + electron-store
 stt.service.ts     → Class (per source), ws WebSocket (wss://stt-rt.soniox.com), 16kHz PCM
 ai.service.ts      → Singleton, SSE streaming via authenticatedFetch, phase tracking
 context.service.ts → Singleton, document upload (FormData), pgvector search proxy
 questions.service.ts → Singleton, Q&A CRUD + AI generation proxy
+session.service.ts → Singleton, 面接セッションのライフサイクル管理（start/end）
 logger.service.ts  → Factory, Winston (console + file, 5MB rolling)
 ```
 
@@ -158,7 +166,8 @@ logger.service.ts  → Factory, Winston (console + file, 5MB rolling)
 ```
 authService.authenticatedFetch → All /api/* endpoints (JWT Bearer)
 STTService.connect             → Soniox WS (via temp token from /api/stt/token)
-aiService.generateStreamResponse → POST /api/ai/generate (SSE)
+aiService.generateStreamResponseV2 → POST /api/ai/generate-v2 (SSE, 主経路: Speculative/Committed Lane)
+aiService.generateStreamResponse → POST /api/ai/generate (SSE, v2失敗時のlegacyフォールバック)
 aiService.summarizeTurn        → POST /api/ai/summarize
 contextService.addDocument     → POST /api/documents (FormData)
 contextService.getRelevantContext → POST /api/documents/search

@@ -29,6 +29,7 @@ vi.mock('../../src/renderer/src/components/ui', () => ({
 vi.mock('../../src/renderer/src/components/ui/icons', () => ({
   PlusIcon: () => <span>plus</span>,
   TrashIcon: () => <span>trash</span>,
+  SparklesIcon: () => <span>sparkles</span>,
 }))
 
 import { QuestionsPage } from '../../src/renderer/src/components/pages/QuestionsPage'
@@ -105,7 +106,7 @@ describe('QuestionsPage', () => {
 
   it('should show empty state hint text', () => {
     render(<QuestionsPage />)
-    expect(screen.getByText(/「手動で追加」ボタンで質問と回答を準備できます/)).toBeDefined()
+    expect(screen.getByText(/「手動で追加」で質問を準備できます/)).toBeDefined()
   })
 
   it('should display questions when they exist', () => {

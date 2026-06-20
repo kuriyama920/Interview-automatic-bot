@@ -1,6 +1,6 @@
 # Frontend Codemap
 
-> Freshness: 2026-03-10T12:00:00+09:00
+> Freshness: 2026-06-21T12:00:00+09:00
 
 ## Electron Renderer (src/renderer/src/)
 
@@ -39,7 +39,7 @@ main.tsx
 | NavigationContext | NavigationProvider | useNavigation() | currentPage, sidebarCollapsed, isRecording |
 | InterviewContext | InterviewProvider | useInterview() | Composes 7 hooks for interview session |
 
-### Hooks (13)
+### Hooks (14)
 
 | Hook | Purpose | Key State |
 |------|---------|-----------|
@@ -56,6 +56,7 @@ main.tsx
 | useInterviewQuestions | Q&A editing + generation | questions[], hasUnsavedChanges |
 | useInterviewProfile | Profile CRUD | profile, isLoading |
 | useSubscription | Plan + usage management | subscription, usage, plans[] |
+| useLatencyMetrics | AI生成レイテンシ計測（localStorage永続化） | record, finalize |
 
 ### Hook Composition (InterviewContext)
 
@@ -153,17 +154,17 @@ app/
 ├── layout.tsx          → RootLayout (Navbar + Footer, metadata)
 ├── page.tsx            → Home (6 sections composed)
 ├── robots.ts           → SEO robots metadata
-├── sitemap.ts          → SEO sitemap (4 URLs)
+├── sitemap.ts          → SEO sitemap (5 URLs)
 ├── globals.css         → Tailwind imports + base styles
 ├── download/
-│   ├── page.tsx        → GitHub release fetch + download card
-│   └── error.tsx       → Error boundary with retry
+│   └── page.tsx        → GitHub release fetch + download card
 ├── checkout/
 │   ├── page.tsx        → Google OAuth + Stripe checkout flow
 │   ├── success/page.tsx → Post-checkout success
 │   └── cancel/page.tsx  → Checkout cancellation
 ├── terms/page.tsx      → Terms of service (12 sections)
-└── privacy/page.tsx    → Privacy policy (9 sections)
+├── privacy/page.tsx    → Privacy policy (9 sections)
+└── tokushoho/page.tsx  → 特定商取引法表記
 ```
 
 ### Component Architecture

@@ -102,8 +102,8 @@ cp .env.example .env
 `.env`ファイルを開いて以下のように編集:
 
 ```env
-# SaaS接続（プロキシモード: APIキー不要）
-API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
+# SaaS接続（プロキシモード: APIキー不要。MAIN_VITE_ プレフィックス必須、未設定時は本番URLが既定）
+# MAIN_VITE_API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
 # SONIOX_API_KEY=your_soniox_api_key_here
@@ -113,7 +113,7 @@ API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 LOG_LEVEL=info
 ```
 
-プロキシモード（デフォルト）では、API_BASE_URLのみでSTTとAIが利用可能です。
+プロキシモード（デフォルト）では、追加設定なし（MAIN_VITE_API_BASE_URL は未設定で本番URLが既定）でSTTとAIが利用可能です。
 Google OAuthでログイン後、Freeプランの範囲内で無料で使用できます。
 
 ⚠️ **重要**: `.env`ファイルは絶対にGitにコミットしないでください！
@@ -155,12 +155,7 @@ Electronウィンドウが自動的に開きます。
 
 ### WSL2環境での動作確認
 
-WSL2環境ではマイクが使用できないため、「音声ファイルでテスト」ボタンで動作確認できます。
-
-1. X11サーバー（VcXsrv等）を起動
-2. `export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0`
-3. `pnpm dev`
-4. 「音声ファイルでテスト」ボタンで.wav/.mp3ファイルを選択
+WSL2環境ではマイク／システム音声を取得できないため、音声を伴う動作確認はできません。マイク・システム音声を使う機能の確認は、Windows 側で `pnpm dev` を起動して実行してください。
 
 ---
 
@@ -176,7 +171,7 @@ pnpm build:win
 pnpm build:portable
 ```
 
-生成物は`dist/`フォルダに保存されます。
+生成物は`dist-electron/`フォルダに保存されます。
 
 ---
 
@@ -238,7 +233,7 @@ nvm install 22 && nvm use 22
 
 **解決策**:
 1. インターネット接続を確認
-2. `API_BASE_URL`が正しく設定されているか確認
+2. `MAIN_VITE_API_BASE_URL`（任意・未設定なら本番URL）が正しいか確認
 3. ファイアウォールがElectronの通信をブロックしていないか確認
 
 ### 問題5: WSL2で画面が表示されない

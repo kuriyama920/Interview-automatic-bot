@@ -127,7 +127,6 @@ if (!gotTheLock) {
 
     // システム音声キャプチャを有効化（Phase 6.5）
     // getDisplayMedia() 呼び出し時にダイアログなしでシステム音声をキャプチャ
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron 28 supports options param not yet in types
     ;(session.defaultSession.setDisplayMediaRequestHandler as any)(
       (_request: unknown, callback: (streams: { video?: unknown; audio?: string }) => void) => {
         desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {

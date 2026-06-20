@@ -19,29 +19,19 @@ import type {
 
 declare global {
   // shared型をグローバルに公開（既存コードの互換性維持）
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface TranscriptResult extends _TranscriptResult {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface AIResponse extends _AIResponse {}
   type DocType = _DocType
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface InterviewQuestion extends _InterviewQuestion {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface QuestionInput extends _QuestionInput {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface InterviewProfile extends _InterviewProfile {}
   type AudioSource = _AudioSource
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface DocumentInfo extends _DocumentInfo {}
   type SubscriptionTier = _SubscriptionTier
   type SubscriptionStatus = _SubscriptionStatus
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface User extends _User {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface AuthState extends _AuthState {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface UserUsage extends _UserUsage {}
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface GenerateOptions extends _GenerateOptions {}
 
   /** renderer固有: AI生成フェーズ */

@@ -1,6 +1,6 @@
 # Architecture Codemap
 
-> Freshness: 2026-03-10T12:00:00+09:00
+> Freshness: 2026-06-21T12:00:00+09:00
 
 ## System Overview
 
@@ -31,7 +31,7 @@
     │         │           │          │                  │
     │    ┌────▼────┐ ┌────▼────┐ ┌──▼───────┐         │
     │    │Supabase │ │ OpenAI  │ │ Soniox   │         │
-    │    │PostgreSQL│ │ GPT-5  │ │ stt-rt   │         │
+    │    │PostgreSQL│ │gpt-5-* │ │ stt-rt   │         │
     │    │+pgvector│ │         │ │          │         │
     │    └─────────┘ └─────────┘ └──────────┘         │
     │         │                                        │
@@ -56,21 +56,21 @@ interview-automatic-bot/          # Root (Electron app)
 ├── src/                          # Electron desktop app
 │   ├── main/         (2 files)   # Main process
 │   ├── preload/      (1 file)    # IPC bridge
-│   ├── renderer/src/ (~35 files) # React UI
-│   ├── services/     (6 files)   # Business logic
-│   └── types/        (3 files)   # Shared types
+│   ├── renderer/src/ (~53 files) # React UI
+│   ├── services/     (8 files)   # Business logic
+│   └── types/        (4 files)   # Shared types
 ├── apps/
 │   ├── worker/                   # Cloudflare Workers API
 │   │   ├── src/routes/  (7 files)
-│   │   ├── src/lib/     (13 files)
+│   │   ├── src/lib/     (21 files)
 │   │   ├── src/middleware/ (2 files)
-│   │   └── tests/       (~15 files)
+│   │   └── tests/       (35 files)
 │   └── web/                      # Next.js LP
-│       ├── app/         (10 pages)
-│       ├── components/  (10 files)
+│       ├── app/         (8 pages)
+│       ├── components/  (11 files)
 │       └── lib/         (2 files)
 ├── tests/                        # Electron app tests
-│   ├── unit/        (4 files)
+│   ├── unit/        (58 files)
 │   ├── integration/ (1 file)
 │   └── e2e/         (2 files)
 ├── scripts/         (2 files)    # E2E/test scripts
@@ -83,7 +83,7 @@ interview-automatic-bot/          # Root (Electron app)
 |------------|----------|------|-----------|
 | Electron → Workers | HTTPS + SSE | JWT Bearer | API proxy for all services |
 | Workers → Supabase | PostgreSQL | Service Role Key | User data, documents, usage |
-| Workers → OpenAI | HTTPS | API Key | GPT-5 generation, embeddings |
+| Workers → OpenAI | HTTPS | API Key | gpt-5-nano / gpt-5.4-nano（二段生成）, embeddings |
 | Workers → Soniox | HTTPS | API Key → Temp Token | STT token provisioning |
 | Workers → Stripe | HTTPS + Webhook | Secret Key + Webhook Secret | Checkout, subscription |
 | Web → Workers | HTTPS | JWT (checkout flow) | Auth session, Stripe checkout |
@@ -117,7 +117,7 @@ Transcript → useProgressiveAI
   ├→ Layer 1: QuestionCache (bigram match, <1ms)
   │   └→ Match found → Instant cached answer
   └→ Layer 2: AI Generation (350ms debounce)
-      └→ POST /api/ai/generate (SSE)
-          ├→ Phase 1: gpt-5-nano (cascading, ~0.77s TTFT)
-          └→ Phase 2: Full model response
+      └→ POST /api/ai/generate-v2 (SSE)
+          ├→ Phase 1: gpt-5-nano（speculative, ~0.77s TTFT）
+          └→ Phase 2: gpt-5.4-nano（committed, RAG付き）
 ```

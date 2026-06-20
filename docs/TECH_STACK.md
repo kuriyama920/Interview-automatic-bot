@@ -32,15 +32,15 @@
 | カテゴリ | 技術 | バージョン | 用途 |
 |---------|------|-----------|------|
 | ランタイム | Cloudflare Workers | - | V8 Isolates サーバーレス |
-| APIフレームワーク | Hono | 4.7 | 軽量Webフレームワーク |
+| APIフレームワーク | Hono | 4.12 | 軽量Webフレームワーク |
 | 言語 | TypeScript | 5.3 | strict mode |
 | データベース | Supabase PostgreSQL | - | RDB + pgvector拡張 |
 | ベクトル検索 | pgvector | - | コサイン類似度検索（1536次元） |
-| AI | OpenAI API | 6.32 | GPT-5 Nano + text-embedding-3-small |
+| AI | OpenAI API | 6.32 | gpt-5-nano / gpt-5.4-nano（二段生成）+ text-embedding-3-small |
 | 決済 | Stripe | 14.14 | Checkout + Customer Portal + Webhook |
 | 認証 | Google OAuth 2.0 + JWT | - | HMAC-SHA256署名（Web Crypto API） |
 | 音声認識 | Soniox API | - | 一時APIキー発行(10分) |
-| ドキュメント解析 | pdf-parse / mammoth | 1.1 / 1.6 | PDF・DOCX解析 |
+| ドキュメント解析 | pdf-parse / jszip | 1.1 / 3.10 | PDF・DOCX解析 |
 | Cronジョブ | Cloudflare Cron Triggers | - | 月次使用量リセット |
 
 ### テスト・品質管理
@@ -87,7 +87,7 @@
       ┌────────────┼────────────┬──────────┐
       ↓            ↓            ↓          ↓
   Supabase     OpenAI API   Soniox      Stripe
-  PostgreSQL   GPT-5 Nano   stt-rt      Checkout
+  PostgreSQL   gpt-5-nano   stt-rt      Checkout
   + pgvector   Embeddings   WebSocket   Webhook
 ```
 
@@ -112,7 +112,7 @@ src/services/
 ### React状態管理
 
 - **React Context API** — 認証、ナビゲーション、Toast通知
-- **カスタムフック13個** — useSTT, useAudioCapture, useAIResponse, useProgressiveAI 等
+- **カスタムフック14個** — useSTT, useAudioCapture, useAIResponse, useProgressiveAI 等
 - **InterviewContext** — 面接セッション全状態の一元管理（表示時のみマウント）
 
 ---
@@ -206,7 +206,7 @@ src/services/
 |---------|------|---------|-------|
 | ユニット | サービス層、コンポーネント、ユーティリティ | 30+ | Vitest + Testing Library |
 | 統合 | IPC通信、サービス間連携 | 10+ | Vitest |
-| Workers | JWT、ミドルウェア、ルート | 17 | Vitest |
+| Workers | JWT、ミドルウェア、ルート | 35 | Vitest |
 | E2E | API統合、マーケティングサイト | 2スイート | Playwright |
 
 **カバレッジ閾値（Workers）**: Statements 80% / Branches 70% / Functions 80% / Lines 80%
@@ -221,7 +221,7 @@ src/services/
 | メモ化 | useMemoで依存性最小化 | 不要レンダリング削減 |
 | デバウンス | Progressive AI 300msデバウンス | APIコール削減 |
 | キャッシング | 想定質問ビグラムキャッシュ | マッチング<1ms |
-| TTFT最適化 | GPT-5 Nano reasoning_effort: minimal | ~0.77秒 |
+| TTFT最適化 | gpt-5-nano reasoning_effort: minimal | ~0.77秒 |
 | Smart Placement | Cloudflare CPU最適化地域自動選択 | レイテンシ削減 |
 | バッチ処理 | Embedding 20件/バッチ | レート制限対策 |
 
@@ -274,7 +274,7 @@ src/services/
 **フロントエンド**: React 18, Tailwind CSS, DaisyUI, Electron 28, Vite 5
 **バックエンド**: Cloudflare Workers, Hono, Node.js
 **データベース**: PostgreSQL (Supabase), pgvector
-**AI/ML**: OpenAI API (GPT-5), RAG, Embedding, SSEストリーミング
+**AI/ML**: OpenAI API (gpt-5-nano / gpt-5.4-nano), RAG, Embedding, SSEストリーミング
 **音声処理**: Soniox (v4 RT), WebSocket, AudioWorklet, PCM
 **決済**: Stripe (Checkout, Webhook, Customer Portal)
 **認証**: Google OAuth 2.0, JWT (HMAC-SHA256)

@@ -1,6 +1,6 @@
 /**
  * プロフィールタブコンポーネント
- * SettingsModal内で面接プロフィール情報を管理
+ * ProfilePage内で面接プロフィール情報を管理
  */
 
 import { useState, useEffect, useCallback, useRef, KeyboardEvent } from 'react'

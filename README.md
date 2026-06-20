@@ -169,7 +169,8 @@ cp .env.example .env
 
 ```env
 # プロキシモード（推奨）: APIキーは Worker 側で管理するため不要
-API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
+# ※ electron-vite の MAIN_VITE_ プレフィックスが必須。未設定時は本番URLが既定値になります
+# MAIN_VITE_API_BASE_URL=https://interview-bot-api.interviewautomaticbot92.workers.dev
 
 # カスタムキー使用時のみ（オプション）
 # SONIOX_API_KEY=xxx
@@ -203,7 +204,7 @@ pnpm build:portable   # ポータブル版（インストール不要）
 
 ### WSL2 環境での動作確認
 
-WSL2 ではマイク・システム音声を取得できません。動作確認のみであれば、Windows 側で `pnpm dev` を起動してください。WSL2 でビルド作業を行う場合は、UI のみの確認なら `音声ファイルでテスト` ボタンから `.wav` / `.mp3` を読み込めます。
+WSL2 ではマイク／システム音声を取得できないため、動作確認は Windows 側で `pnpm dev` を起動して実行してください。
 
 ---
 
