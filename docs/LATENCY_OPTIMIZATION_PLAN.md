@@ -60,7 +60,7 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 | gpt-5-nano | $0.05 | $0.40 | minimal | ~950ms | 現Speculative |
 | **gpt-5.4-nano** | $0.20 | $1.25 | none→high | **~460ms(none)** | Committed候補 |
 
-- 二段生成コスト: +36%/ターン。採用率50%超でコスト中立以下
+- 二段生成コスト: +36%/ターン（採用率に応じ実効コストは変動。損益分析の詳細は非公開）
 - Predicted Outputs: Responses API未サポート、gpt-5系非対応 → Chat Completions移行メリットなし
 - Realtime API: コスト50-100倍 → 見送り
 
@@ -234,7 +234,7 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
     - feature flag `sttProvider: 'deepgram' | 'soniox'` で切替
     - 3回連続接続失敗時にDeepgramへ自動フォールバック
   - **期待効果:**
-    - STTコスト: 月額Freeプラン ¥0.55→¥0.14/ユーザー（74%削減）
+    - STTコスト: 74%削減（ユーザー単価などの財務詳細は非公開）
     - セマンティックエンドポイント: VADより賢いターン検出で`FINAL_ACCUMULATE_MS`待機を短縮 → TTFT改善
     - 日本語精度向上: 誤認識によるSpeculative Lane不採用を減少 → 採用率向上
   - 工数合計: 3-4日
@@ -363,7 +363,7 @@ Phase 2達成条件: Speculative採用率 > 50%（p50が~950msにジャンプ）
 |------|------|----------|
 | Deepgram Flux 日本語版 | 週次 | リリース後 F-5 着手（Q1末時点で未リリース） |
 | Responses API Predicted Outputs | 月次 | 対応されたら F-8 再評価 |
-| gpt-5.4-nano TTFT/コスト変動 | 月次 | 損益分岐点への影響確認 |
+| gpt-5.4-nano TTFT/コスト変動 | 月次 | コストへの影響確認 |
 | OpenAI 新モデル | 随時 | ALLOWED_MODELS 追加検討 |
 | Soniox v4 RT 価格・機能更新 | 月次 | 新機能（話者分離等）の追加、価格改定 |
 | Deepgram Voice Agent API | 月次 | $4.50/時間、Realtime APIより低コスト代替 |

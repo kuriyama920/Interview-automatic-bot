@@ -93,3 +93,17 @@ docs/superpowers/
 
 # Windows NUL device artifacts
 nul
+
+# Claude Code local/personal state (個人ローカル設定・作業worktree)
+.claude/settings.local.json
+.claude/worktrees/
+
+# Internal reports & reviews (内部生成物・コードレビュー結果は非公開)
+.reports/
+reviews/
+
+# Supabase CLI temp cache
+supabase/.temp/
+
+# Private scripts (個人スクリプト・誤コミット防止)
+scripts/make_call_center_sheet.py
